@@ -12,6 +12,9 @@ IDI_FDEBUG ICON "fdebug.ico"
 /* UTF-8 */
 #pragma code_page(65001)
 
+#ifdef LANGUAGE_AF_ZA
+    #include "lang/af-ZA.rc"
+#endif
 #ifdef LANGUAGE_BG_BG
     #include "lang/bg-BG.rc"
 #endif
