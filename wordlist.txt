@@ -1,0 +1,878 @@
+Cancel|Kanselleer
+cancel|kanselleer
+file|lêer
+File|Lêer
+edit|wysig
+Edit|Wysig
+Default|Standaard
+Mark|Merk
+Copy\tEnter|Kopieer\tEnter
+Paste|Plak
+Colors|Kleure
+Co&lors|K&leure
+Standard|Standaard
+Select All|Selekteer Alles
+&OK|&OK
+Find...|Vind...
+Not available|Nie beskikbaar nie
+Defaults|Standaarde
+Units|Eenhede
+Properties|Eienskappe
+Unknown Version|Onbekende Weergawe
+Page up|Bladsy op
+Page down|Bladsy af
+Miniature|Miniatuur
+Action|Aksie
+Warn users|Waarsku gebruikers
+Display warning for|Vertoon waarskuwing vir
+second(s)|sekond(es)
+&Next Page|Volge&nde Bladsy
+Modify|Modifiseer
+Settings|Instellings
+Read|Lees
+Task|Taak
+CPU|CPU
+Totals|Totale
+Invalid time.|Ongeldige tyd.
+No Media|Geen Media
+Channel|Kanaal
+First line|Eerste lyn
+Install ReactOS|Installeer ReactOS
+&E-mail:|&E-pos:
+Drive not ready|Skyf nie gereed nie
+Finished|Voltooid
+Command &Line|Bevel &Lyn
+Taskbar|Taakbalk
+Bus Number|Bus Nommer
+Taskbar appearance|Taakbalk voorkoms
+Find|Vind
+&Remove...|Ve&rwyder...
+&Run...|Ha&rdloop...
+Recent documents |Onlangse dokumente 
+start|begin
+&Documents|&Dokumente
+(Empty)|(Leeg)
+&Settings|In&stellings
+Ad&vanced|Ge&vorderd
+&Sort|&Sorteer
+Select Columns|Selekteer Kolomme
+&Mute|Stil%maak
+&Data...|&Data...
+User &Name|Gebruiker &Naam
+Data|Data
+ReactOS Setup|ReactOS Opstelling
+stop|stop
+GB|GB
+pause|rus
+Installation Summary|Installasie Opsomming
+Tahoma|Tahoma
+ReactOS - Welcome|ReactOS - Welkom
+ReactOS|ReactOS
+Start|Begin
+Online|Aanlyn
+Size|Grootte
+More? |Meer? 
+Current time is|Huidige tyd is
+Disk|Skyf
+Programs |Programme 
+&Ignore|&Ignoreer
+&Rename|He&rnoem
+Target|Teiken
+Offline|Aflyn
+IDB_LOGO|IDB_LOGO
+resume|hervat
+Hello World!|Hello Wêreld!
+&Language:|Taa&l:
+Healthy|Gesond
+Sick|Siek
+&Next|Volge&nde
+&Install ReactOS|&Installeer ReactOS
+Connection Options|Konneksie Opsies
+Paused|In rus
+&Paragraph...|&Paragraaf...
+Purple|Pers
+Update Database|Opdateer Databasis
+List3|Lys3
+Tonnes|Ton
+&Paste|&Plak
+Installed|Geinstalleer
+Limit|Limiet
+White|Wit
+Date and time|Datum en tyd
+Available formats|Beskikbare formate
+New|Nuwe
+New document type|Nuwe dokument tipe
+Paragraph format|Paragraaf formaat
+Gray|Grys
+Silver|Silwer
+Rich text document|Ryk teks dokument
+Text document|Teks dokument
+Unicode text document|Unicode teks dokument
+Left|Lings
+in|in
+Right|Regs
+inch|duim
+Center|Senter
+Document|Dokument
+Rich text|Ryk teks
+Page|Bladsy
+cm|cm
+pt|pt
+Pages|Bladsye
+Print|Druk
+Next page|Volgende bladsy
+Previous page|Vorige bladsy
+Two pages|Twee bladsye
+One page|Een bladsy
+Black|Swart
+Maroon|Maroon
+Green|Groen
+Olive|Olyf
+Red|Rooi
+Lime|Lemmetjie
+Yellow|Geel
+Blue|Blou
+F&ormat|F&ormaat
+&Options...|&Opsies...
+Task Manager|Taak Bestuurder
+&Font...|Skri&f...
+Peak|Piek
+Processes|Prosesse
+Master|Meester
+Available|Beskikbaar
+Total|Totaal
+Balance|Balans
+mono|mono
+&Details|Beson&derhede
+&High|&Hoog
+&Normal|&Normaal
+&Low|&Laag
+stereo|stereo
+O&ptions|O&psies
+&?|&?
+%s|%s
+&None|Gee&n
+Development|Ontwikkeling
+Libraries|Biblioteke
+Information|Informasie
+Drivers|Drywers
+Applications|Applikasies
+Office|Kantoor
+Other|Ander
+Science|Wetenskap
+Video|Video
+&Show Time|Wy&s Tyd
+Create a service|Skep 'n diens
+Server Name|Bediener Naam
+Exit|Gaan Uit
+Server Comment|Bediener Kommentaar
+Software version|Sagteware weergawe
+Full name|Vol naam
+&New|&Nuwe
+1/x|1/x
+Start service|Begin diens
+Stop service|Stop diens
+&Standard|&Standaard
+Ellipse|Ellips
+D&ata:|D&ata:
+Device name|Toestel naam
+Send...|Stuur...
+degrees|grade
+999|999
+Tools|Gereedskap
+Service|Diens
+Services|Dienste
+Service name:|Diens naam:
+Description :|Beskrywing :
+Display name:|Vertoon naam:
+Description:|Beskrywing:
+^N|^N
+^Z|^Z
+^Y|^Y
+^X|^X
+^C|^C
+^V|^V
+^A|^A
+^L|^L
+^G|^G
+^F|^F
+^R|^R
+^I|^I
+^E|^E
+Required|Benodig
+Log On|Teken Aan
+Refresh|Vervris
+Log on as:|Teken aan as:
+days|dae
+Congratulations!|Geluk!
+Ok|Ok
+minutes|minute
+Run program|Hardloop program
+&Program:|&Program:
+List2|Lys2
+List1|Lys1
+List|Lys
+sec.|sek.
+M+|M+
+seconds|sekondes
+Help...|Hulp...
+Beginner|Beginner
+&Options|&Opsies
+Seeking|Soek
+&Play|S&peel
+&Run|Ha&rdloop
+&Device|Toestel
+Opened|Oopgemaak
+Recording|Neem op
+Playing|Speel
+&Properties|Eienska&ppe
+&Volume Control|&Volume Beheer
+Advanced|Gevorderd
+Apply|Pas Toe
+^O|^O
+^W|^W
+^P|^P
+^S|^S
+^T|^T
+Rows|Rye
+Fastest Times|Vinnigste Tye
+Magnifier Version 1.0|Vergroter Weergawe 1.0
+Expert|Spesialis
+Presentation|Voorlegging
+Tons (UK)|Ton
+Magnifier|Vergroter
+Play|Speel
+Not ready|Nie gereed nie
+Hex|Hex
+Dec|Des
+Monitor:|Skerm:
+Element|Element
+Paint for ReactOS|Verf vir ReactOS
+Command|Bevel
+Warning|Waarskuwing
+Path|Pad
+Running|Hardloop
+F1|F1
+F2|F2
+F3|F3
+F4|F4
+ROS|ROS
+F5|F5
+F6|F6
+Stop|Stop
+F7|F7
+Close|Maak Toe
+Install|Installeer
+Uninstall|Oninstalleer
+F8|F8
+F9|F9
+F10|F10
+About|Oor
+F11|F11
+F12|F12
+User|Gebruiker
+Locked|Gesluit
+Page Setup|Bladsy Opstelling
+Preview|Voorskou
+Paper|Papier
+Orientation|Orientasie
+Never|Nooit
+Line number:|Lyn nommer:
+None|Geen
+Unlimited|Onbeperkde
+System errors|Stelsel foute
+Comment|Kommentaar
+Members|Lede
+Stopped|Gestop
+%s - Paint|%s - Verf
+Paint|Verf
+Computer|Rekenaar
+Stretch|Rek
+Horizontally:|Horisontaal:
+Vertically:|Vertikaal:
+Skew|Skeef
+None|Geen
+N/A|N/A
+Size:|Grootte:
+&User:|Gebr&uiker:
+&Word|&Woord
+KB|KB
+Accessed:|Oopgemaak:
+Source:|Oorsprong:
+Time:|Tyd:
+Created:|Geskep:
+Modified:|Gemodifiseer:
+Driver|Drywer
+Main Driver:|Hoof Drywer:
+Version:|Weergawe:
+Date:|Datum:
+Chip Type:|Skyfie Tipe:
+Sound|Klank
+Music|Musiek
+Difficulty|Moeilikheidsgraad
+EmuandCo|EmuandCo
+Options|Opsies
+Cards|Kaarte
+Solitaire|Solitaire
+Deal again?|Deel weer uit?
+Input|Invoer
+Network|Netwerk
+Help|Hulp
+DAC Type:|DAC Tipe:
+System|Stelsel
+Oct|Okt
+Product ID:|Produk ID:
+&Exit|Gaan &Uit
+parallel|parallel
+Type:|Tipe:
+ReactX Features|ReactX Funksionaliteit
+sin|sin
+Error: Invalid query\n|Fout: Ongeldige navraag\n
+cos|cos
+Group owner, |Groep eienaar, 
+Win32 error|Win32 fout
+tan|tan
+CE|CE
+Bin|Bin
+CD|CD
+(Default)|(Standaard)
+User Name|Gebruiker Naam
+Group Name|Groep Naam
+CAD|CAD
+MC|MC
+MR|MR
+MS|MS
+Description|Beskrywing
+Tons (US)|Ton
+LOAD|LAAI
+System Information|Stelsel Informasie
+Kilograms|Kilogram
++/-|+/-
+Pounds|Pond
+Name|Naam
+Registry|Register
+Version|Weergawe
+ReactX Version:|ReactX Weergawe:
+Label|Etiket
+Device|Toestel
+Connected|Gekonnekteer
+Disconnected|Gediskonnekteer
+Unknown|Onbekend
+Name:|Naam:
+Status|Status
+Manufacturer:|Vervaardiger:
+Notes|Notas
+Milliliters|Mililiter
+BIOS:|BIOS:
+Processor:|Verwerker:
+Memory:|Geheue:
+???|???
+Days|Dae
+Computer Name:|Rekenaar Naam:
+Operating System:|Bedryf Stelsel:
+Language:|Taal:
+Statistics box|Statistieke boks
+(special access:)|(spesiale toegang:)
+Hours|Ure
+n=0|n=0
+Kelvin|Kelvin
+serial|serie
+Privilege Name|Voordeel Naam
+Description|Beskrywing
+State|Staat
+Alias|Alias
+Process |Proses 
+other|ander
+Type |Tipe 
+Cubic meters|Kubieke meter
+Meters/second|Meter/sekond
+Miles/hour|Myl/uur
+Kilometers/hour|Kilometer/uur
+Knots|Knope
+Nanoseconds|Nanosekondes
+Microseconds|Mikrosekondes
+Milliseconds|Millisekondes
+Minutes|Minute
+Seconds|Sekondes
+Weeks|Weke
+Years|Jare
+Feet/hour|Voet/uur
+Feet/second|Voet/sekond
+Miles|Myl
+Meters|Meter
+Millimeters|Millimeter
+Horsepower|Perdekrag
+Kilowatts|Kilowatt
+Megawatts|Megawatt
+Watts|Watt
+Nautical miles|See myl
+&Decimal\tF6|&Desimaal\tF6
+&Octal\tF7|&Oktaal\tF7
+&Binary\tF8|&Biner\tF8
+Area|Area
+&Help Topics|&Hulp Onderwerpe
+&Edit|&Wysig
+&View|&Sig
+S&tandard|S&tandaard
+ReactOS Calculator|Reactos Sakrekenaar
+log|log
+Or|Of
+And|En
+Degrees|Grade
+Word|Woord
+Radians|Radiale
+Gradians|Gradiente
+Not|Nie
+Back|Terug
+Error|Fout
+&Help|&Hulp
+&Scientific|Weten&skaplik
+C&onversion|&Omskakeling
+Angle|Hoek
+Consumption (engines)|Verbruik (enjins)
+Currencies|Geldeenhede
+Energy|Energie
+Lengths|Lengtes
+Power|Krag
+Pressure|Druk
+Temperature|Temperatuur
+Time|Tyd
+Velocity|Snelheid
+Volume|Volume
+Weights|Gewigte
+Hectares|Hektaar
+Square meter|Vierkante meter
+Square miles|Vierkante myl
+Square millimeters|Vierkante millimeter
+Square feet|Vierkante voet
+Square inches|Vierkante duim
+Square kilometers|Vierkante kilometer
+Kilometer/liter|Kilometer/liter
+Liters/100 kilometers|Liter/100 kilometer
+Euro|Euro
+Kilojoules|Kilojoule
+Kilowatt hours|Kilowatt uur
+Foot-Pounds|Voet-Pond
+Feet|Voet
+Hands|Hande
+Category:|Kategorie:
+Convert from:|Skakel om van:
+Convert to:|Skakel om na:
+Cubic feet|Kubieke voet
+Cubic inches|Kubieke duim
+Liters|Liter
+Grams|Gram
+Carats|Karaat
+Hectopascals|Hektopascal
+Kilopascals|Kilopascal
+Pascals|Pascal
+Joules|Joule
+Light years|Lig jare
+Kilometers|Kilometer
+Inches|Duim
+Microns|Mikrons
+&About ReactOS Calc|Oor Re&actOS Calc
+&Paste\tCtrl+V|&Plak\tCtrl+V
+MS Shell Dlg|MS Shell Dlg
+Convert|Omskakel
+&Copy\tCtrl+C|&Kopieer\tCtrl+C
+Written by Carlo Bramini|Geskryf deur Carlo Bramini
+&Hex\tF5|&Hex\tF5
+Quick help|Vinnige hulp
+&Word\tF3|&Woord\tF3
+Group d&igits|Groep syfers
+D&egrees\tF2|Grad&e\tF2
+&Radians\tF3|&Radiale\tF3
+&Gradians\tF4|&Gradiente\tF4
+Barrels (UK)|Vatte (UK)
+Barrels oil|Vatte olie
+&Font:|Skri&f:
+Ch&aracters to copy:|K&arakters om te kopieer:
+&Select|&Selekteer
+&Copy|&Kopieer
+Sea&rch|Soek
+S&earch for:|So&ek vir:
+&Unicode:|&Unicode:
+A&bout...|Oor...
+Character Map|Karakter Kaart
+&Close|Maak Toe
+&Group by:|&Groepeer volgens:
+Ad&vanced view|Ge&vorderde sig
+Charse&t:|Karak&terstel:
+About Character Map|Oor Karakter Kaart
+ReactOS Character Map|ReactOS Karakter Kaart
+Font:|Skrif:
+Characters to copy:|Karakters om te kopieer:
+Select|Selekteer
+Copy|Kopieer
+Unknown Format|Onbekende Formaat
+Text|Teks
+Color Palette|Kleur Palet
+&Display|&Vertoon
+&Automatic|Outom&aties
+&Open...|Maak &Oop...
+Save &As...|Berg &As...
+E&xit|Gaan Uit
+&Delete\tDel|Verwy&der\tDel
+&About|Oor
+Clear Clipboard|Maak Klipbord Leeg
+Locale Data|Lokale Data
+Clipboard Element|Klipbord Element
+Clear contents of the Clipboard?|Maak inhoud van die Klipbord leeg?
+Drop Data|Laat Val Data
+Bitmap|Bitmap
+OEM Text|OEM Teks
+Unicode Text|Unicode Teks
+DIB Bitmap|DIB Bitmap
+Clipboard Viewer|Klipbord Siener
+Enhanced Metafile|Verbeterde Metalêer
+Metafile|Metalêer
+Clipboard files for ReactOS (*.clp)|Klipbord lêers vir ReactOS (*.clp)
+Clipboard files (*.clp)|Klipbord lêers (*.clp)
+Today|Vandag
+Tomorrow|More
+Every|Elke
+Next|Volgende
+Yes|Ja
+No|Nee
+ERROR|FOUT
+OK|OK
+Task ID:       %lu\n|Taak ID:       %lu\n
+Status:        %s\n|Status:        %s\n
+Schedule:      %s\n|Skedule:      %s\n
+Time of day:   %s\n|Tyd van die dag:   %s\n
+Interactive:   %s\n|Interaktief:   %s\n
+Command:       %s\n|Bevel:       %s\n
+\nThis is an invalid response.\n|\nHierdie is 'n ongeldige antwoord.\n
+Status ID   Day                     Time          Command Line\n|Status ID   Dag                     Tyd          Bevel Lyn\n
+There are no entries in the list.\n|Daar is geen inskrywings in die lys nie.\n
+Do you want to continue this operation? (Y/N) [N]: |Wil jy voortgaan met hierdie operasie? (Y/N) [N]: 
+&Browse|Snuffel
+&File|&Lêer
+%d days|%d dae
+&Local Echo|P&laaslik Echo
+&About...|&Oor...
+&Start Capture|&Begin Opvang
+S&top Capture|&Eindig Opvang
+&Connect|&Konnekteer
+&Disconnect|&Diskonnekteer
+&Clear display|Maak skerm leeg
+Message:|Boodskap:
+00:00:00|00:00:00
+Capture File|Opvang Lêer
+Capture File Name:|Opvang Lêer Naam:
+&Cancel|&Kanselleer
+Port|Poort
+Memory|Geheue
+PCI|PCI
+Undefined|Ongedefinieer
+Internal|Interne
+ISA|ISA
+EISA|EISA
+VME|VME
+Type|Tipe
+Length|Lengte
+Level|Vlak
+Level Sensitive|Vlak Sensitief
+Read Only|Lees Alleenlik
+Write Only|Skryf Alleenlik
+Read / Write|Lees / Skryf
+PCMCIA|PCMCIA
+&All|&Alles
+S&elected Branch|Ge&selekteerde Tak
+Export Range|Uitvoer Reeks
+Access|Toegang
+Data Size|Data Grootte
+Reserved 1|Gereserveer 1
+Reserved 2|Gereserveer 2
+Physical Address|Fisiese Adres
+Workstation|Werkstasie
+Computer name|Rekenaar naam
+Full Computer name|Volledige Rekenaar naam
+User name|Gebruiker naam
+Computer role|Rekenaar rol
+Less|Minder
+Base|Basis
+More|Meer
+Set Value|Stel Waarde
+&Programs|&Programme
+South Africa|Suid Afrika
+Spain|Spanje
+Denmark|Denemarke
+Fax|Faks
+Value|Waarde
+Modem|Modem
+Hardware|Hardeware
+On|Aan
+Low|Laag
+Voice|Stem
+19200|19200
+38400|38400
+&90°|&90°
+&180°|&180°
+&270°|&270°
+China|Sjina
+CPU 10|CPU 10
+CPU 11|CPU 11
+CPU 12|CPU 12
+CPU 13|CPU 13
+CPU 14|CPU 14
+CPU 15|CPU 15
+Esc|Esc
+110|110
+Even|Gelyk
+Delete|Verwyder
+Downloading|Laai Af
+Help\tF1|Hulp\tF1
+c&m|c&m
+&Stop|&Stop
+&Decimal|&Desimaal
+DMA:|DMA:
+Account active|Rekening aktief
+Account expires|Rekening verval
+&Width:|&Wydte:
+Network errors|Netwerk foute
+Unnamed.bmp|Unnamed.bmp
+&Height:|&Hoogte:
+Old palette|Ou palet
+Odd|Ongelyk
+1200|1200
+2400|2400
+4800|4800
+9600|9600
+300|300
+&Identify|&Identifiseer
+Space|Spasie
+1.5|1.5
+Dialog|Dialoog
+Content|Inhoud
+Pictures|Prente
+Windows|Vensters
+Selected Items|Geselekteerde Items
+Inactive Window|Onaktiewe Venster
+Active Window|Aktiewe Venster
+shift|shift
+Unknown port|Onbekende poort
+Slow|Stadig
+Co&nnect|Ko&nnekteer
+(None)|(Geen)
+Tile|Teel
+Fit|Pas
+Fill|Vol
+Modem Settings|Modem Instellings
+D&river|D&rywer
+Normal|Normaal
+Modem Address|Modem Adres
+&CPU Usage|&CPU Gebruik
+High|Hoog
+North Korea|Noord Korea
+Not functional|Nie funktioneel nie
+Setup the basic devices|Stel die basiese toestelle op
+Choose setup type.|Kies opstellings tipe.
+Field|Veld
+Keyboard shortcut|Sleutelbord kortpad
+Toolbars|Gereedskapbalke
+Create Partition|Skep Afskorting
+&Status Bar|&Status Balk
+Cuba|Kuba
+General|Algemeen
+Egypt|Egipte
+Fiji Islands|Fiji Eilande
+Finland|Finland
+France|Frankryk
+Ireland|Ierland
+ctrl|ctrl
+Vatican City|Vatikaan Stad
+Display|Vertoon
+Hungary|Hongarye
+Sweden|Swede
+User name:|Gebruiker naam:
+Connection|Konneksie
+Turkey|Turkye
+Change Password|Verander Wagwoord
+Password:|Wagwoord:
+Narrow|Smal
+Russia|Rusland
+Wide|Wyd
+United Kingdom|Verenigde Koninkryk
+United States|Verenigde State
+<Message>|<Boodskap>
+Hardware ID|Hardeware ID
+Static|Staties
+Zimbabwe|Zimbabwe
+Please wait...|Wag asseblief...
+Security|Sekuriteit
+Mouse|Muis
+Blinking s&peed:|Vlikker s&poed
+Old Password:|Ou Wagwoord:
+New Password:|Nuwe Wagwoord:
+Confirm new Password:|Bevestig nuwe Wagwoord:
+Fast|Vinnig
+Shared|Gedeel
+Keys|Sleutels
+&Option:|&Opsie:
+&Planned|Be&plan
+Welcome!|Welkom!
+Sleep|Slaap
+Show...|Wys...
+alt|alt
+*.*|*.*
+Usage|Gebruik
+In/Out|In/Uit
+S&ettings|Inst&ellings
+Up|Op
+Down|Af
+Broadcast|Uitsaai
+Computer:|Rekenaar:
+Display:|Vertoon:
+Keyboard:|Sleutelbord:
+PID|PID
+test.txt|test.txt
+Resource List|Hulpbron Lys
+Resources|Hulpbronne
+control.exe|control.exe
+sysdm.cpl|sysdm.cpl
+Driver exclusive|Drywer eksklusief
+&Info|&Inligting
+CPU 4|CPU 4
+CPU 5|CPU 5
+CPU 6|CPU 6
+CPU 7|CPU 7
+CPU 8|CPU 8
+CPU 9|CPU 9
+Look at|Kyk na
+Username|Gebruikernaam
+regedit.exe|regedit.exe
+Revision:|Hersiening:
+winver.exe|winver.exe
+ Create a new service.|Skep 'n nuwe diens.
+SYSTEM.INI|SYSTEM.INI
+FREELDR.INI|FREELDR.INI
+*.reg|*.reg
+Port:|Poort:
+Take no action|Neem geen aksie
+UTF-8|UTF-8
+Full Control|Volle Beheer
+256 Colors|256 Kleure
+All|Alle
+&Beginner|&Beginner
+ReactOS Service Manager|ReactOS Diens Bestuurder
+Downloaded|Afgelaai
+System properties|Stelsel eienskappe
+External|Ekstern
+Primary server|Primere bediener
+Backup server|Terugval bediener
+Not installed|Nie geinstalleer nie
+&Modify|&Modifiseer
+(CI)|(CI)
+(OI)|(OI)
+(IO)|(IO)
+Finance|Finansies
+n/a|n/a
+Open Font...|Maak Skrif Oop...
+VDD:|VDD:
+Mixed|Gemeng
+unknown|onbekend
+Group name|Groep naam
+Untitled|Ongetiteld
+Run a Program|Hardloop 'n Program
+&Data|&Data
+Graphics|Grafika
+Controller ID|Beheerder ID
+Alias name|Alias naam
+Manufacturer ID|Vervaardiger ID
+Page View|Bladsy Sig
+Product ID|Produk ID
+Console|Konsole
+cmd.exe|cmd.exe
+Full Screen|Vol Skerm
+Remote Desktop|Afgelee Lessenaar
+Remote Desktop Connection|Afgelee Lessenaar Konneksie
+Pencil|Potlood
+Brush|Kwas
+Select color|Selekteer kleur
+Selection|Seleksie
+Open|Maak Oop
+DELETE|DELETE
+Source|Oorsprong
+Button|Knoppie
+12.5%|12.5%
+25%|25%
+50%|50%
+100%|100%
+200%|200%
+400%|400%
+800%|800%
+&n|&n
+20 mm|20 mm
+25 mm|25 mm
+&Right:|&Regs:
+Build|Bou
+ANSI|ANSI
+WARNING|WAARSKUWING
+&Portrait|&Portret
+Page &s|Bladsy &s
+&Landscape|&Landskap
+Scoring|Telling
+Borders|Grense
+&Refresh\tF5|&Ve&rvris\tF5
+Direction|Rigting
+Dependencies|Afhanklikhede
+&List|&Lys
+Tool Name|Gereedskap Naam
+Nobody|Niemand
+Success|Sukses
+Date|Datum
+&New\tF2|&Nuwe\tF2
+Category|Kategorie
+Device ID:|Toestel ID:
+Provider:|Verskaffer:
+Input Devices|Invoer Toestelle
+&Install|&Installeer
+Tan|Tan
+Spider|Spinnekop
+Music Ports|Musiek Poorte
+Test DirectPlay|Toets DirectPlay
+Font &Name:|Skrif &Naam:
+Desktop|Lessenaar
+Eraser|Uitveer
+S&ave|Berg
+Paragraph...|Paragraaf...
+Sa&ve As...|Berg As...
+Op&en...|Maak oop...
+&Colors|&Kleure
+Object|Objek
+Links|Skakels
+Time zone|Tydzone
+Find Next|Vind Volgende
+kB|kB
+MB|MB
+Text Document|Teks Dokument
+ReactOS Console|ReactOS Konsole
+Logon settings|Aanteken instellings
+&Format|&Formaat
+Cut|Sny
+Save|Berg
+&End Now|&Eindig Nou
+Connection settings|Konneksie instellings
+Rectangle|Reghoek
+Line|Lyn
+Threads|Garings
+&No|&Nee
+Local Port|Plaaslike Poort
+Local Monitor|Plaaslike Monitor
+&Delete|Verwy&der
+CPU 0|CPU 0
+CPU 1|CPU 1
+CPU 2|CPU 2
+CPU 3|CPU 3
+Sound Recorder|Klank Opnemer
+Enter the server address.|Voeg die bediener adres in.
+&Server:|&Bediener:
+&End Process|&Eindig Proses
+DUMMY|DUMMY
+&User name:|Gebr&uiker naam:
+Volume Control|Volume Beheer
+Reason:|Rede:
+Planned|Beplan
+Comm&ent:|Komm&entaar:
