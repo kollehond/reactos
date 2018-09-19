@@ -4,34 +4,418 @@ file|lêer
 File|Lêer
 edit|wysig
 Edit|Wysig
+n!|n!
+ln|ln
 Default|Standaard
 Mark|Merk
 Copy\tEnter|Kopieer\tEnter
 Paste|Plak
 Colors|Kleure
 Co&lors|K&leure
+Vendor|Verspreider
 Standard|Standaard
+Ounces, troy|Onse, troy
+Int|Int
 Select All|Selekteer Alles
+File &date:|Lêer &datum:
 &OK|&OK
+Mod|Mod
+&Newest first|&Nuutste eerste
+Edit String|Wysig String
+&Oldest first|&Oudste eerste
+Mandatory group, |Verpligde groep, 
+&Status bar|&Status balk
+RET|RET
+New Key #%d|Nuwe Sleutel #%d
+New Value #%d|Nuwe Waarde #%d
+T&ext Toolbar|Teks Gereedskapbalk
+Page Setup...|Bladsy Opstelling...
+ Refresh the service list.| Vervris die diens lys.
+&User defined|Gebr&uiker gedefinieerd
+reg: Invalid syntax. |reg: Ongeldige sintaks.
+ Manage a different computer.| Bestuur 'n ander rekenaar.
 Find...|Vind...
 Not available|Nie beskikbaar nie
+ Display items by using large icons.| Vertoon items deur groot ikone te gebruik.
+ Display items by using small icons.| Vertoon items deur klein ikone te gebruik.
+No route to host.\n|Geen roete na bediener.\n
 Defaults|Standaarde
+Name too long.\n|Naam te lank.\n
 Units|Eenhede
+ Display item in a list.| Vertoon item in 'n lys.
+%u MB|%u MB
+Supports DLS|Ondersteun DLS
 Properties|Eienskappe
+Default Port|Standaard Poort
 Unknown Version|Onbekende Weergawe
 Page up|Bladsy op
 Page down|Bladsy af
+Host not found.\n|Bediener nie gevind.\n
 Miniature|Miniatuur
+Host is down.\n|Bediener is af.\n
 Action|Aksie
+Ping|Ping
+Se|Se
+Square centimeters|Vierkante sentimeter
+Mu|Mu
 Warn users|Waarsku gebruikers
 Display warning for|Vertoon waarskuwing vir
 second(s)|sekond(es)
 &Next Page|Volge&nde Bladsy
 Modify|Modifiseer
+&Bring To Front|&Bring Tot Voor
+My Computer|My Rekenaar
+Read-only|Lees-alleenlik
+&Hibernate|&Hiberneer
+US|US
+Welcome to ReactOS Setup|Welkom by ReactOS Opstelling
+Turkish F|Turks F
+Turkish Q|Turks Q
+Filesystem:|Lêerstelsel:
+Installation folder|Installasie gids
+Number:|Nommer:
+Regional Options|Streeklike Opsies
+Monetary:|Geldelik:
+Invalid date.|Ongeldige datum.
+Positive:|Positief:
+Install files...|Installeer lêers...
+Negative:|Negatief:
+&Long date format:|&Lang datum formaat:
+Sorting|Sortering
+Short date:|Kort datum:
+Error in color specification|Fout in kleur spesifikasie
+Syntax error|Sintaks fout
+Numbers|Nommers
+Font Size|Skrif Grootte
+&Top speed:|&Top spoed:
+Accessibility|Toeganklikheid
+Display Options|Vertoon Opsies
+Invalid drive|Ongeldige skyf
+Font|Skrif
+Background|Agtergrond
+Pointer speed|Wyser spoed
+&Left:|&Lings:
+&Properties...|Eienska&ppe...
+&Red:|&Rooi:
+Shift|Shift
+&Green:|&Groen:
+Certificates|Sertifikate
+Preferences|Voorkeure
+Language|Taal
+&Blue:|&Blou:
+YN|YN
+button|button
+Very Low|Baie Laag
+Medium|Middelmatig
+Home page|Tuis blad
+Effects|Effekte
+YNA|YNA
+CPU 16|CPU 16
+CPU 17|CPU 17
+CPU 18|CPU 18
+CPU 19|CPU 19
+CPU 20|CPU 20
+CPU 21|CPU 21
+CPU 22|CPU 22
+CPU 23|CPU 23
+CPU 24|CPU 24
+CPU 25|CPU 25
+CPU 26|CPU 26
+CPU 27|CPU 27
+CPU 28|CPU 28
+CPU 29|CPU 29
+CPU 30|CPU 30
+CPU 31|CPU 31
+Session ID|Sessie ID
+CPU Time|CPU Tyd
+Metric|Metriek
+&Go To...\tCtrl+G|&Gaan Na...\tCtrl+G
+Select &All\tCtrl+A|Selekteer &Alles\tCtrl+A
+Short|Kort
+Time/&Date\tF5|Tyd/&Datum\tF5
+Long|Lank
+Find &Next\tF3|Vi&nd Volgende\tF3
+Speed|Spoed
+&Replace...\tCtrl+H|Ve&rvang...\tCTRL+H
+&New\tCtrl+N|&Nuwe\tCtrl+N
+&Open...\tCtrl+O|Maak &Oop...\tCtrl+O
+Motion|Beweging
+Select Card Back|Selekteer Kaart Agterkant
+Save Scheme|Berg Skema
+Pointer|Wyser
+Scheme|Skema
+Advanced Settings|Gevorderde Instellings
+Product:|Produk:
+Languages|Tale
+Visibility|Sigbaarheid
+Long date:|Lang datum:
+License Manager|Lisensie Bestuurder
+Currency|Geldeenheid
+Calendar|Kalender
+Standards and formats|Standaarde en formate
+D&isconnect...|D&iskonnekteer...
+Select an icon size for programs |Selekteer 'n ikoon grootte vir programme 
+P&roperties|Eienska&ppe
+O&pen All Users|Maak Alle Geb&ruikers Oop
+Start &menu items:|Begin kieskaart ite&ms:
+Invalid Option|Ongeldige Opsie
+Show seconds|Wys sekondes
+Taskbar and Start Menu|Taakbalk en Begin Kieskaart
+Show on Start menu |Wys op Begin kieskaart
+Spanish (Spain)|Spaans (Spanje)
+Notification area|Notifikasie area
+Invalid parameter - %s\n|Ongeldige parameter - %s\n
+Path not found - %s\n|Pad nie gevind - %s\n
+Access denied - %s\n|Toegang geweier - %s\n
+&Internet:|&Internet:
+FDEBUG|FDEBUG
+Lar&ge Icons|&Groot Ikone
+Keyboard|Sleutelbord
+StartMenuSe&ttings|BeginKieskaar&tInstellings
+Start menu settings |Begin kieskaart instellings 
+&Show Open Windows|Wy&s Oop Vensters
+File Name Warning|Lêer Naam Waarskuwing
+&Security...|&Sekuriteit...
+&Start menu|Begin kie&skaart
+&Lock the taskbar|S&luit die taakbalk
+&Remove|Ve&rwyder
+&CPU History|&CPU Geskiedenis
+Processes: %d|Prosesse: %d
+Select &All|Selekteer &Alles
+Start Menu|Begin Kieskaart
+Stand &By|Staan &By
+http://www.reactos.org|http://www.reactos.org
+View &Help|Sien &Hulp
+Games & Fun|Speletjies & Pret
+Read Control|Lees Beheer
+Command Line|Bevel Lyn
+Create Link|Skep Skakel
+\nSize: |\nGrootte: 
+Registry Editor|Register Wysiger
+Unknown type: (0x%lx)|Onbekende tipe: (0x%lx)
+Value &name:|Waarde &naam:
+&About Notepad|Oor Notep&ad
+Available for installation|Beskikbaar vir installasie
+Engineering|Ingenieurswese
+\nInformation About: |\nInformasie Oor: 
+\nComments: |\nKommentaar: 
 Settings|Instellings
+Finnish|Fins
+Greek|Grieks
+Greek (220)|Grieks (220)
+Dutch|Nederlands
+French|Frans
+GENERIC_READ|GENERIC_READ
+GENERIC_WRITE|GENERIC_WRITE
+GENERIC_EXECUTE|GENERIC_EXECUTE
+GENERIC_ALL|GENERIC_ALL
+&Speaker Volume...|Luid&spreker Volume...
+A&M symbol:|V&M simbool:
+Spanish|Spaans
+&Visual Style|&Visuele Styl
+Appearance|Voorkoms
+&Time format:|&Tyd formaat:
+Spanish Variation|Spaans Afstammeling
+and|en
+&Volume...|&Volume...
+V&olume...|V&olume...
+TEXT|TEXT
+STATIC|STATIC
+popup|popup
+Num|Num
+Caps|Caps
+Scroll|Scroll
+Long date|Lang datum
+Wheel|Wiel
+Expand|Brei Uit
+S&tatus bar|S&tatus balk
+del|del
+hm|hm
+Display Settings|Vertoon Instellings
+&Screen area|&Skerm area
+end|end
+nlk|nlk
+Selected|Geselekteer
+ent|ent
+pup|pup
+pdn|pdn
+Prn|Prn
+Attn|Attn
+Server hidden|Bediener weggesteek
+Server:|Bediener:
+FILE_GENERIC_EXECUTE|FILE_GENERIC_EXECUTE
+FILE_GENERIC_READ|FILE_GENERIC_READ
+FILE_GENERIC_WRITE|FILE_GENERIC_WRITE
+FILE_READ_DATA|FILE_READ_DATA
+FILE_WRITE_DATA|FILE_WRITE_DATA
+FILE_APPEND_DATA|FILE_APPEND_DATA
+FILE_READ_EA|FILE_READ_EA
+FILE_WRITE_EA|FILE_WRITE_EA
+FILE_EXECUTE|FILE_EXECUTE
+FILE_DELETE_CHILD|FILE_DELETE_CHILD
+FILE_READ_ATTRIBUTES|FILE_READ_ATTRIBUTES
+FILE_WRITE_ATTRIBUTES|FILE_WRITE_ATTRIBUTES
+Profile|Profiel
+Swedish|Sweeds
+System:|Stelsel:
+Date && Time|Datum && Tyd
+&Date|&Datum
+&Time|&Tyd
+Time Zone|Tydzone
+Machine:|Masjien:
+From:|Van:
+To:|Na:
+Z Axis|Z As
+Tab|Tab
+Pre&view|&Voorskou
+Se&ttings|Ins&tellings
+lock|lock
+Colo&r|Kleu&r
+Busy|Besig
+Rudder/Pedals|Roer/Pedale
+&Font size|Skri&f grootte
+&Axes|&Asse
+&Race car controller|&Resies kar beheerder
+&Test area:|&Toets area:
+&Font|Skri&f
+Create link|Skep skakel
+Icon|Ikoon
+Hyp|Hyp
+Too many parameters - %s\n|Te veel parameters - %s\n
+Sta|Sta
+Ave|Ave
+&Wait|&Wag
+Path not found\n|Pad nie gevind\n
+File not found\n|Lêer nie gevind\n
+Sqrt|Sqrt
+O&n|Aa&n
+Of&f|A&f
+&Session ID|&Sessie ID
+Sum|Sum
+&Mixer device:|&Menger toestel:
+Adjust volume for:|Pas volume aan vir:
+Dat|Dat
+%1\n|%1\n
+TTL=%d\n|TTL=%d\n
+F-E|F-E
+MAXIMUM_ALLOWED|MAXIMUM_ALLOWED
+ACCESS_SYSTEM_SECURITY|ACCESS_SYSTEM_SECURITY
+SPECIFIC_RIGHTS_ALL|SPECIFIC_RIGHTS_ALL
+STANDARD_RIGHTS_REQUIRED|STANDARD_RIGHTS_REQUIRED
+SYNCHRONIZE|SYNCHRONIZE
+WRITE_OWNER|WRITE_OWNER
+WRITE_DAC|WRITE_DAC
+STANDARD_RIGHTS_ALL|STANDARD_RIGHTS_ALL
+Setup|Opstelling
+(DENY)|(DENY)
+Sent|Gestuur
+READ_CONTROL|READ_CONTROL
+Activity|Aktiwiteit
+Received|Ontvang
+000.000.000|000.000.000.000
+Full|Vol
+0%|0%
+Alarms|Alarms
+Good|Goed
+No action|Geen aksie
+Slider1|Slider1
+Best|Beste
+Sounds|Klanke
+&Muslim Calendar:|&Moslem Kalender:
+Short date|Kort datum
+Move|Skuif
+Place volume &icon in the taskbar|Plaas volume &ikoon in die taakbalk
+Speaker settings|Luidspreker instellings
+Ad&vanced...|Ge&vorderd...
+Browse|Snuffel
+Device volume|Toestel volume
+German|Duits
+Polish (214)|Pools (214)
+Polish (Programmers)|Pools (Programmeerders)
+Swiss French|Switserse Frans
+Swiss German|Switserse Duits
+Greek Latin|Grieks Latyns
+Geographic location|Geografiese ligging
+Hebrew|Hebreeus
+German (de_ergo)|Duits (de_ergo)
+German (IBM)|Duits (IBM)
+German (NEO-1.1)|Duits (NEO-1.1)
+German (RISTOME)|Duits (RISTOME)
+REGEDIT_FRAME|REGEDIT_FRAME
+REGEDIT|REGEDIT
+Portuguese|Portugees
+Irish|Iers
+Korean|Koreaans
+Russian|Russies
+Norwegian|Noorweegs
+Russian (Typewriter)|Russies (Tikmasjien)
+Italian|Italiaans
+Italian (142)|Italiaans (142)
+Japanese|Japanees
+ReactOS Applications Manager|ReactOS Applikasies Bestuurder
+Program installation|Program installasie
+Search…|Soek…
+P&rinter...|D&rukker...
+Notepad|Notepad
+…|…
 Read|Lees
+\nVersion: |\nWeergawe: 
+\nDescription: |\nBeskrywing: 
+\nPublisher: |\nUitgewer: 
+Encoding|Enkodering
+Encoding:|Enkodering:
+Congratulations, you win!|Baie geluk, jy wen!
 Task|Taak
+Inv|Inv
+Network Type: %s\n|Netwerk Tipe: %s\n
+S&top|S&top
+&Deal\tF2|&Deel\tF2
+Infrastructure|Infrastruktuur
+All Files|Alle Lêers
+Free selection|Vrye seleksie
+&Inches|Du&ime
+Password last set|Wagwoord laaste gestel
+Password expires|Wagwoord verval
+Password changeable|Wagwoord veranderbaar
+Password required|Wagwoord benodig
+All Picture Files|Alle Prentjie Lêers
+All Supported|Als Ondersteunde
+Service Control|Diens Beheer
+&New Game\tF2|&Nuwe Spel\tF2
+Cols|Kolomme
 CPU|CPU
+*Service Name :|*Diens Naam :
+*Display Name :|*Vertoon Naam :
+Create a new service|Skep 'n nuwe diens
+Started|Begin
+Service Name:|Diens Naam:
+Automatic|Outomaties
+&Activate all|&Aktiveer als
+&Deactivate all|&Deaktiveer als
+Do not show this message again|Moenie hierdie boodskap weer wys nie
+Magnifier Settings|Vergroter Instellings
+Magnification &level:|Vergrotings v&lak
+Invalid parameter(s)\n|Ongeldige parameter(s)\n
+Custom Game|Gestelde Spel
+Copyright 2000 Joshua Thielen|Kopiereg 2000 Joshua Thielen
+Please enter your name|Voeg asseblief jou naam in
+Score: %d|Telling: %d
+Time: %d|Tyd: %d
+dms|dms
+&Save All Information...|Berg Alle Informa&sie...
+\nType |\nTipe 
+Exp|Exp
+Test DirectDraw|Toets DirectDraw
+WineMine|WineMine
+Other Files:|Ander Lêers
+Current Date/Time:|Huidige Datum/Tyd:
+Test Direct3D|Toets Direct3D
+Manufacturer ID:|Vervaardiger ID:
+SID|SID
+x^y|x^y
+pi|pi
+x^2|x^2
+x^3|x^3
 Totals|Totale
 Invalid time.|Ongeldige tyd.
 No Media|Geen Media

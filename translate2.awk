@@ -15,6 +15,8 @@ BEGIN	{
 	#set back to original filename
 	FILENAME = ofn
 	OFS = " "
+	#add the file path to the output file
+
 	if (NR == 1){
 		#overwrite af-ZA.rc
 		print "LANGUAGE LANG_AFRIKAANS,SUBLANG_DEFAULT">"af-ZA.rc"
@@ -32,9 +34,12 @@ BEGIN	{
 				slookup = "\42" wordlist[substr(stest,sstart+1,(send - 1))]
 			#if a lookup value was not found
 			}else{
+				#if there is no translation found for the field string
 				slookup = substr(stest,sstart,send)
+				#if the string is 2 or more characters
 				if (length(slookup) >= 3){
-					print substr(slookup, 2) "|">>"C://sources//reatos//missing.txt"
+					#write the string to missing.txt
+					print substr(slookup, 2) "|">>"C://sources//reactos//missing.txt"
 				}
 			}
 			sout = substr(stest,1,sstart - 1) slookup substr(stest,sstart + send)
