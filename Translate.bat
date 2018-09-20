@@ -7,7 +7,6 @@ ren tempfile.rc cacls.rc
 cd lang
 awk -f c:\sources\reactos\translate2.awk en-US.rc
 cd C:\sources\reactos\base\applications\calc\
-:: filename not calc.rc
 awk -f C:\sources\reactos\langadd.awk resource.rc
 del resource.rc
 ren tempfile.rc resource.rc
@@ -20,7 +19,6 @@ ren tempfile.rc charmap.rc
 cd lang
 awk -f c:\sources\reactos\translate2.awk en-US.rc
 cd C:\sources\reactos\base\applications\charmap_new\
-:: filename not charmap_new.rc
 awk -f C:\sources\reactos\langadd.awk charmap.rc
 del charmap.rc
 ren tempfile.rc charmap.rc
@@ -218,6 +216,7 @@ del mplay32.rc
 ren tempfile.rc mplay32.rc
 cd lang
 awk -f c:\sources\reactos\translate2.awk en-US.rc
+echo 25% Complete
 cd C:\sources\reactos\base\applications\msconfig\
 awk -f C:\sources\reactos\langadd.awk msconfig.rc
 del msconfig.rc
@@ -440,6 +439,7 @@ del fdebug.rc
 ren tempfile.rc fdebug.rc
 cd lang
 awk -f c:\sources\reactos\translate2.awk en-US.rc
+echo 50% Complete
 cd C:\sources\reactos\dll\cpl\access\
 awk -f C:\sources\reactos\langadd.awk access.rc
 del access.rc
@@ -662,6 +662,7 @@ del msgina.rc
 ren tempfile.rc msgina.rc
 cd lang
 awk -f c:\sources\reactos\translate2.awk en-US.rc
+echo 75% Complete
 cd C:\sources\reactos\dll\win32\msports\
 awk -f C:\sources\reactos\langadd.awk msports.rc
 del msports.rc
@@ -872,5 +873,11 @@ del localmon.rc
 ren tempfile.rc localmon.rc
 cd lang
 awk -f c:\sources\reactos\translate2.awk en-US.rc
-echo on
+echo 100% Complete
+echo Removing duplicates from missing.txt
+cd c:\sources\reactos\
+awk -f removeDuplMissing.awk  missing.txt
+del missing.txt
+ren Missing1.txt missing.txt
+echo Done!
 pause
