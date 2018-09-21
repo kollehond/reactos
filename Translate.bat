@@ -216,7 +216,7 @@ del mplay32.rc
 ren tempfile.rc mplay32.rc
 cd lang
 awk -f c:\sources\reactos\translate2.awk en-US.rc
-echo 25% Complete
+echo 25%% Complete
 cd C:\sources\reactos\base\applications\msconfig\
 awk -f C:\sources\reactos\langadd.awk msconfig.rc
 del msconfig.rc
@@ -439,7 +439,7 @@ del fdebug.rc
 ren tempfile.rc fdebug.rc
 cd lang
 awk -f c:\sources\reactos\translate2.awk en-US.rc
-echo 50% Complete
+echo 50%% Complete
 cd C:\sources\reactos\dll\cpl\access\
 awk -f C:\sources\reactos\langadd.awk access.rc
 del access.rc
@@ -662,7 +662,7 @@ del msgina.rc
 ren tempfile.rc msgina.rc
 cd lang
 awk -f c:\sources\reactos\translate2.awk en-US.rc
-echo 75% Complete
+echo 75%% Complete
 cd C:\sources\reactos\dll\win32\msports\
 awk -f C:\sources\reactos\langadd.awk msports.rc
 del msports.rc
@@ -873,7 +873,7 @@ del localmon.rc
 ren tempfile.rc localmon.rc
 cd lang
 awk -f c:\sources\reactos\translate2.awk en-US.rc
-echo 100% Complete
+echo 100%% Complete
 echo Removing duplicates from missing.txt
 cd c:\sources\reactos\
 awk -f removeDuplMissing.awk  missing.txt
