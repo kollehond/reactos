@@ -755,8 +755,8 @@ cd lang
 awk -f c:\sources\reactos\translate2.awk en-US.rc
 cd C:\sources\reactos\modules\rosapps\applications\imagesoft\
 awk -f C:\sources\reactos\langadd.awk imagesoft.rc
-del imagesoft.rc
-ren tempfile.rc imagesoft.rc
+del rsrc.rc
+ren tempfile.rc rsrc.rc
 cd lang
 awk -f c:\sources\reactos\translate2.awk en-US.rc
 cd C:\sources\reactos\modules\rosapps\applications\screensavers\blankscr\
