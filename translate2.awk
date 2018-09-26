@@ -6,7 +6,15 @@ BEGIN	{
 	while((getline<"C:/sources/reactos/wordlist.txt") != 0){
 		wordlist[$1] = $2
 	}		
-
+	while((getline<"C:/sources/reactos/translate.config") != 0){
+		if(substr($0,1,8) == "LANGUAGE"){
+			langheader = $0
+		}else if(substr($0,1,6) == "file: "){
+			outfilename = substr($0,7)
+		
+			
+		}
+	}		
 	#specify the seperator
 	#english in the first column, afrikaans in the second
 }
@@ -19,7 +27,7 @@ BEGIN	{
 
 	if (NR == 1){
 		#overwrite af-ZA.rc
-		print "LANGUAGE LANG_AFRIKAANS,SUBLANG_DEFAULT">"af-ZA.rc"
+		print langheader>outfilename
 	}else{
 		stest = $0
 		if (index(stest,"\42") != 0)
@@ -43,10 +51,10 @@ BEGIN	{
 				}
 			}
 			sout = substr(stest,1,sstart - 1) slookup substr(stest,sstart + send)
-			print sout>>"af-ZA.rc"
+			print sout>>outfilename
 		}else{
 			#Append to af-ZA.rc			
-			print $0>>"af-ZA.rc"
+			print $0>>outfilename
 		}		
 	}
 
