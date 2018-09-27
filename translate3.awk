@@ -1,6 +1,6 @@
 BEGIN	{		
 	#Save original filename
-	ofn = FILENAME
+	ofn=FILENAME
 	#switch to wordlist.txt
 	FS = "|"	
 	while((getline<"C:/sources/reactos/wordlist.txt") != 0){
@@ -9,10 +9,13 @@ BEGIN	{
 	while((getline<"C:/sources/reactos/translate.config") != 0){
 		if(substr($0,1,8) == "LANGUAGE"){
 			langheader = $0
-		}else if(substr($0,1,6) == "file: "){
-			outfilename = substr($0,7)
-		
-			
+		}else{ if(substr($0,1,11) == "shortfile: "){
+			if (index(FILENAME,"En.rc") != 1){
+			outfilename = substr(FILENAME,1,index(FILENAME,"En.rc") + substr($0,12))
+		}else{
+			outfilename = substr($0,12)
+		}
+	}
 		}
 	}		
 	#specify the seperator
@@ -21,12 +24,11 @@ BEGIN	{
 {	
 	FS = " "
 	#set back to original filename
-	FILENAME = ofn
 	OFS = " "
 	#add the file path to the output file
 
 	if (substr($0,1,14) == "LANGUAGE LANG_"){
-		#overwrite af-ZA.rc
+		#overwrite Af.rc
 		print langheader>outfilename
 	}else{
 		stest = $0

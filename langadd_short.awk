@@ -1,12 +1,15 @@
 BEGIN{
 	LangInFile = "N"
 		while((getline<"C:/sources/reactos/translate.config") != 0){
-		if(substr($0,1,6) == "file: "){
-			outfilename = substr($0,7)
-		}else if(substr($0,1,15) == "#ifdef LANGUAGE"){
-		langdef = $0
+		if(substr($0,1,11) == "shortfile: "){
+			if (index(FILENAME,"En.rc") != 1){
+			outfilename = substr(FILENAME,1,index(FILENAME,"En.rc")) + substr($0,12)
+		}else{
+			outfilename = substr($0,12)
+		}
 	}
-}
+		}
+	
 }
 {
 	if (LangInFile != "Y")
