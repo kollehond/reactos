@@ -6,6 +6,7 @@ BEGIN{
 		}else if(substr($0,1,15) == "#ifdef LANGUAGE"){
 		langdef = $0
 	}
+	LangFileInclude = "    #include \42lang/" outfilename "\42"
 }
 }
 {
@@ -18,7 +19,7 @@ BEGIN{
 			if (substr($0,1,15) == "#ifdef LANGUAGE")
 			{
 				print langdef>>"tempfile.rc"
-				print "    #include \42lang/" + outfilename + "\42">>"tempfile.rc"
+				print LangFileInclude>>"tempfile.rc"
 				print "#endif">>"tempfile.rc"
 				LangInFile = "Y"
 			}

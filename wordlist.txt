@@ -16,9 +16,93 @@ Service status:|Diens status:
 All Files (*.*)|Alle Lêers (*.*)
 Mark|Merk
 Apostrophe|Afkappingsteken
+Cursor Size|Wyser Grootte
 Pick|Pik
 Singapore|Singapoer
+&Acceleration:|Versnelling:
+&Small|Klein
+&Medium|&Middelmatig
+Command History|Bevel Geskiedenis
+&Large|Groot
+&Window|Venster
+Selected Font|Geselekteerde Skrif
+F&ull Screen|Vol Skerm
+Image Name|Beeld Naam
+De&tails...|Besonderhede...
+&points|&punte
+Filter Keys Settings|Filter Sleutels Instellings
+Mem Usage|Geh Gebbruik
+&Use shortcut|Gebr&uik kortpad
+Use &shortcut|Gebruik kortpad
+Each character is:|Elke karakter is:
+Slow Keys|Stadige Sleutels
+Filter options|Filter opsies
+Create Shortcut|Skep Kortpad
+Peak Mem Usage|Piek Geh Gebruik
+SysLink|SysLink
+The system shuts down in:|Die stelsel skakel af in:
+Mem Delta|Geh Delta
+Notifications|Notifikasies
+Browse...|Snuffel...
+&About Task Manager|Oor T&aak Bestuurder
+&Switch To|&Skakel Na
+Repeat Keys|Herhaal Sleutels
+%02d:%02d:%02d|%02d:%02d:%02d
+&End Task|B&eëindig Taak
+Loading your personal settings...|Laai jou persoonlike instellings...
+Closing network connections...|Maak netwerk konneksies toe...
+ReactOS is shutting down...|ReactOS skakel af...
+Preparing to Standby...|Berei voor vir Bystaan...
+Preparing to Hibernate...|Berei voor om te Hiberneer...
+Saving your settings...|Berg jou instellings...
+Preparing network connections...|Berei netwerk konneksies voor...
+Applying computer settings...|Pas rekenaar instellings toe...
+System Shutdown|Stelsel Afskakeling
+&Go To Process|&Gaan Na Proses
+ReactOS LiveCD|ReactOS LewendigeCD
+&Keyboard layout:|Sleutelbord uitleg:
+First stage of setup finished|Eerste stadium van opstelling voltooid
+Undefined Type|Ongedifiniëerde Tipe
+&Show this dialog again|Wy&s hierdie dialoog weer
+&Browse this CD|Snuffel deur hierdie CD
+Browse this CD|Snuffel deur hierdie CD
+Result|Resultaat
+Browse the CD.|Snuffel deur die CD.
+&Previous|Vorige
+Not Responding|Reageer Nie
+Easy: &One Color|Maklik: Een Kleur
+Medium: &Two Colors|Middelmatig: &Twee Kleure
+Hard: &Four Colors|Moeilik: Vier Kleure
+Create New|Skep Nuwe
+E&xit\tAlt+X|Gaan Uit\tAlt+X
+&Fastest Times...|Vinnigste Tye...
+Create New Task|Skep Nuwe Taak
+Mines|Myne
+Audio|Audio
+Edutainment|Ondermaak
+&Preferences...|Voorkeure...
+Create Control|Skep Kontrole
+Update available|Opdatering beskikbaar
+Open Source|Oop Oorsprong
+Freeware|Gratisware
+Create From File|Skep Vanaf Lêer
+Operations Error|Operasies Fout
+Draw &One|Trek Een
+Draw &Three|Trek Drie
+&Keep Score|Hou Telling
+Protocol Error|Protokol Fout
+Time Limit Exceeded|Tyd Limiet Oorskry
+Size Limit Exceeded|Grootte Limiet Oorskry
+Compare False|Vergelyk Vals
+Compare True|Vergelyk Waar
+Local Error|Plaaslike Fout
+Filter Error|Filter Fout
+Results Too Large|Resultate Te Groot
 Netherlands|Nederland
+ hr| uur
+ min| min
+ sec| sek
+Already Exists|Bestaan Reeds
 Car Sliding|Kar Wat Gly
 Left Parenthesis|Linker Hakie
 Right Parenthesis|Regter Hakie

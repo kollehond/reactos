@@ -1,32 +1,40 @@
 BEGIN	{		
 	#Save original filename
+	print FILENAME
 	ofn=FILENAME
 	#switch to wordlist.txt
 	FS = "|"	
 	while((getline<"C:/sources/reactos/wordlist.txt") != 0){
 		wordlist[$1] = $2
 	}		
-	while((getline<"C:/sources/reactos/translate.config") != 0){
-		if(substr($0,1,8) == "LANGUAGE"){
-			langheader = $0
-		}else{ if(substr($0,1,11) == "shortfile: "){
-			if (index(FILENAME,"En.rc") != 1){
-			outfilename = substr(FILENAME,1,index(FILENAME,"En.rc") + substr($0,12))
-		}else{
-			outfilename = substr($0,12)
-		}
-	}
-		}
-	}		
+		
 	#specify the seperator
 	#english in the first column, afrikaans in the second
 }
 {	
+	if(NR == 1){
+	while((getline<"C:/sources/reactos/translate.config") != 0){
+		if(substr($0,1,8) == "LANGUAGE"){
+			langheader = $0
+		}else{ 
+			if(substr($0,1,11) == "shortfile: "){
+				if (index(FILENAME,"En.rc") != 1){
+					outfilename = substr(FILENAME,1,index(FILENAME,"En.rc") - 1) substr($0,12)
+				}else{
+					outfilename = substr($0,12)
+				}
+				print outfilename
+
+			}
+		}
+	}
+}
 	FS = " "
 	#set back to original filename
 	OFS = " "
 	#add the file path to the output file
-
+	FILENAME = ofn
+	
 	if (substr($0,1,14) == "LANGUAGE LANG_"){
 		#overwrite Af.rc
 		print langheader>outfilename
@@ -56,7 +64,9 @@ BEGIN	{
 			print sout>>outfilename
 		}else{
 			#Append to af-ZA.rc			
+			if (outfilename != ""){
 			print $0>>outfilename
+			}
 		}		
 	}
 
