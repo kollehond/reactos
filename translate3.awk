@@ -12,23 +12,24 @@ BEGIN	{
 	#english in the first column, afrikaans in the second
 }
 {	
+	templine = $0
 	if(NR == 1){
-	while((getline<"C:/sources/reactos/translate.config") != 0){
-		if(substr($0,1,8) == "LANGUAGE"){
-			langheader = $0
-		}else{ 
-			if(substr($0,1,11) == "shortfile: "){
-				if (index(FILENAME,"En.rc") != 1){
-					outfilename = substr(FILENAME,1,index(FILENAME,"En.rc") - 1) substr($0,12)
-				}else{
-					outfilename = substr($0,12)
-				}
-				print outfilename
+		while((getline<"C:/sources/reactos/translate.config") != 0){
+			if(substr($0,1,8) == "LANGUAGE"){
+				langheader = $0
+			}else{ 
+				if(substr($0,1,11) == "shortfile: "){
+					if (index(FILENAME,"En.rc") != 1){
+						outfilename = substr(FILENAME,1,index(FILENAME,"En.rc") - 1) substr($0,12)
+					}else{
+						outfilename = substr($0,12)
+					}
+					print outfilename>"temp.name"
 
+				}
 			}
 		}
 	}
-}
 	FS = " "
 	#set back to original filename
 	OFS = " "
@@ -65,11 +66,8 @@ BEGIN	{
 		}else{
 			#Append to af-ZA.rc			
 			if (outfilename != ""){
-			print $0>>outfilename
+			print templine>>outfilename
 			}
 		}		
 	}
-
-}
-END{
 }

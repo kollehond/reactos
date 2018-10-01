@@ -371,19 +371,23 @@ del %tempval%
 ren tempfile.rc %tempval%
 cd lang
 awk -f c:\sources\reactos\translate2.awk %tfile%
-call :show_progress %n% 171
+call :show_progress %n% 172
 set /a "n=%n%+1"
 exit /b
 
 :lang_add_short
 set tfile=%2
 set tempval=%1
-awk -f C:\sources\reactos\langadd_short.awk %tempval%
-del %tempval%
-ren tempfile.rc %tempval%
 cd lang
 awk -f c:\sources\reactos\translate3.awk %tfile%
-call :show_progress %n% 171
+move temp.name ..\ >nul
+cd ..
+awk -f C:\sources\reactos\langadd_short.awk %tempval%
+del %tempval%
+del temp.name
+ren tempfile.rc %tempval%
+
+call :show_progress %n% 172
 set /a "n=%n%+1"
 exit /b
 
