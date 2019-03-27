@@ -2,6 +2,7 @@ echo off
 title Awk Translator
 for /f %%a in ('copy /Z "%~dpf0" nul') do set "CR=%%a"
 set "n=0"
+::reactos\base\applications
 cd C:\sources\reactos\base\applications\cacls\
 call :lang_add en-US.rc cacls.rc
 cd C:\sources\reactos\base\applications\calc\
@@ -12,6 +13,8 @@ cd C:\sources\reactos\base\applications\charmap_new\
 call :lang_add en-US.rc charmap.rc
 cd C:\sources\reactos\base\applications\clipbrd\
 call :lang_add en-US.rc clipbrd.rc
+:: count 5
+::..\cmdutils
 cd C:\sources\reactos\base\applications\cmdutils\at\
 call :lang_add en-US.rc at.rc
 cd C:\sources\reactos\base\applications\cmdutils\chcp\
@@ -48,6 +51,8 @@ cd C:\sources\reactos\base\applications\cmdutils\wmic\
 call :lang_add en-US.rc wmic.rc
 cd C:\sources\reactos\base\applications\cmdutils\xcopy\
 call :lang_add en-US.rc xcopy.rc
+::..\cmdutils total 18
+::count 23
 cd C:\sources\reactos\base\applications\drwtsn32\
 call :lang_add en-US.rc drwtsn32.rc
 cd C:\sources\reactos\base\applications\dxdiag\
@@ -58,12 +63,16 @@ cd C:\sources\reactos\base\applications\fltmc\
 call :lang_add en-US.rc fltmc.rc
 cd C:\sources\reactos\base\applications\fontview\
 call :lang_add en-US.rc fontview.rc
+::count 28
+::..\games
 cd C:\sources\reactos\base\applications\games\solitaire\
 call :lang_add en-US.rc rsrc.rc
 cd C:\sources\reactos\base\applications\games\spider\
 call :lang_add en-US.rc rsrc.rc
 cd C:\sources\reactos\base\applications\games\winmine\
 call :lang_add en-US.rc rsrc.rc
+::..\games total 3
+::count 31
 cd C:\sources\reactos\base\applications\kbswitch\
 call :lang_add en-US.rc kbswitch.rc
 cd C:\sources\reactos\base\applications\logoff\
@@ -78,14 +87,20 @@ cd C:\sources\reactos\base\applications\msconfig\
 call :lang_add en-US.rc msconfig.rc
 cd C:\sources\reactos\base\applications\msconfig_new\
 call :lang_add en-US.rc msconfig.rc
+::count 38
+::..\mscutils
 cd C:\sources\reactos\base\applications\mscutils\eventvwr\
 call :lang_add en-US.rc eventvwr.rc
 cd C:\sources\reactos\base\applications\mscutils\servman\
 call :lang_add en-US.rc servman.rc
+::..\mscutils total 2
+::count 40
 cd C:\sources\reactos\base\applications\mspaint\
 call :lang_add en-US.rc rsrc.rc
 cd C:\sources\reactos\base\applications\mstsc\
 call :lang_add en-US.rc rdc.rc
+::count 42
+::..\network
 cd C:\sources\reactos\base\applications\network\ipconfig\
 call :lang_add en-US.rc ipconfig.rc
 cd C:\sources\reactos\base\applications\network\net\
@@ -98,6 +113,8 @@ cd C:\sources\reactos\base\applications\network\tracert\
 call :lang_add en-US.rc tracert.rc
 cd C:\sources\reactos\base\applications\network\wlanconf\
 call :lang_add en-US.rc wlanconf.rc
+::..\network total 6
+::count 48
 cd C:\sources\reactos\base\applications\notepad\
 call :lang_add en-US.rc rsrc.rc
 cd C:\sources\reactos\base\applications\osk\
@@ -106,10 +123,14 @@ cd C:\sources\reactos\base\applications\rapps\
 call :lang_add en-US.rc rapps.rc
 cd C:\sources\reactos\base\applications\regedit\
 call :lang_add en-US.rc regedit.rc
+::count 52
+::..\screensavers
 cd C:\sources\reactos\base\applications\screensavers\3dtext\
 call :lang_add en-US.rc rsrc.rc
 cd C:\sources\reactos\base\applications\screensavers\logon\
 call :lang_add en-US.rc logon.rc
+::..\screensavers total 2
+::count 54
 cd C:\sources\reactos\base\applications\shutdown\
 call :lang_add en-US.rc shutdown.rc
 cd C:\sources\reactos\base\applications\sndrec32\
@@ -357,7 +378,7 @@ call :lang_add_short localui.rc ui_En.rc
 ::Processing completed
 echo Removing duplicates from missing.txt
 cd c:\sources\reactos\
-awk -f removeDuplMissing.awk  missing.txt
+awk -f removeDuplMissing.awk missing.txt
 del missing.txt
 ren Missing1.txt missing.txt
 echo Done!
@@ -369,6 +390,7 @@ set tempval=%2
 awk -f C:\sources\reactos\langadd.awk %tempval%
 del %tempval%
 ren tempfile.rc %tempval%
+
 cd lang
 awk -f c:\sources\reactos\translate2.awk %tfile%
 call :show_progress %n% 172
@@ -378,6 +400,7 @@ exit /b
 :lang_add_short
 set tfile=%2
 set tempval=%1
+
 cd lang
 awk -f c:\sources\reactos\translate3.awk %tfile%
 move temp.name ..\ >nul
@@ -386,12 +409,12 @@ awk -f C:\sources\reactos\langadd_short.awk %tempval%
 del %tempval%
 del temp.name
 ren tempfile.rc %tempval%
-
 call :show_progress %n% 172
 set /a "n=%n%+1"
 exit /b
 
 :show_progress
+cls
 setlocal EnableDelayedExpansion
 set current_step=%1
 set total_steps=%2

@@ -1,5 +1,5 @@
 Translate.bat
-Written by Janno Brits 2018
+Written by Janno Brits 2018-2019
 
 Legal
 	Free, so do with it as you please.
@@ -7,18 +7,33 @@ Legal
 	The original author is not liable for any damages resulting from this software/code, or any part thereof.
 
 About
-	The traslate.bat file is still in beta, so it does not support all files that need translations yet.
+	The translate.bat file is still in beta, so it does not support all files that need translations yet.
 	It is also important to note, that the default target is Afrikaans (af-ZA), so when modifying it for other translations, at least one function relies on the translation being the first specified in the resource .rc files.
+
+Updates
+	27/03/2019:
+	The program is more complex now, in order to handle non-standard named .rc files
+	most (if not all) translation files in the source code that end with .rc are now processed (no support for .h yet) - this still depends on the hard-coded list
 
 Requirements:
 	AWK or GAWK installed, and awk.exe should be in a folder specified by your path (command line)
 
-Files Needed:
+Files Needed to run:
 	langadd.awk
 		This awk program relates to the translation specification in a program's .rc file
 		It looks for the first line that includes "#ifdef LANGUAGE".  If that line's full value is not "#ifdef LANGUAGE_AF_ZA", it will put the three needed lines in to specify the location of the language file.
 		usage: awk -f langadd.awk rsrc.rc
 		
+	langadd_short.awk
+		TODO: document this file
+	
+	translate.config
+		This has 4 lines that are used to create the specific translation (this is to make other translations than afrikaans possible)
+		line1: The replacement header for en-US.rc style files
+		line2: "file: " and the name that will replace "en-US.rc"
+		line3: The replacement line for defining the language for the specific module
+		line4: "shortfile: " and the translation language replacement for "En.rc"
+	
 	removeDuplMissing.awk
 		This is a simple program to just remove duplicate records from the missing.txt output file at the end
 		usage: awk -f removeDuplMissing.awk missing.txt
@@ -32,8 +47,7 @@ Files Needed:
 		Don't leave any blank lines
 		Make sure to save the file in UTF-8 format
 		
-	translate2.awk
-		This is the program that does the most complex work.  
+	translate2.awk  
 		It reads the content of wordlist.txt into a searchible array, with each english value (as a string, instead of a number in the array) being set to its translated value.
 		For the specified input file, it replaces line 1 of the file with "LANGUAGE LANG_AFRIKAANS,SUBLANG_DEFAULT".
 		Then, on the rest of the lines, it starts looking for quotation marks (").
@@ -44,17 +58,33 @@ Files Needed:
 		standard input is en-US.rc and standard output is af-ZA.rc
 		Usage: awk -f translate2.awk en-US.rc
 	
+	translate3.awk
+		like translate2.awk but for differently named files
+		TODO: document this file
+	
 	Translate.bat
 		This is the file that you run.
 		It has everything specified under c:/sources/reactos/ so if your source code is not there, you need to run a find and replace.
 		It does one translation at a time in the following order:
 			1) Go to the directory of the .rc file
-			2) Run langadd.awk on the .rc file
-			3) delete the old .rc file
-			4) rename the generated .rc file to the correct name
-			5) Go to subdirectory "lang"
-			6) run translate2.awk on en-US.rc
-		This is currently only done for all the source files where the translation file is specifically named "en-US.rc"
+			For translations with standard naming "en-US.rc"
+			:lang_add <file 1> <file 2>
+				2) Run langadd.awk on <file 2>
+				3) delete <file 2>
+				4) rename tempfile.rc to the former <file 2> name
+				5) Go to subdirectory "lang"
+				6) run translate2.awk on <file 1>
+			For translations not named "en-US.rc"
+			**Note that the file names are reversed compared to the process for "en-US.rc" files
+			:lang_add_short <file 1> <file 2>
+				2) Go to subdirectory "lang"
+				3) run translate3.awk on <file 2>
+				4) move temp.name to the parent directory
+				5) Go to parent directory
+				6) Run langadd_short.awk on <file 1>
+				7) Delete <file 1>
+				8) Delete temp.name
+				9) Rename tempfile.rc to the former <file 1> name
 		All directories that have a "lang" subdirectory can be found in the seperate file "directorylist_for_bat_file.txt"
 		I used excel to concatinate strings for the .bat file, and I have marked the ones that are incorrect in red, in the file "Lang_files_bat.xlsx"
 		The last thing the .bat file does is run the removeDuplMissing.awk on missing.txt, then just replace missing.txt with the updated version.
@@ -80,9 +110,8 @@ How to use Translate.bat:
 	3) Cut/copy the row (that now has a translation) to anywhere in wordlist.txt
 	4) Do this for any number of rows
 	5) Save wordlist.txt
-	6) Delete missing.txt
-	7) Run Translate.bat
-	8) Repeat from step 1
+	6) Run Translate.bat
+	7) Repeat from step 1
 
 TODO
 	Things I still need to address (no guarantee that any of them will ever be done):
