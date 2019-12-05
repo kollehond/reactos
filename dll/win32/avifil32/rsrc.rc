@@ -45,6 +45,9 @@ LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
  * Everything specific to any language goes
  * in one of the specific files.
  */
+#ifdef LANGUAGE_AF_ZA
+    #include "lang/avifile_Af.rc"
+#endif
 #ifdef LANGUAGE_BG_BG
     #include "lang/avifile_Bg.rc"
 #endif

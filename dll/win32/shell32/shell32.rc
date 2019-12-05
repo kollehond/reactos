@@ -88,6 +88,9 @@ END
  * which also have a neutral version. This is to
  * get localized bitmaps for example.
  */
+#ifdef LANGUAGE_AF_ZA
+    #include "lang/af-ZA.rc"
+#endif
 #ifdef LANGUAGE_EN_GB
     #include "lang/en-GB.rc"
 #endif

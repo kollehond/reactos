@@ -90,6 +90,9 @@ IDI_TT_ERROR_SM ICON idi_tt_error_sm.ico
 /* UTF-8 */
 #pragma code_page(65001)
 
+#ifdef LANGUAGE_AF_ZA
+    #include "lang/comctl_Af.rc"
+#endif
 #ifdef LANGUAGE_BG_BG
     #include "lang/comctl_Bg.rc"
 #endif

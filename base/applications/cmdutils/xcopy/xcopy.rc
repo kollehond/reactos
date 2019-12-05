@@ -25,6 +25,9 @@ LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 #define REACTOS_STR_ORIGINAL_FILENAME "xcopy.exe"
 #include <reactos/version.rc>
 
+#ifdef LANGUAGE_AF_ZA
+    #include "lang/af-ZA.rc"
+#endif
 #ifdef LANGUAGE_DA_DK
     #include "lang/da-DK.rc"
 #endif

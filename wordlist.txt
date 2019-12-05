@@ -1,4 +1,4 @@
-  --------  ----------  -------  -------  ---  ---\n|  --------  ----------  -------  -------  ---  ---\n
+﻿  --------  ----------  -------  -------  ---  ---\n|  --------  ----------  -------  -------  ---  ---\n
         %d file(s) copied\n|        %d lêer(s) gekopiëer\n
   -------------  ----------------  -------  -------\n|  -------------  ----------------  -------  -------\n
     |    
@@ -19,6 +19,94 @@
  Refresh the service list.| Vervris die diens lys.
  sec| sek
 # |# 
+Window Text|Venster Teks
+Message Box|Boodskap Boks
+Message Text|Boodskap Teks
+%d%%\0|%d%%\0
+GPRS|GPRS
+NETWORK|NETWERK
+Classic Theme|Klassieke Tema
+Comet|Komeet
+Snowman|Sneeuman
+Black Star|Swart Ster
+Spanish peseta|Spaanse peseta
+Umbrella|Sambreel
+White Star|Wit Ster
+Bullseye|Kolskoot
+Lightning|Weerlig
+Thunderstorm|Donderstorm
+INTERACTIVE|INTERAKTIEF
+SERVICE|DIENS
+LOCAL|PLAASLIK
+Minute of arc|Minuut van boog
+Used space:|Gebruikde spasie:
+Please Wait|Wag Asseblief
+Everyone|Almal
+Free space:|Vrye spasie:
+R&emove|V&erwyder
+Off|Af
+Computer locked|Rekenaar gesluit
+Capacity:|Kapasiteit:
+Member of|Lid van
+Message|Boodskap
+ERROR|FOUT
+Modems|Modems
+ISDN|ISDN
+Venezuela|Venezuela
+Free Space|Vrye Spasie
+Run|Hardloop
+Value: |Waarde: 
+Group|Groep
+OK|OK
+Caution|Versigtig
+ReactOS &VDM|ReactOS &VDM
+Date Created|Datum Geskep
+Actions|Aksies
+pressed|gedruk
+diagram|diagram
+LIST2|LYS2
+Mixed Content|Gemengde Inhoud
+Recycle Bin|Herwin Blik
+Preview:|Voorskou:
+Documents|Dokumente
+Restore|Herstel
+Model|Model
+WARNING|WAARSKUWING
+Personal|Persoonlik
+Pause|Pouseer
+Stop|Stop
+Event ID:|Gebeurtenis ID:
+This key only|Hierdie sleutel alleenlik
+This key and subkeys|Hierdie sleutel en subsleutels
+Subkeys only|Subsleutels alleenlik
+unknown|onbekend
+Degrees|Grade
+white space|wit spasie
+Last Change:|Laaste Verandering:
+Other People|Ander Mense
+Date Modified|Datum Verander
+&Date and Time...|&Datum en Tyd...
+Tan|Tan
+unixfs|unixfs
+False|Vals
+mixed|gemeng
+<None>|<Geen>
+selectable|kiesbaar
+Issued To|Uitgereik Aan
+Issued By|Uitgereik Deur
+&As:|&As:
+Arial|Arial
+invisible|onsigbaar
+static text|statiese teks
+text|teks
+linked|gekoppel
+Unknown Type|Onbekende Tipe
+Unknown Source|Onbekende Oorsprong
+normal|normaal
+Configure LPT Port|Konfigureer LPT Poort
+other|ander
+Applying font settings|Pas skrif veranderinge aan
+Second of arc|Sekonde van boog
 %02d:%02d:%02d|%02d:%02d:%02d
 %1 (%2\\%3)|%1 (%2\\%3)
 %1 [%2]|%1 [%2]
@@ -30,11 +118,16 @@
 %s (%s)\0|%s (%s)\0
 %s|%s
 %u Bit/s|%u Bit/s
+3D objects|3D objekte
 %u GBit/s|%u GBit/s
 %u Hertz|%u Hertz
 %u KBit/s|%u KBit/s
+Symbolic Link Format|Simboliese Koppel Formaat
 %u MB|%u MB
 %u MBit/s|%u MBit/s
+And|En
+Qword|Qwoord
+Dword|Dwoord
 &?|&?
 &1  %s|&1  %s
 &1 |&1 

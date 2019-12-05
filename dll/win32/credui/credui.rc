@@ -28,6 +28,9 @@ IDB_BANNER BITMAP "res/banner.bmp"
 /* UTF-8 */
 #pragma code_page(65001)
 
+#ifdef LANGUAGE_AF_ZA
+    #include "lang/credui_Af.rc"
+#endif
 #ifdef LANGUAGE_DA_DK
     #include "lang/credui_Da.rc"
 #endif

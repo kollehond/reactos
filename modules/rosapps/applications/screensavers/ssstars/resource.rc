@@ -45,6 +45,9 @@ IDB_STAR                BITMAP  DISCARDABLE     "res/star.bmp"
 /* UTF-8 */
 #pragma code_page(65001)
 
+#ifdef LANGUAGE_AF_ZA
+    #include "lang/af-ZA.rc"
+#endif
 #ifdef LANGUAGE_DE_DE
     #include "lang/de-DE.rc"
 #endif

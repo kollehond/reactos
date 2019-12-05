@@ -23,6 +23,9 @@ LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 IDI_NETWORK ICON "res/network.ico"
 IDI_INTERNET ICON "res/internet.ico"
 
+#ifdef LANGUAGE_AF_ZA
+    #include "lang/af-ZA.rc"
+#endif
 #ifdef LANGUAGE_BG_BG
     #include "lang/bg-BG.rc"
 #endif

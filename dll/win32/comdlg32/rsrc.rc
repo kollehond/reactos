@@ -44,6 +44,9 @@
 
 #pragma code_page(65001) // UTF-8
 
+#ifdef LANGUAGE_AF_ZA
+    #include "lang/cdlg_Af.rc"
+#endif
 #ifdef LANGUAGE_BG_BG
     #include "lang/cdlg_Bg.rc"
 #endif
