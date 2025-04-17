@@ -91,6 +91,8 @@ vDbgPrintExWithPrefixInternal(IN PCCH Prefix,
     }
     _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
     {
+        /* In user-mode, clear the InDbgPrint Flag */
+        RtlpClearInDbgPrint();
         /* Fail */
         _SEH2_YIELD(return _SEH2_GetExceptionCode());
     }
@@ -100,10 +102,11 @@ vDbgPrintExWithPrefixInternal(IN PCCH Prefix,
     if (Length == MAXULONG)
     {
         /* Terminate it if we went over-board */
-        Buffer[sizeof(Buffer) - 1] = '\n';
+        Buffer[sizeof(Buffer) - 2] = '\n';
+        Buffer[sizeof(Buffer) - 1] = '\0';
 
         /* Put maximum */
-        Length = sizeof(Buffer);
+        Length = sizeof(Buffer) - 1;
     }
     else
     {
@@ -129,8 +132,8 @@ vDbgPrintExWithPrefixInternal(IN PCCH Prefix,
         /* Raise the exception */
         RtlRaiseException(&ExceptionRecord);
 
-        /* This code only runs in user-mode, so setting the flag is safe */
-        NtCurrentTeb()->InDbgPrint = FALSE;
+        /* In user-mode, clear the InDbgPrint Flag */
+        RtlpClearInDbgPrint();
         return STATUS_SUCCESS;
     }
 

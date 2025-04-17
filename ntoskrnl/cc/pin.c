@@ -23,129 +23,298 @@ extern NPAGED_LOOKASIDE_LIST iBcbLookasideList;
  * - Number of calls to CcMapData that couldn't wait
  * - Number of calls to CcPinRead that could wait
  * - Number of calls to CcPinRead that couldn't wait
+ * - Number of calls to CcPinMappedDataCount
  */
 ULONG CcMapDataWait = 0;
 ULONG CcMapDataNoWait = 0;
 ULONG CcPinReadWait = 0;
 ULONG CcPinReadNoWait = 0;
+ULONG CcPinMappedDataCount = 0;
 
 /* FUNCTIONS *****************************************************************/
 
 static
-BOOLEAN
+PINTERNAL_BCB
 NTAPI
-CcpMapData(
-    IN PFILE_OBJECT FileObject,
+CcpFindBcb(
+    IN PROS_SHARED_CACHE_MAP SharedCacheMap,
     IN PLARGE_INTEGER FileOffset,
     IN ULONG Length,
-    IN ULONG Flags,
-    OUT PVOID *pBcb,
-    OUT PVOID *pBuffer)
+    IN BOOLEAN Pinned)
 {
-    LONGLONG ReadOffset;
-    BOOLEAN Valid;
-    PROS_SHARED_CACHE_MAP SharedCacheMap;
-    PROS_VACB Vacb;
-    NTSTATUS Status;
-    PINTERNAL_BCB iBcb;
-    LONGLONG ROffset;
+    PINTERNAL_BCB Bcb;
+    BOOLEAN Found = FALSE;
+    PLIST_ENTRY NextEntry;
+
+    for (NextEntry = SharedCacheMap->BcbList.Flink;
+         NextEntry != &SharedCacheMap->BcbList;
+         NextEntry = NextEntry->Flink)
+    {
+        Bcb = CONTAINING_RECORD(NextEntry, INTERNAL_BCB, BcbEntry);
+
+        if (Bcb->PFCB.MappedFileOffset.QuadPart <= FileOffset->QuadPart &&
+            (Bcb->PFCB.MappedFileOffset.QuadPart + Bcb->PFCB.MappedLength) >=
+            (FileOffset->QuadPart + Length))
+        {
+            if ((Pinned && Bcb->PinCount > 0) || (!Pinned && Bcb->PinCount == 0))
+            {
+                Found = TRUE;
+                break;
+            }
+        }
+    }
+
+    return (Found ? Bcb : NULL);
+}
+
+static
+VOID
+CcpDereferenceBcb(
+    IN PROS_SHARED_CACHE_MAP SharedCacheMap,
+    IN PINTERNAL_BCB Bcb)
+{
+    ULONG RefCount;
     KIRQL OldIrql;
 
-    ReadOffset = FileOffset->QuadPart;
-
-    ASSERT(FileObject);
-    ASSERT(FileObject->SectionObjectPointer);
-    ASSERT(FileObject->SectionObjectPointer->SharedCacheMap);
-
-    SharedCacheMap = FileObject->SectionObjectPointer->SharedCacheMap;
-    ASSERT(SharedCacheMap);
-
-    DPRINT("SectionSize %I64x, FileSize %I64x\n",
-           SharedCacheMap->SectionSize.QuadPart,
-           SharedCacheMap->FileSize.QuadPart);
-
-    if (ReadOffset % VACB_MAPPING_GRANULARITY + Length > VACB_MAPPING_GRANULARITY)
+    KeAcquireSpinLock(&SharedCacheMap->BcbSpinLock, &OldIrql);
+    RefCount = --Bcb->RefCount;
+    if (RefCount == 0)
     {
-        CCTRACE(CC_API_DEBUG, "FileObject=%p FileOffset=%p Length=%lu Flags=0x%lx -> FALSE\n",
-            FileObject, FileOffset, Length, Flags);
-        return FALSE;
-    }
+        RemoveEntryList(&Bcb->BcbEntry);
+        KeReleaseSpinLock(&SharedCacheMap->BcbSpinLock, OldIrql);
 
-    if (!BooleanFlagOn(Flags, MAP_NO_READ))
+        ASSERT(Bcb->PinCount == 0);
+        /*
+         * Don't mark dirty, if it was dirty,
+         * the VACB was already marked as such
+         * following the call to CcSetDirtyPinnedData
+         */
+        CcRosReleaseVacb(SharedCacheMap,
+                         Bcb->Vacb,
+                         FALSE,
+                         FALSE);
+
+        ExDeleteResourceLite(&Bcb->Lock);
+        ExFreeToNPagedLookasideList(&iBcbLookasideList, Bcb);
+    }
+    else
     {
-        static int Warned = 0;
-
-        SetFlag(Flags, MAP_NO_READ);
-        if (!Warned)
-        {
-            DPRINT1("Mapping/pinning with no read not implemented. Forcing read, might fail if wait not allowed\n");
-            Warned++;
-        }
+        KeReleaseSpinLock(&SharedCacheMap->BcbSpinLock, OldIrql);
     }
+}
 
-    ROffset = ROUND_DOWN(ReadOffset, VACB_MAPPING_GRANULARITY);
-    Status = CcRosRequestVacb(SharedCacheMap,
-                              ROffset,
-                              pBuffer,
-                              &Valid,
-                              &Vacb);
-    if (!NT_SUCCESS(Status))
-    {
-        CCTRACE(CC_API_DEBUG, "FileObject=%p FileOffset=%p Length=%lu Flags=0x%lx -> FALSE\n",
-            FileObject, FileOffset, Length, Flags);
-        ExRaiseStatus(Status);
-        return FALSE;
-    }
+static
+PVOID
+CcpGetAppropriateBcb(
+    IN PROS_SHARED_CACHE_MAP SharedCacheMap,
+    IN PROS_VACB Vacb,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN ULONG PinFlags,
+    IN BOOLEAN ToPin)
+{
+    KIRQL OldIrql;
+    BOOLEAN Result;
+    PINTERNAL_BCB iBcb, DupBcb;
 
-    if (!Valid && BooleanFlagOn(Flags, MAP_NO_READ))
-    {
-        if (!BooleanFlagOn(Flags, MAP_WAIT))
-        {
-            CcRosReleaseVacb(SharedCacheMap, Vacb, FALSE, FALSE, FALSE);
-            CCTRACE(CC_API_DEBUG, "FileObject=%p FileOffset=%p Length=%lu Flags=0x%lx -> FALSE\n",
-                FileObject, FileOffset, Length, Flags);
-            return FALSE;
-        }
-
-        Status = CcReadVirtualAddress(Vacb);
-        if (!NT_SUCCESS(Status))
-        {
-            CcRosReleaseVacb(SharedCacheMap, Vacb, FALSE, FALSE, FALSE);
-            CCTRACE(CC_API_DEBUG, "FileObject=%p FileOffset=%p Length=%lu Flags=0x%lx -> FALSE\n",
-                FileObject, FileOffset, Length, Flags);
-            ExRaiseStatus(Status);
-            return FALSE;
-        }
-    }
-
-    *pBuffer = (PUCHAR)*pBuffer + ReadOffset % VACB_MAPPING_GRANULARITY;
     iBcb = ExAllocateFromNPagedLookasideList(&iBcbLookasideList);
     if (iBcb == NULL)
     {
-        CcRosReleaseVacb(SharedCacheMap, Vacb, TRUE, FALSE, FALSE);
-        CCTRACE(CC_API_DEBUG, "FileObject=%p FileOffset=%p Length=%lu Flags=0x%lx -> FALSE\n",
-            FileObject, FileOffset, Length, Flags);
-        ExRaiseStatus(STATUS_INSUFFICIENT_RESOURCES);
-        return FALSE;
+        CcRosReleaseVacb(SharedCacheMap, Vacb, FALSE, FALSE);
+        return NULL;
     }
 
     RtlZeroMemory(iBcb, sizeof(*iBcb));
-    iBcb->PFCB.NodeTypeCode = 0xDE45; /* Undocumented (CAPTIVE_PUBLIC_BCB_NODETYPECODE) */
-    iBcb->PFCB.NodeByteSize = sizeof(PUBLIC_BCB);
+    iBcb->PFCB.NodeTypeCode = 0x2FD; /* As per KMTests */
+    iBcb->PFCB.NodeByteSize = 0;
     iBcb->PFCB.MappedLength = Length;
     iBcb->PFCB.MappedFileOffset = *FileOffset;
     iBcb->Vacb = Vacb;
-    iBcb->Dirty = FALSE;
-    iBcb->Pinned = FALSE;
+    iBcb->PinCount = 0;
     iBcb->RefCount = 1;
     ExInitializeResourceLite(&iBcb->Lock);
-    *pBcb = (PVOID)iBcb;
 
     KeAcquireSpinLock(&SharedCacheMap->BcbSpinLock, &OldIrql);
-    InsertTailList(&SharedCacheMap->BcbList, &iBcb->BcbEntry);
-    KeReleaseSpinLock(&SharedCacheMap->BcbSpinLock, OldIrql);
 
-    return TRUE;
+    /* Check if we raced with another BCB creation */
+    DupBcb = CcpFindBcb(SharedCacheMap, FileOffset, Length, ToPin);
+    /* Yes, and we've lost */
+    if (DupBcb != NULL)
+    {
+        /* We will return that BCB */
+        ++DupBcb->RefCount;
+        Result = TRUE;
+        KeReleaseSpinLock(&SharedCacheMap->BcbSpinLock, OldIrql);
+
+        if (ToPin)
+        {
+            if (BooleanFlagOn(PinFlags, PIN_EXCLUSIVE))
+            {
+                Result = ExAcquireResourceExclusiveLite(&iBcb->Lock, BooleanFlagOn(PinFlags, PIN_WAIT));
+            }
+            else
+            {
+                Result = ExAcquireSharedStarveExclusive(&iBcb->Lock, BooleanFlagOn(PinFlags, PIN_WAIT));
+            }
+
+            if (Result)
+            {
+                DupBcb->PinCount++;
+            }
+            else
+            {
+                CcpDereferenceBcb(SharedCacheMap, DupBcb);
+                DupBcb = NULL;
+            }
+        }
+
+        if (DupBcb != NULL)
+        {
+            /* Delete the loser */
+            CcRosReleaseVacb(SharedCacheMap, Vacb, FALSE, FALSE);
+            ExDeleteResourceLite(&iBcb->Lock);
+            ExFreeToNPagedLookasideList(&iBcbLookasideList, iBcb);
+        }
+
+        /* Return the winner - no need to update buffer address, it's
+         * relative to the VACB, which is unchanged.
+         */
+        iBcb = DupBcb;
+    }
+    /* Nope, insert ourselves */
+    else
+    {
+        if (ToPin)
+        {
+            iBcb->PinCount++;
+
+            if (BooleanFlagOn(PinFlags, PIN_EXCLUSIVE))
+            {
+                Result = ExAcquireResourceExclusiveLite(&iBcb->Lock, BooleanFlagOn(PinFlags, PIN_WAIT));
+            }
+            else
+            {
+                Result = ExAcquireSharedStarveExclusive(&iBcb->Lock, BooleanFlagOn(PinFlags, PIN_WAIT));
+            }
+
+            ASSERT(Result);
+        }
+
+        InsertTailList(&SharedCacheMap->BcbList, &iBcb->BcbEntry);
+        KeReleaseSpinLock(&SharedCacheMap->BcbSpinLock, OldIrql);
+    }
+
+    return iBcb;
+}
+
+static
+BOOLEAN
+CcpPinData(
+    IN PROS_SHARED_CACHE_MAP SharedCacheMap,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN ULONG Flags,
+    OUT	PVOID * Bcb,
+    OUT	PVOID * Buffer)
+{
+    PINTERNAL_BCB NewBcb;
+    KIRQL OldIrql;
+    ULONG VacbOffset;
+    NTSTATUS Status;
+    _SEH2_VOLATILE BOOLEAN Result;
+
+    VacbOffset = (ULONG)(FileOffset->QuadPart % VACB_MAPPING_GRANULARITY);
+
+    if ((VacbOffset + Length) > VACB_MAPPING_GRANULARITY)
+    {
+        /* Complain loudly, we shoud pin the whole range */
+        DPRINT1("TRUNCATING DATA PIN FROM %lu to %lu!\n", Length, VACB_MAPPING_GRANULARITY - VacbOffset);
+        Length = VACB_MAPPING_GRANULARITY - VacbOffset;
+    }
+
+    KeAcquireSpinLock(&SharedCacheMap->BcbSpinLock, &OldIrql);
+    NewBcb = CcpFindBcb(SharedCacheMap, FileOffset, Length, TRUE);
+
+    if (NewBcb != NULL)
+    {
+        BOOLEAN Result;
+
+        ++NewBcb->RefCount;
+        KeReleaseSpinLock(&SharedCacheMap->BcbSpinLock, OldIrql);
+
+        if (BooleanFlagOn(Flags, PIN_EXCLUSIVE))
+            Result = ExAcquireResourceExclusiveLite(&NewBcb->Lock, BooleanFlagOn(Flags, PIN_WAIT));
+        else
+            Result = ExAcquireSharedStarveExclusive(&NewBcb->Lock, BooleanFlagOn(Flags, PIN_WAIT));
+
+        if (!Result)
+        {
+            CcpDereferenceBcb(SharedCacheMap, NewBcb);
+            return FALSE;
+        }
+
+        NewBcb->PinCount++;
+    }
+    else
+    {
+        LONGLONG ROffset;
+        PROS_VACB Vacb;
+
+        KeReleaseSpinLock(&SharedCacheMap->BcbSpinLock, OldIrql);
+
+        if (BooleanFlagOn(Flags, PIN_IF_BCB))
+        {
+            return FALSE;
+        }
+
+        /* Properly round offset and call internal helper for getting a VACB */
+        ROffset = ROUND_DOWN(FileOffset->QuadPart, VACB_MAPPING_GRANULARITY);
+        Status = CcRosGetVacb(SharedCacheMap, ROffset, &Vacb);
+        if (!NT_SUCCESS(Status))
+        {
+            CCTRACE(CC_API_DEBUG, "FileObject=%p FileOffset=%p Length=%lu Flags=0x%lx -> FALSE\n",
+                SharedCacheMap->FileObject, FileOffset, Length, Flags);
+            ExRaiseStatus(Status);
+            return FALSE;
+        }
+
+        NewBcb = CcpGetAppropriateBcb(SharedCacheMap, Vacb, FileOffset, Length, Flags, TRUE);
+        if (NewBcb == NULL)
+        {
+            CcRosReleaseVacb(SharedCacheMap, Vacb, FALSE, FALSE);
+            return FALSE;
+        }
+    }
+
+    Result = FALSE;
+    _SEH2_TRY
+    {
+        /* Ensure the pages are resident */
+        Result = CcRosEnsureVacbResident(NewBcb->Vacb,
+                BooleanFlagOn(Flags, PIN_WAIT),
+                BooleanFlagOn(Flags, PIN_NO_READ),
+                VacbOffset, Length);
+    }
+    _SEH2_FINALLY
+    {
+        if (!Result)
+        {
+            CCTRACE(CC_API_DEBUG, "FileObject=%p FileOffset=%p Length=%lu Flags=0x%lx -> FALSE\n",
+                            SharedCacheMap->FileObject, FileOffset, Length, Flags);
+            CcUnpinData(&NewBcb->PFCB);
+            *Bcb = NULL;
+            *Buffer = NULL;
+        }
+    }
+    _SEH2_END;
+
+    if (Result)
+    {
+        *Bcb = &NewBcb->PFCB;
+        *Buffer = (PVOID)((ULONG_PTR)NewBcb->Vacb->BaseAddress + VacbOffset);
+    }
+
+    return Result;
 }
 
 /*
@@ -161,11 +330,24 @@ CcMapData (
     OUT PVOID *pBcb,
     OUT PVOID *pBuffer)
 {
-    BOOLEAN Ret;
+    KIRQL OldIrql;
+    PINTERNAL_BCB iBcb;
+    PROS_VACB Vacb;
+    PROS_SHARED_CACHE_MAP SharedCacheMap;
+    ULONG VacbOffset;
+    NTSTATUS Status;
+    _SEH2_VOLATILE BOOLEAN Result;
 
-    DPRINT("CcMapData(FileObject 0x%p, FileOffset %I64x, Length %lu, Flags 0x%lx,"
+    CCTRACE(CC_API_DEBUG, "CcMapData(FileObject 0x%p, FileOffset 0x%I64x, Length %lu, Flags 0x%lx,"
            " pBcb 0x%p, pBuffer 0x%p)\n", FileObject, FileOffset->QuadPart,
            Length, Flags, pBcb, pBuffer);
+
+    ASSERT(FileObject);
+    ASSERT(FileObject->SectionObjectPointer);
+    ASSERT(FileObject->SectionObjectPointer->SharedCacheMap);
+
+    SharedCacheMap = FileObject->SectionObjectPointer->SharedCacheMap;
+    ASSERT(SharedCacheMap);
 
     if (Flags & MAP_WAIT)
     {
@@ -176,11 +358,73 @@ CcMapData (
         ++CcMapDataNoWait;
     }
 
-    Ret = CcpMapData(FileObject, FileOffset, Length, Flags, pBcb, pBuffer);
+    VacbOffset = (ULONG)(FileOffset->QuadPart % VACB_MAPPING_GRANULARITY);
+    /* KMTests seem to show that it is allowed to call accross mapping granularity */
+    if ((VacbOffset + Length) > VACB_MAPPING_GRANULARITY)
+    {
+        DPRINT1("TRUNCATING DATA MAP FROM %lu to %lu!\n", Length, VACB_MAPPING_GRANULARITY - VacbOffset);
+        Length = VACB_MAPPING_GRANULARITY - VacbOffset;
+    }
 
-    CCTRACE(CC_API_DEBUG, "FileObject=%p FileOffset=%p Length=%lu Flags=0x%lx -> %d Bcb=%p\n",
-        FileObject, FileOffset, Length, Flags, Ret, *pBcb);
-    return Ret;
+    KeAcquireSpinLock(&SharedCacheMap->BcbSpinLock, &OldIrql);
+    iBcb = CcpFindBcb(SharedCacheMap, FileOffset, Length, FALSE);
+
+    if (iBcb == NULL)
+    {
+        KeReleaseSpinLock(&SharedCacheMap->BcbSpinLock, OldIrql);
+
+        /* Call internal helper for getting a VACB */
+        Status = CcRosGetVacb(SharedCacheMap, FileOffset->QuadPart, &Vacb);
+        if (!NT_SUCCESS(Status))
+        {
+            CCTRACE(CC_API_DEBUG, "FileObject=%p FileOffset=%p Length=%lu Flags=0x%lx -> FALSE\n",
+                SharedCacheMap->FileObject, FileOffset, Length, Flags);
+            ExRaiseStatus(Status);
+        }
+
+        iBcb = CcpGetAppropriateBcb(SharedCacheMap, Vacb, FileOffset, Length, 0, FALSE);
+        if (iBcb == NULL)
+        {
+            CcRosReleaseVacb(SharedCacheMap, Vacb, FALSE, FALSE);
+            CCTRACE(CC_API_DEBUG, "FileObject=%p FileOffset=%p Length=%lu Flags=0x%lx -> FALSE\n",
+                SharedCacheMap->FileObject, FileOffset, Length, Flags);
+            *pBcb = NULL; // If you ever remove this for compat, make sure to review all callers for using an unititialized value
+            ExRaiseStatus(STATUS_INSUFFICIENT_RESOURCES);
+        }
+    }
+    else
+    {
+        ++iBcb->RefCount;
+        KeReleaseSpinLock(&SharedCacheMap->BcbSpinLock, OldIrql);
+    }
+
+    _SEH2_TRY
+    {
+        Result = FALSE;
+        /* Ensure the pages are resident */
+        Result = CcRosEnsureVacbResident(iBcb->Vacb, BooleanFlagOn(Flags, MAP_WAIT),
+                BooleanFlagOn(Flags, MAP_NO_READ), VacbOffset, Length);
+    }
+    _SEH2_FINALLY
+    {
+        if (!Result)
+        {
+            CcpDereferenceBcb(SharedCacheMap, iBcb);
+            *pBcb = NULL;
+            *pBuffer = NULL;
+        }
+    }
+    _SEH2_END;
+
+    if (Result)
+    {
+        *pBcb = &iBcb->PFCB;
+        *pBuffer = (PVOID)((ULONG_PTR)iBcb->Vacb->BaseAddress + VacbOffset);
+    }
+
+    CCTRACE(CC_API_DEBUG, "FileObject=%p FileOffset=%p Length=%lu Flags=0x%lx -> TRUE Bcb=%p, Buffer %p\n",
+        FileObject, FileOffset, Length, Flags, *pBcb, *pBuffer);
+    return Result;
 }
 
 /*
@@ -196,6 +440,7 @@ CcPinMappedData (
     OUT	PVOID * Bcb)
 {
     BOOLEAN Result;
+    PVOID Buffer;
     PINTERNAL_BCB iBcb;
     PROS_SHARED_CACHE_MAP SharedCacheMap;
 
@@ -214,25 +459,14 @@ CcPinMappedData (
         return FALSE;
     }
 
-    iBcb = *Bcb;
-    ASSERT(iBcb->Pinned == FALSE);
+    iBcb = *Bcb ? CONTAINING_RECORD(*Bcb, INTERNAL_BCB, PFCB) : NULL;
 
-    iBcb->Pinned = TRUE;
-    iBcb->Vacb->PinCount++;
+    ++CcPinMappedDataCount;
 
-    if (BooleanFlagOn(Flags, PIN_EXCLUSIVE))
+    Result = CcpPinData(SharedCacheMap, FileOffset, Length, Flags, Bcb, &Buffer);
+    if (Result)
     {
-        Result = ExAcquireResourceExclusiveLite(&iBcb->Lock, BooleanFlagOn(Flags, PIN_WAIT));
-    }
-    else
-    {
-        Result = ExAcquireSharedStarveExclusive(&iBcb->Lock, BooleanFlagOn(Flags, PIN_WAIT));
-    }
-
-    if (!Result)
-    {
-        iBcb->Pinned = FALSE;
-        iBcb->Vacb->PinCount--;
+        CcUnpinData(&iBcb->PFCB);
     }
 
     return Result;
@@ -251,8 +485,22 @@ CcPinRead (
     OUT	PVOID * Bcb,
     OUT	PVOID * Buffer)
 {
+    PROS_SHARED_CACHE_MAP SharedCacheMap;
+
     CCTRACE(CC_API_DEBUG, "FileOffset=%p FileOffset=%p Length=%lu Flags=0x%lx\n",
         FileObject, FileOffset, Length, Flags);
+
+    ASSERT(FileObject);
+    ASSERT(FileObject->SectionObjectPointer);
+    ASSERT(FileObject->SectionObjectPointer->SharedCacheMap);
+
+    SharedCacheMap = FileObject->SectionObjectPointer->SharedCacheMap;
+    ASSERT(SharedCacheMap);
+    if (!SharedCacheMap->PinAccess)
+    {
+        DPRINT1("FIXME: Pinning a file with no pin access!\n");
+        return FALSE;
+    }
 
     if (Flags & PIN_WAIT)
     {
@@ -263,20 +511,7 @@ CcPinRead (
         ++CcPinReadNoWait;
     }
 
-    /* Map first */
-    if (!CcpMapData(FileObject, FileOffset, Length, Flags, Bcb, Buffer))
-    {
-        return FALSE;
-    }
-
-    /* Pin then */
-    if (!CcPinMappedData(FileObject, FileOffset, Length, Flags, Bcb))
-    {
-        CcUnpinData(*Bcb);
-        return FALSE;
-    }
-
-    return TRUE;
+    return CcpPinData(SharedCacheMap, FileOffset, Length, Flags, Bcb, Buffer);
 }
 
 /*
@@ -315,15 +550,19 @@ CcSetDirtyPinnedData (
     IN PVOID Bcb,
     IN PLARGE_INTEGER Lsn)
 {
-    PINTERNAL_BCB iBcb = Bcb;
+    PINTERNAL_BCB iBcb = CONTAINING_RECORD(Bcb, INTERNAL_BCB, PFCB);
+    PROS_VACB Vacb = iBcb->Vacb;
 
-    CCTRACE(CC_API_DEBUG, "Bcb=%p Lsn=%p\n",
-        Bcb, Lsn);
+    CCTRACE(CC_API_DEBUG, "Bcb=%p Lsn=%p\n", Bcb, Lsn);
 
-    iBcb->Dirty = TRUE;
-    if (!iBcb->Vacb->Dirty)
+    /* Tell Mm */
+    MmMakeSegmentDirty(Vacb->SharedCacheMap->FileObject->SectionObjectPointer,
+                       iBcb->PFCB.MappedFileOffset.QuadPart,
+                       iBcb->PFCB.MappedLength);
+
+    if (!Vacb->Dirty)
     {
-        CcRosMarkDirtyVacb(iBcb->Vacb);
+        CcRosMarkDirtyVacb(Vacb);
     }
 }
 
@@ -349,36 +588,17 @@ CcUnpinDataForThread (
     IN	PVOID Bcb,
     IN	ERESOURCE_THREAD ResourceThreadId)
 {
-    PINTERNAL_BCB iBcb = Bcb;
+    PINTERNAL_BCB iBcb = CONTAINING_RECORD(Bcb, INTERNAL_BCB, PFCB);
 
     CCTRACE(CC_API_DEBUG, "Bcb=%p ResourceThreadId=%lu\n", Bcb, ResourceThreadId);
 
-    if (iBcb->Pinned)
+    if (iBcb->PinCount != 0)
     {
         ExReleaseResourceForThreadLite(&iBcb->Lock, ResourceThreadId);
-        iBcb->Pinned = FALSE;
-        iBcb->Vacb->PinCount--;
+        iBcb->PinCount--;
     }
 
-    if (--iBcb->RefCount == 0)
-    {
-        KIRQL OldIrql;
-        PROS_SHARED_CACHE_MAP SharedCacheMap;
-
-        SharedCacheMap = iBcb->Vacb->SharedCacheMap;
-        CcRosReleaseVacb(SharedCacheMap,
-                         iBcb->Vacb,
-                         TRUE,
-                         iBcb->Dirty,
-                         FALSE);
-
-        KeAcquireSpinLock(&SharedCacheMap->BcbSpinLock, &OldIrql);
-        RemoveEntryList(&iBcb->BcbEntry);
-        KeReleaseSpinLock(&SharedCacheMap->BcbSpinLock, OldIrql);
-
-        ExDeleteResourceLite(&iBcb->Lock);
-        ExFreeToNPagedLookasideList(&iBcbLookasideList, iBcb);
-    }
+    CcpDereferenceBcb(iBcb->Vacb->SharedCacheMap, iBcb);
 }
 
 /*
@@ -389,7 +609,7 @@ NTAPI
 CcRepinBcb (
     IN	PVOID Bcb)
 {
-    PINTERNAL_BCB iBcb = Bcb;
+    PINTERNAL_BCB iBcb = CONTAINING_RECORD(Bcb, INTERNAL_BCB, PFCB);
 
     CCTRACE(CC_API_DEBUG, "Bcb=%p\n", Bcb);
 
@@ -406,52 +626,56 @@ CcUnpinRepinnedBcb (
     IN	BOOLEAN WriteThrough,
     IN	PIO_STATUS_BLOCK IoStatus)
 {
-    PINTERNAL_BCB iBcb = Bcb;
+    PINTERNAL_BCB iBcb = CONTAINING_RECORD(Bcb, INTERNAL_BCB, PFCB);
     KIRQL OldIrql;
     PROS_SHARED_CACHE_MAP SharedCacheMap;
 
     CCTRACE(CC_API_DEBUG, "Bcb=%p WriteThrough=%d\n", Bcb, WriteThrough);
 
+    SharedCacheMap = iBcb->Vacb->SharedCacheMap;
     IoStatus->Status = STATUS_SUCCESS;
+
+    if (WriteThrough)
+    {
+        CcFlushCache(iBcb->Vacb->SharedCacheMap->FileObject->SectionObjectPointer,
+                     &iBcb->PFCB.MappedFileOffset,
+                     iBcb->PFCB.MappedLength,
+                     IoStatus);
+    }
+    else
+    {
+        IoStatus->Status = STATUS_SUCCESS;
+        IoStatus->Information = 0;
+    }
+
+    KeAcquireSpinLock(&SharedCacheMap->BcbSpinLock, &OldIrql);
     if (--iBcb->RefCount == 0)
     {
-        IoStatus->Information = 0;
-        if (WriteThrough)
-        {
-            if (iBcb->Vacb->Dirty)
-            {
-                IoStatus->Status = CcRosFlushVacb(iBcb->Vacb);
-            }
-            else
-            {
-                IoStatus->Status = STATUS_SUCCESS;
-            }
-        }
-        else
-        {
-            IoStatus->Status = STATUS_SUCCESS;
-        }
-
-        if (iBcb->Pinned)
-        {
-            ExReleaseResourceLite(&iBcb->Lock);
-            iBcb->Pinned = FALSE;
-            iBcb->Vacb->PinCount--;
-            ASSERT(iBcb->Vacb->PinCount == 0);
-        }
-
-        SharedCacheMap = iBcb->Vacb->SharedCacheMap;
-        CcRosReleaseVacb(iBcb->Vacb->SharedCacheMap,
-                         iBcb->Vacb,
-                         TRUE,
-                         iBcb->Dirty,
-                         FALSE);
-
-        KeAcquireSpinLock(&SharedCacheMap->BcbSpinLock, &OldIrql);
         RemoveEntryList(&iBcb->BcbEntry);
         KeReleaseSpinLock(&SharedCacheMap->BcbSpinLock, OldIrql);
 
+        if (iBcb->PinCount != 0)
+        {
+            ExReleaseResourceLite(&iBcb->Lock);
+            iBcb->PinCount--;
+            ASSERT(iBcb->PinCount == 0);
+        }
+
+        /*
+         * Don't mark dirty, if it was dirty,
+         * the VACB was already marked as such
+         * following the call to CcSetDirtyPinnedData
+         */
+        CcRosReleaseVacb(iBcb->Vacb->SharedCacheMap,
+                         iBcb->Vacb,
+                         FALSE,
+                         FALSE);
+
         ExDeleteResourceLite(&iBcb->Lock);
         ExFreeToNPagedLookasideList(&iBcbLookasideList, iBcb);
+    }
+    else
+    {
+        KeReleaseSpinLock(&SharedCacheMap->BcbSpinLock, OldIrql);
     }
 }

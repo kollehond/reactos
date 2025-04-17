@@ -3,6 +3,7 @@
 #define IDC_STATIC          -1
 
 #define IDS_APPNAME         10
+#define IDS_APP_AUTHORS     11
 
 #define IDI_MAIN_ICON       20
 #define IDB_ROOT_IMAGE      21
@@ -12,30 +13,32 @@
 #define IDC_TREEVIEW        30
 #define IDC_TOOLBAR         31
 #define IDC_STATUSBAR       32
-#define IDR_MAINMENU        33
-#define IDR_POPUP           34
+
+/* Menus */
+#define IDM_MAINMENU        33
+#define IDM_POPUP           34
 
 /* Actions */
-#define IDC_PROPERTIES      40
-#define IDC_SCAN_HARDWARE   41
-#define IDC_ENABLE_DRV      42
-#define IDC_DISABLE_DRV     43
-#define IDC_UPDATE_DRV      44
-#define IDC_UNINSTALL_DRV   45
-#define IDC_ADD_HARDWARE    46
+#define IDM_PROPERTIES      40
+#define IDM_SCAN_HARDWARE   41
+#define IDM_ENABLE_DRV      42
+#define IDM_DISABLE_DRV     43
+#define IDM_UPDATE_DRV      44
+#define IDM_UNINSTALL_DRV   45
+#define IDM_ADD_HARDWARE    46
 
 /* Menu items */
-#define IDC_ACTIONMENU      50
-#define IDC_ABOUT           51
-#define IDC_EXIT            52
+#define IDM_ACTIONMENU      50
+#define IDM_ABOUT           51
+#define IDM_EXIT            52
 
 
 /* view menu */
-#define IDC_DEVBYTYPE       60
-#define IDC_DEVBYCONN       61
-#define IDC_RESBYTYPE       62
-#define IDC_RESBYCONN       63
-#define IDC_SHOWHIDDEN      64
+#define IDM_DEVBYTYPE       60
+#define IDM_DEVBYCONN       61
+#define IDM_RESBYTYPE       62
+#define IDM_RESBYCONN       63
+#define IDM_SHOWHIDDEN      64
 
 
 /* tooltips */
@@ -58,6 +61,7 @@
 #define IDS_MENU_SCAN           94
 #define IDS_MENU_ADD            95
 #define IDS_MENU_PROPERTIES     96
+#define IDS_MENU_COPY           97
 
 
 /* menu hints */
@@ -124,6 +128,7 @@
 #define IDS_RESOURCE_INTERRUPT    0x11A
 #define IDS_RESOURCE_DMA          0x11B
 #define IDS_RESOURCE_PORT         0x11C
+#define IDS_COPY                  0x11D
 
 #define IDS_DEV_NO_PROBLEM                 0x200
 #define IDS_DEV_NOT_CONFIGURED             0x201
@@ -215,6 +220,7 @@
 #define IDD_DRIVERDETAILS   0x404
 #define IDD_DEVICEDETAILS   0x405
 #define IDD_DEVICEPOWER     0x406
+#define IDD_UNINSTALLDRIVER 0x407
 
 #define IDC_DEVICON          0x57B
 #define IDC_DEVNAME          0x57C
@@ -231,7 +237,7 @@
 #define IDC_LOCATION         0x588
 #define IDC_STATUS           0x586
 #define IDC_TROUBLESHOOT     0x589
-#define IDC_PROPERTIES2      0x58A
+#define IDC_PROPERTIES       0x58A
 #define IDC_DEVUSAGELABEL    0x58B
 #define IDC_DEVPROBLEM       0x58C
 #define IDC_DRVPROVIDER      0x58D

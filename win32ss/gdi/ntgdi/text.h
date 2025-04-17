@@ -100,23 +100,37 @@ TEXTOBJ_UnlockText(PLFONT plfnt)
     LFONT_ShareUnlockFont(plfnt);
 }
 
+/* dwFlags for IntGdiAddFontResourceEx */
+#define AFRX_WRITE_REGISTRY 0x1
+#define AFRX_ALTERNATIVE_PATH 0x2
+#define AFRX_DOS_DEVICE_PATH 0x4
 
 PTEXTOBJ FASTCALL RealizeFontInit(HFONT);
 NTSTATUS FASTCALL TextIntRealizeFont(HFONT,PTEXTOBJ);
 NTSTATUS FASTCALL TextIntCreateFontIndirect(CONST LPLOGFONTW lf, HFONT *NewFont);
 BYTE FASTCALL IntCharSetFromCodePage(UINT uCodePage);
 BOOL FASTCALL InitFontSupport(VOID);
+VOID FASTCALL FreeFontSupport(VOID);
 BOOL FASTCALL IntIsFontRenderingEnabled(VOID);
 BOOL FASTCALL IntIsFontRenderingEnabled(VOID);
 VOID FASTCALL IntEnableFontRendering(BOOL Enable);
 ULONG FASTCALL FontGetObject(PTEXTOBJ TextObj, ULONG Count, PVOID Buffer);
 VOID FASTCALL IntLoadSystemFonts(VOID);
+BOOL FASTCALL IntLoadFontsInRegistry(VOID);
 VOID FASTCALL IntGdiCleanupPrivateFontsForProcess(VOID);
-INT FASTCALL IntGdiAddFontResource(PUNICODE_STRING FileName, DWORD Characteristics);
+INT FASTCALL IntGdiAddFontResourceEx(
+    _In_ PCUNICODE_STRING FileName,
+    _In_ DWORD cFiles,
+    _In_ DWORD Characteristics,
+    _In_ DWORD dwFlags);
+BOOL FASTCALL IntGdiRemoveFontResource(
+    _In_ PCUNICODE_STRING FileName,
+    _In_ DWORD cFiles,
+    _In_ DWORD dwFlags);
 HANDLE FASTCALL IntGdiAddFontMemResource(PVOID Buffer, DWORD dwSize, PDWORD pNumAdded);
 BOOL FASTCALL IntGdiRemoveFontMemResource(HANDLE hMMFont);
 ULONG FASTCALL ftGdiGetGlyphOutline(PDC,WCHAR,UINT,LPGLYPHMETRICS,ULONG,PVOID,LPMAT2,BOOL);
-INT FASTCALL IntGetOutlineTextMetrics(PFONTGDI,UINT,OUTLINETEXTMETRICW *);
+INT FASTCALL IntGetOutlineTextMetrics(PFONTGDI, UINT, OUTLINETEXTMETRICW*, BOOL);
 BOOL FASTCALL TextIntUpdateSize(PDC,PTEXTOBJ,PFONTGDI,BOOL);
 BOOL FASTCALL ftGdiGetRasterizerCaps(LPRASTERIZER_STATUS);
 BOOL FASTCALL TextIntGetTextExtentPoint(PDC,PTEXTOBJ,LPCWSTR,INT,ULONG,LPINT,LPINT,LPSIZE,FLONG);

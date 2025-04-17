@@ -10,7 +10,7 @@
  * - One test_runner managing 1 pipe for 1 service process that is shared
  *   by multiple services of type SERVICE_WIN32_SHARE_PROCESS.
  * - Find a way to elegantly determine the registered service name inside
- *   the service process, without really passing it 
+ *   the service process, without really passing it
  */
 
 #include "precomp.h"
@@ -30,7 +30,7 @@ void send_msg(const char *type, const char *msg)
     char buf[512];
 
     StringCbPrintfA(buf, sizeof(buf), "%s:%s", type, msg);
-    WriteFile(hClientPipe, buf, strlen(buf)+1, &written, NULL);
+    WriteFile(hClientPipe, buf, lstrlenA(buf)+1, &written, NULL);
 }
 
 void service_trace(const char *msg, ...)
@@ -270,7 +270,7 @@ static DWORD WINAPI pipe_thread(void *param)
      * Flush the pipe to allow the client to read
      * the pipe's contents before disconnecting.
      */
-    FlushFileBuffers(hServerPipe); 
+    FlushFileBuffers(hServerPipe);
 
     DisconnectNamedPipe(hServerPipe);
     trace("pipe disconnected\n");

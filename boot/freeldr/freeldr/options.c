@@ -42,6 +42,9 @@ PCSTR OptionsMenuList[] =
     NULL,
 
     "Start ReactOS normally",
+#ifdef HAS_OPTION_MENU_EDIT_CMDLINE
+    "Edit Boot Command Line (F10)",
+#endif
 #ifdef HAS_OPTION_MENU_CUSTOM_BOOT
     "Custom Boot",
 #endif
@@ -50,6 +53,7 @@ PCSTR OptionsMenuList[] =
 #endif
 };
 
+const
 PCSTR FrldrDbgMsg = "Enable FreeLdr debug channels\n"
                     "Acceptable syntax: [level1]#channel1[,[level2]#channel2]\n"
                     "level can be one of: trace,warn,fixme,err\n"
@@ -78,8 +82,6 @@ enum BootOption
     DIRECTORY_SERVICES_RESTORE_MODE,
 };
 
-ULONG OptionsMenuItemCount = sizeof(OptionsMenuList) / sizeof(OptionsMenuList[0]);
-
 static enum BootOption BootOptionChoice = NO_OPTION;
 static BOOLEAN BootLogging = FALSE;
 static BOOLEAN VgaMode = FALSE;
@@ -87,27 +89,26 @@ static BOOLEAN DebuggingMode = FALSE;
 
 /* FUNCTIONS ******************************************************************/
 
-VOID DoOptionsMenu(VOID)
+VOID DoOptionsMenu(IN OperatingSystemItem* OperatingSystem)
 {
     ULONG SelectedMenuItem;
     CHAR  DebugChannelString[100];
 
-    if (!UiDisplayMenu("Select an option:", "",
-                       TRUE,
+    if (!UiDisplayMenu("Select an option:", NULL,
                        OptionsMenuList,
-                       OptionsMenuItemCount,
+                       sizeof(OptionsMenuList) / sizeof(OptionsMenuList[0]),
                        11, // Use "Start ReactOS normally" as default; see the switch below.
                        -1,
                        &SelectedMenuItem,
                        TRUE,
-                       NULL))
+                       NULL, NULL))
     {
         /* The user pressed ESC */
         return;
     }
 
     /* Clear the backdrop */
-    UiDrawBackdrop();
+    UiDrawBackdrop(UiGetScreenHeight());
 
     switch (SelectedMenuItem)
     {
@@ -158,13 +159,18 @@ VOID DoOptionsMenu(VOID)
             VgaMode = FALSE;
             DebuggingMode = FALSE;
             break;
+#ifdef HAS_OPTION_MENU_EDIT_CMDLINE
+        case 12: // Edit command line
+            EditOperatingSystemEntry(OperatingSystem);
+            break;
+#endif
 #ifdef HAS_OPTION_MENU_CUSTOM_BOOT
-        case 12: // Custom Boot
+        case 13: // Custom Boot
             OptionMenuCustomBoot();
             break;
 #endif
 #ifdef HAS_OPTION_MENU_REBOOT
-        case 13: // Reboot
+        case 14: // Reboot
             OptionMenuReboot();
             break;
 #endif
@@ -173,31 +179,32 @@ VOID DoOptionsMenu(VOID)
 
 VOID DisplayBootTimeOptions(VOID)
 {
-    CHAR BootOptions[260] = "";
+    CHAR BootOptions[260];
 
     switch (BootOptionChoice)
     {
         case SAFE_MODE:
-            strcat(BootOptions, OptionsMenuList[0]);
+            strcpy(BootOptions, OptionsMenuList[0]);
             break;
 
         case SAFE_MODE_WITH_NETWORKING:
-            strcat(BootOptions, OptionsMenuList[1]);
+            strcpy(BootOptions, OptionsMenuList[1]);
             break;
 
         case SAFE_MODE_WITH_COMMAND_PROMPT:
-            strcat(BootOptions, OptionsMenuList[2]);
+            strcpy(BootOptions, OptionsMenuList[2]);
             break;
 
         case LAST_KNOWN_GOOD_CONFIGURATION:
-            strcat(BootOptions, OptionsMenuList[6]);
+            strcpy(BootOptions, OptionsMenuList[6]);
             break;
 
         case DIRECTORY_SERVICES_RESTORE_MODE:
-            strcat(BootOptions, OptionsMenuList[7]);
+            strcpy(BootOptions, OptionsMenuList[7]);
             break;
 
         default:
+            BootOptions[0] = ANSI_NULL;
             break;
     }
 
@@ -207,39 +214,31 @@ VOID DisplayBootTimeOptions(VOID)
              (BootOptionChoice != SAFE_MODE_WITH_NETWORKING) &&
              (BootOptionChoice != SAFE_MODE_WITH_COMMAND_PROMPT) )
         {
-            if (BootOptionChoice != NO_OPTION)
-            {
+            if (BootOptions[0] != ANSI_NULL)
                 strcat(BootOptions, ", ");
-            }
             strcat(BootOptions, OptionsMenuList[4]);
         }
     }
 
     if (VgaMode)
     {
-        if ((BootOptionChoice != NO_OPTION) ||
-             BootLogging)
-        {
+        if (BootOptions[0] != ANSI_NULL)
             strcat(BootOptions, ", ");
-        }
         strcat(BootOptions, OptionsMenuList[5]);
     }
 
     if (DebuggingMode)
     {
-        if ((BootOptionChoice != NO_OPTION) ||
-             BootLogging || VgaMode)
-        {
+        if (BootOptions[0] != ANSI_NULL)
             strcat(BootOptions, ", ");
-        }
         strcat(BootOptions, OptionsMenuList[8]);
     }
 
     /* Display the chosen boot options */
     UiDrawText(0,
-               UiScreenHeight - 2,
+               UiGetScreenHeight() - 2,
                BootOptions,
-               ATTR(COLOR_LIGHTBLUE, UiMenuBgColor));
+               ATTR(COLOR_LIGHTBLUE, UiGetMenuBgColor()));
 }
 
 VOID AppendBootTimeOptions(PCHAR BootOptions)
@@ -247,15 +246,15 @@ VOID AppendBootTimeOptions(PCHAR BootOptions)
     switch (BootOptionChoice)
     {
         case SAFE_MODE:
-            strcat(BootOptions, " /SAFEBOOT:MINIMAL /SOS"); // FIXME: NOGUIBOOT should also be specified
+            strcat(BootOptions, " /SAFEBOOT:MINIMAL /SOS /NOGUIBOOT");
             break;
 
         case SAFE_MODE_WITH_NETWORKING:
-            strcat(BootOptions, " /SAFEBOOT:NETWORK /SOS"); // FIXME: NOGUIBOOT should also be specified
+            strcat(BootOptions, " /SAFEBOOT:NETWORK /SOS /NOGUIBOOT");
             break;
 
         case SAFE_MODE_WITH_COMMAND_PROMPT:
-            strcat(BootOptions, " /SAFEBOOT:MINIMAL(ALTERNATESHELL) /SOS"); // FIXME: NOGUIBOOT should also be specified
+            strcat(BootOptions, " /SAFEBOOT:MINIMAL(ALTERNATESHELL) /SOS /NOGUIBOOT");
             break;
 
         case LAST_KNOWN_GOOD_CONFIGURATION:

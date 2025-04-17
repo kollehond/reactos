@@ -94,20 +94,20 @@ __fastcall
 UDFTIOVerify(
     IN void* _Vcb,
     IN void* Buffer,     // Target buffer
-    IN uint32 Length,
+    IN SIZE_T Length,
     IN uint32 LBA,
-    OUT uint32* IOBytes,
+    OUT PSIZE_T IOBytes,
     IN uint32 Flags
     )
 {
     OSSTATUS RC = STATUS_SUCCESS;
     uint32 i, j;
-    uint32 mask;
+    SIZE_T mask;
     uint32 lba0, len, lba1;
     PUCHAR tmp_buff;
     PUCHAR p;
     PCHAR cached_block;
-    uint32 tmp_wb;
+    SIZE_T tmp_wb;
     BOOLEAN need_remap;
     OSSTATUS final_RC = STATUS_SUCCESS;
     BOOLEAN zero;
@@ -127,7 +127,7 @@ UDFTIOVerify(
     UDFAcquireResourceExclusive(&(Vcb->IoResource), TRUE);
     Flags |= PH_IO_LOCKED;
 
-    tmp_wb = (uint32)_Vcb;
+    tmp_wb = (SIZE_T)_Vcb;
     if(Flags & PH_EX_WRITE) {
         UDFPrint(("IO-Write-Verify\n"));
         RC = UDFTWrite(_Vcb, Buffer, Length, LBA, &tmp_wb, Flags | PH_VCB_IN_RETLEN);
@@ -248,7 +248,7 @@ UDFTIOVerify(
             packet_ok = FALSE;
             if(!single_packet) {
                 // try to read entire packet, this returs error more often then sequential reading of all blocks one by one
-                tmp_wb = (uint32)_Vcb;
+                tmp_wb = (SIZE_T)_Vcb;
                 RC = UDFTRead(_Vcb, p, Vcb->SparingBlockSize << Vcb->BlockSizeBits, lba0+i, &tmp_wb,
                               Flags | PH_READ_VERIFY_CACHE | PH_TMP_BUFFER | PH_VCB_IN_RETLEN);
             } else {
@@ -271,7 +271,7 @@ UDFTIOVerify(
                 // even if block is cached, we have to verify if it is readable
                 if(!packet_ok && !UDFVIsStored(Vcb, lba0+i)) {
 
-                    tmp_wb = (uint32)_Vcb;
+                    tmp_wb = (SIZE_T)_Vcb;
                     RC = UDFTRead(_Vcb, p, Vcb->BlockSize, lba0+i, &tmp_wb,
                                   Flags | PH_FORGET_VERIFIED | PH_READ_VERIFY_CACHE | PH_TMP_BUFFER | PH_VCB_IN_RETLEN);
                     if(!OS_SUCCESS(RC)) {
@@ -297,7 +297,7 @@ UDFTIOVerify(
 
             } else {
                 if(!UDFVIsStored(Vcb, lba0+i)) {
-                    tmp_wb = (uint32)_Vcb;
+                    tmp_wb = (SIZE_T)_Vcb;
                     RC = UDFTRead(_Vcb, p, Vcb->BlockSize, lba0+i, &tmp_wb,
                                   Flags | PH_FORGET_VERIFIED | PH_READ_VERIFY_CACHE | PH_TMP_BUFFER | PH_VCB_IN_RETLEN);
                 } else {
@@ -363,7 +363,7 @@ do_remap:
                         UDFPrint(("  remap status %x\n", RC));
                         if(OS_SUCCESS(RC)) {
                             // write to remapped area
-                            tmp_wb = (uint32)_Vcb;
+                            tmp_wb = (SIZE_T)_Vcb;
                             RC = UDFTWrite(_Vcb, tmp_buff, Vcb->SparingBlockSize << Vcb->BlockSizeBits, lba1, &tmp_wb,
                                           Flags | PH_FORGET_VERIFIED | PH_READ_VERIFY_CACHE | PH_TMP_BUFFER | PH_VCB_IN_RETLEN);
                             UDFPrint(("  write status %x\n", RC));
@@ -397,7 +397,7 @@ do_remap:
         DbgFreePool(tmp_buff);
     }
 
-    tmp_wb = (uint32)_Vcb;
+    tmp_wb = (SIZE_T)_Vcb;
     if(Flags & PH_EX_WRITE) {
         UDFPrint(("IO-Write-Verify (2)\n"));
         //RC = UDFTWrite(_Vcb, Buffer, Length, LBA, &tmp_wb, Flags | PH_FORGET_VERIFIED | PH_VCB_IN_RETLEN);
@@ -420,9 +420,9 @@ OSSTATUS
 UDFTWriteVerify(
     IN void* _Vcb,
     IN void* Buffer,     // Target buffer
-    IN uint32 Length,
+    IN SIZE_T Length,
     IN uint32 LBA,
-    OUT uint32* WrittenBytes,
+    OUT PSIZE_T WrittenBytes,
     IN uint32 Flags
     )
 {
@@ -433,9 +433,9 @@ OSSTATUS
 UDFTReadVerify(
     IN void* _Vcb,
     IN void* Buffer,     // Target buffer
-    IN uint32 Length,
+    IN SIZE_T Length,
     IN uint32 LBA,
-    OUT uint32* ReadBytes,
+    OUT PSIZE_T ReadBytes,
     IN uint32 Flags
     )
 {
@@ -453,9 +453,9 @@ OSSTATUS
 UDFTWrite(
     IN void* _Vcb,
     IN void* Buffer,     // Target buffer
-    IN uint32 Length,
+    IN SIZE_T Length,
     IN uint32 LBA,
-    OUT uint32* WrittenBytes,
+    OUT PSIZE_T WrittenBytes,
     IN uint32 Flags
     )
 {
@@ -526,7 +526,7 @@ retry_1:
                 try_return(RC);
             }
             if(Flags & PH_VCB_IN_RETLEN) {
-                (*WrittenBytes) = (ULONG)Vcb;
+                (*WrittenBytes) = (ULONG_PTR)Vcb;
             }
             RC = UDFPhWriteVerifySynchronous(Vcb->TargetDeviceObject, Buffer, Length,
                        ((uint64)rLba) << Vcb->BlockSizeBits, WrittenBytes, Flags);
@@ -543,7 +543,7 @@ retry_1:
         // write according to relocation table
         RelocExtent_saved = RelocExtent;
         for(i=0; RelocExtent->extLength; i++, RelocExtent++) {
-            uint32 _WrittenBytes;
+            SIZE_T _WrittenBytes;
             rLba = RelocExtent->extLocation;
             BCount = RelocExtent->extLength>>Vcb->BlockSizeBits;
             retry = UDF_WRITE_MAX_RETRY;
@@ -554,7 +554,7 @@ retry_2:
                 break;
             }
             if(Flags & PH_VCB_IN_RETLEN) {
-                _WrittenBytes = (ULONG)Vcb;
+                _WrittenBytes = (ULONG_PTR)Vcb;
             }
             RC = UDFPhWriteVerifySynchronous(Vcb->TargetDeviceObject, Buffer, RelocExtent->extLength,
                        ((uint64)rLba) << Vcb->BlockSizeBits, &_WrittenBytes, Flags);
@@ -596,11 +596,11 @@ OSSTATUS
 UDFTRead(
     IN void* _Vcb,
     IN void* Buffer,     // Target buffer
-    IN uint32 Length,
+    IN SIZE_T Length,
     IN uint32 LBA,
-    OUT uint32* ReadBytes,
+    OUT PSIZE_T ReadBytes,
     IN uint32 Flags
-    ) 
+    )
 {
     uint32 rLba;
     OSSTATUS RC = STATUS_SUCCESS;
@@ -651,7 +651,7 @@ retry_1:
             if(!OS_SUCCESS(RC)) return RC; // this is for !_BROWSE_UDF only
 #endif //_BROWSE_UDF_
             if(Flags & PH_VCB_IN_RETLEN) {
-                (*ReadBytes) = (ULONG)Vcb;
+                (*ReadBytes) = (SIZE_T)Vcb;
             }
             RC = UDFPhReadSynchronous(Vcb->TargetDeviceObject, Buffer, Length,
                        ((uint64)rLba) << Vcb->BlockSizeBits, ReadBytes, Flags);
@@ -674,7 +674,7 @@ retry_1:
         // read according to relocation table
         RelocExtent_saved = RelocExtent;
         for(i=0; RelocExtent->extLength; i++, RelocExtent++) {
-            uint32 _ReadBytes;
+            SIZE_T _ReadBytes;
             rLba = RelocExtent->extLocation;
             if(rLba >= (Vcb->CDR_Mode ? Vcb->NWA : Vcb->LastLBA + 1)) {
                 RtlZeroMemory(Buffer, _ReadBytes = RelocExtent->extLength);
@@ -688,7 +688,7 @@ retry_2:
             if(!OS_SUCCESS(RC)) break;
             rLba = UDFFixFPAddress(Vcb, rLba);
             if(Flags & PH_VCB_IN_RETLEN) {
-                _ReadBytes = (ULONG)Vcb;
+                _ReadBytes = (SIZE_T)Vcb;
             }
             RC = UDFPhReadSynchronous(Vcb->TargetDeviceObject, Buffer, RelocExtent->extLength,
                        ((uint64)rLba) << Vcb->BlockSizeBits, &_ReadBytes, Flags);
@@ -731,10 +731,10 @@ UDFTReadAsync(
     IN void* _Vcb,
     IN void* _WContext,
     IN void* Buffer,     // Target buffer
-    IN uint32 Length,
+    IN SIZE_T Length,
     IN uint32 LBA,
-    OUT uint32* ReadBytes
-    ) 
+    OUT PSIZE_T ReadBytes
+    )
 {
     PEXTENT_MAP RelocExtent;
     PEXTENT_MAP RelocExtent_saved;
@@ -774,7 +774,7 @@ retry_1:
     // read according to relocation table
     RelocExtent_saved = RelocExtent;
     for(uint32 i=0; RelocExtent->extLength; i++, RelocExtent++) {
-        uint32 _ReadBytes;
+        SIZE_T _ReadBytes;
         rLba = RelocExtent->extLocation;
         if(rLba >= (Vcb->CDR_Mode ? Vcb->NWA : Vcb->LastLBA + 1)) {
             RtlZeroMemory(Buffer, _ReadBytes = RelocExtent->extLength);
@@ -899,7 +899,7 @@ UDFPrepareForWriteOperation(
 #ifndef UDF_READ_ONLY_BUILD
 #ifdef UDF_FORMAT_MEDIA
     PUDFFmtState            fms = Vcb->fms;
-#else 
+#else
   #define fms FALSE
 #endif //UDF_FORMAT_MEDIA
 
@@ -919,7 +919,7 @@ UDFPrepareForWriteOperation(
 
     Vcb->VCBFlags |= UDF_VCB_LAST_WRITE;
 
-    if( 
+    if(
 #ifdef _BROWSE_UDF_
        (((Vcb->FsDeviceType != FILE_DEVICE_CD_ROM_FILE_SYSTEM) ||
        !(Vcb->VCBFlags & UDF_VCB_FLAGS_VOLUME_MOUNTED) ||
@@ -1024,7 +1024,7 @@ UDFPrepareForWriteOperation(
 
         // set packet type (VP/FP)
 //        if(opt_partition == PT_VAT15 ||
-//           opt_blank_vat15) 
+//           opt_blank_vat15)
         if(WParams->Byte2.Flags & WParam_LS_V) {
             WParams->LinkSize = 7;
         }
@@ -1081,7 +1081,7 @@ UDFPrepareForWriteOperation(
         // set additional flags for VP
 
         if(Vcb->CDR_Mode) {
-//        if(opt_partition == PT_VAT15) 
+//        if(opt_partition == PT_VAT15)
             WParams->SubHeader.Params.Params1.SubMode = WParam_SubHdr_SubMode1;
         }
         WParams->PageLength = sizeof(GET_WRITE_MODE_USER_OUT)-2;
@@ -1122,7 +1122,7 @@ UDFPrepareForWriteOperation(
             }
         }
 #endif //UDF_FORMAT_MEDIA
-        
+
         // switch to random access mode
         ((PSET_RANDOM_ACCESS_USER_IN)WParams)->RandomAccessMode = Vcb->CDR_Mode ? FALSE : TRUE;
 //        ((PSET_RANDOM_ACCESS_USER_IN)WParams)->RandomAccessMode = (opt_partition != PT_VAT15) ? TRUE : FALSE;
@@ -1155,9 +1155,9 @@ check_dvd_bg_format:
             Vcb->MediaClassEx == CdMediaClass_DVDRAM ||
             Vcb->MRWStatus == DiscInfo_BGF_Interrupted )
                  && (Lba > Vcb->LastLBA)) {
-   
+
             ULONG fLba;
-            ULONG WrittenBytes;
+            SIZE_T WrittenBytes;
             ULONG PSz = BCount << Vcb->BlockSizeBits;
 #ifdef _BROWSE_UDF_
             ULONG retry;
@@ -1265,7 +1265,7 @@ retry_1:
         } else {
             UDFPrint(("  no special processing\n"));
         }
-        
+
         return RC;
     }
 #endif //UDF_READ_ONLY_BUILD
@@ -1473,7 +1473,7 @@ bad_rw_seek_recovery:
     /*                    if(Vcb->TrackMap[i].Flags & TrackMap_Use_variation)
                             break;*/
                         Vcb->TrackMap[i].Flags |= TrackMap_Try_variation;
-                        // Try variation. 
+                        // Try variation.
                         if(!(Vcb->TrackMap[i].Flags ^= TrackMap_AllowCopyBit_variated))
                             Vcb->TrackMap[i].Flags ^= TrackMap_CopyBit_variated;
                         if(Vcb->TrackMap[i].Flags & (TrackMap_AllowCopyBit_variated |
@@ -1651,7 +1651,7 @@ UDFReadDiscTrackInfo(
 #ifdef UDF_FORMAT_MEDIA
     PUDFFmtState            fms = Vcb->fms;
 #endif
-    
+
     _SEH2_TRY {
         if(!DiscInfo || !TrackInfoOut)
             try_return(RC = STATUS_INSUFFICIENT_RESOURCES);
@@ -1659,7 +1659,7 @@ UDFReadDiscTrackInfo(
 MRWRetry_label:
 
         RC = UDFPhSendIOCTL(IOCTL_CDRW_READ_DISC_INFO, DeviceObject,
-                NULL, 0, 
+                NULL, 0,
                 DiscInfo,sizeof(DISC_INFO_BLOCK_USER_OUT), TRUE, NULL);
         if(!OS_SUCCESS(RC)) {
             UDFPrint(("ReadDiskInfo failed. Use default.\n"));
@@ -1682,7 +1682,7 @@ MRWRetry_label:
 #endif //UDF_FORMAT_MEDIA
 
         RC = UDFPhSendIOCTL(IOCTL_CDRW_READ_CAPACITY, DeviceObject,
-                NULL, 0, 
+                NULL, 0,
                 &CapacityBuffer,sizeof(READ_CAPACITY_USER_OUT), TRUE, NULL);
         if(!OS_SUCCESS(RC)) {
             UDFPrint(("ReadCapacity failed.\n"));
@@ -1843,7 +1843,7 @@ MRWRetry_label:
 
         Vcb->LastSession   = DiscInfo->Status.NumOfSes;
         Vcb->LastTrackNum  = DiscInfo->Status.LastTrackNumLastSes;
-        Vcb->FirstTrackNum = DiscInfo->FirstTrackNum;             
+        Vcb->FirstTrackNum = DiscInfo->FirstTrackNum;
         // some devices report LastTrackNum=0 for full disks
         Vcb->LastTrackNum = max(Vcb->LastTrackNum, Vcb->FirstTrackNum);
         if(!Vcb->LastTrackNum) {
@@ -1967,14 +1967,14 @@ MRWRetry_label:
                     Vcb->LastPossibleLBA - Vcb->TrackMap[TrackNumber].FirstLba + 1));
                 TrackInfoOut->TrackLength = Vcb->LastPossibleLBA - Vcb->TrackMap[TrackNumber].FirstLba + 1;
             }
-            Vcb->TrackMap[TrackNumber].LastLba = TrackInfoOut->TrackStartLBA + 
-                                                 TrackInfoOut->TrackLength - 
+            Vcb->TrackMap[TrackNumber].LastLba = TrackInfoOut->TrackStartLBA +
+                                                 TrackInfoOut->TrackLength -
                                             (TrackInfoOut->TrackLength ? 1 : 0);
 
             Vcb->TrackMap[TrackNumber].TrackParam = TrackInfoOut->TrackParam.Flags;
             Vcb->TrackMap[TrackNumber].DataParam = TrackInfoOut->DataParam.Flags;
             Vcb->TrackMap[TrackNumber].NWA_V = TrackInfoOut->NWA_V;
-            if((TrackInfoOut->NextWriteLBA & 0x80000000) || 
+            if((TrackInfoOut->NextWriteLBA & 0x80000000) ||
                (TrackInfoOut->NextWriteLBA < TrackInfoOut->TrackStartLBA)) {
                 if(!(Vcb->TrackMap[TrackNumber].LastLba & 0x8000000)) {
                     UDFPrint(("TrkInfo: set NWA to LastLba (%x)\n", Vcb->TrackMap[TrackNumber].LastLba));
@@ -2116,7 +2116,7 @@ MRWRetry_label:
             if(Vcb->MediaClassEx != CdMediaClass_DVDpRW) {
                 Vcb->NWA = TrackInfoOut->NextWriteLBA;
             } else {
-                Vcb->NWA = 
+                Vcb->NWA =
                     TrackInfoOut->TrackStartLBA + TrackInfoOut->TrackLength - (TrackInfoOut->TrackLength ? 1 : 0);
             }
         }
@@ -2143,7 +2143,7 @@ MRWRetry_label:
                     UDFPrint((" complete MRW state\n"));
 #ifdef _BROWSE_UDF_
                     Vcb->LastPossibleLBA =
-                    Vcb->NWA = 
+                    Vcb->NWA =
                     Vcb->LastLBA =
                     Vcb->TrackMap[TrackNumber].LastLba;
                     goto valid_track_length;
@@ -2151,7 +2151,7 @@ MRWRetry_label:
                 } else
                 if(Vcb->MRWStatus) {
                     uint8* buff;
-                    uint32 ReadBytes;
+                    SIZE_T ReadBytes;
 
                     UDFPrint((" MRW state %x\n", Vcb->MRWStatus));
 
@@ -2178,7 +2178,7 @@ MRWRetry_label:
                 }
             }
             UDFPrint((" set track LastLBA %x\n", Vcb->LastPossibleLBA));
-            Vcb->NWA = 
+            Vcb->NWA =
             Vcb->LastLBA =
             Vcb->TrackMap[TrackNumber].LastLba =
                 Vcb->LastPossibleLBA;
@@ -2189,7 +2189,7 @@ valid_track_length:
             Vcb->TrackMap[TrackNumber-1].Session) &&
            (Vcb->LastSession > 1)) {
             // Note: some devices return negative track length
-            if((Vcb->TrackMap[TrackNumber].LastLba <=  
+            if((Vcb->TrackMap[TrackNumber].LastLba <=
                 Vcb->TrackMap[TrackNumber].FirstLba) ||
                (Vcb->TrackMap[TrackNumber].FirstLba ==
                 Vcb->TrackMap[TrackNumber].NWA)) {
@@ -2397,7 +2397,7 @@ UDFUseStandard(
 #ifdef _BROWSE_UDF_
     uint32                  OldTrkNum;
     uint32                  TrkNum;
-    uint32                  ReadBytes, i, len;
+    SIZE_T                  ReadBytes, i, len;
 #endif //_BROWSE_UDF_
 #ifdef UDF_FORMAT_MEDIA
     PUDFFmtState            fms = Vcb->fms;
@@ -2429,7 +2429,7 @@ UDFUseStandard(
             try_return(RC = STATUS_NO_MEDIA_IN_DEVICE);
         }
 #endif //UDF_FORMAT_MEDIA
-    
+
         // If even standard read toc does not work, then use default values
         if(!OS_SUCCESS(RC)) {
 
@@ -2477,16 +2477,16 @@ UDFUseStandard(
 #ifdef _CONSOLE
         Vcb->PhDeviceType = FILE_DEVICE_CD_ROM;
 #endif //_CONSOLE
-    
+
         LocalTrackCount = toc->Tracks.Last_TrackSes - toc->Tracks.First_TrackSes + 1;
 //        LocalTocLength = PtrOffset( toc, &(toc->TrackData[LocalTrackCount + 1]) );  /* FIXME ReactOS Assume PtrOffset is not changing it's arguments? */
-      
+
         // Get out if there is an immediate problem with the TOC.
         if(toc->Tracks.First_TrackSes > toc->Tracks.Last_TrackSes) {
             try_return(RC = STATUS_DISK_CORRUPT_ERROR);
         }
 
-#ifdef _BROWSE_UDF_        
+#ifdef _BROWSE_UDF_
         Vcb->LastTrackNum=toc->Tracks.Last_TrackSes;
         Vcb->FirstTrackNum=toc->Tracks.First_TrackSes;
         // some devices report LastTrackNum=0 for full disks
@@ -2524,7 +2524,7 @@ UDFUseStandard(
                 }
             }
         }
-    
+
         OldTrkNum = 0;
         // Scan toc for first & last LBA
         for(TocEntry=0;TocEntry<LocalTrackCount + 1;TocEntry++) {
@@ -2652,7 +2652,7 @@ UDFUseStandard(
 
         Vcb->FirstTrackNum=toc->Tracks.Last_TrackSes;
         Vcb->LastTrackNum=toc->Tracks.First_TrackSes;
-    
+
         // Scan toc for first & last LBA
         for(TocEntry=0;TocEntry<LocalTrackCount + 1;TocEntry++) {
 #define TempMSF toc->TrackData[TocEntry].LBA
@@ -2667,7 +2667,7 @@ UDFUseStandard(
             }
 #undef TempMSF
         }
-    
+
 //        Vcb->LastLBA=PacketVariable2Fixed(Vcb->LastLBA)-2;
         Vcb->LastPossibleLBA = DEFAULT_LAST_LBA_FP_CD;
 #endif //_BROWSE_UDF_
@@ -2879,7 +2879,7 @@ UDFCheckTrackFPAddressing(
     uint32 lba=0;
     uint32 i;
     uint8* Buffer;
-//    uint32 ReadBytes;
+//    SIZE_T ReadBytes;
 
     uint8  user_data;
 
@@ -3019,7 +3019,7 @@ UDFFixFPAddress(
     IN uint32         Lba
     )
 {
-    uint32 i = Vcb->LastReadTrack;    
+    uint32 i = Vcb->LastReadTrack;
     uint32 pk;
     uint32 rel;
 
@@ -3074,16 +3074,16 @@ UDFGetDiskInfo(
     _SEH2_TRY {
         RC = UDFGetBlockSize(DeviceObject, Vcb);
         if(!OS_SUCCESS(RC)) try_return(RC);
-    
-    
+
+
         // Get lower driver signature
         RC = UDFPhSendIOCTL(IOCTL_CDRW_GET_SIGNATURE,DeviceObject,
             ioBuf,sizeof(GET_SIGNATURE_USER_OUT),
             ioBuf,sizeof(GET_SIGNATURE_USER_OUT),
             TRUE,NULL);
-    
+
         if(!OS_SUCCESS(RC)) {
-    
+
             RC = UDFUseStandard(DeviceObject, Vcb);
 #ifdef _BROWSE_UDF_
             if(!NT_SUCCESS(RC) || fms)
@@ -3096,13 +3096,13 @@ UDFGetDiskInfo(
 
         UDFPrint(("UDF: Signature of low driver is : %s \n",
             ((PGET_SIGNATURE_USER_OUT)(ioBuf))->VendorId));
-    
+
         if(!strncmp( (const char *)(&( ((PGET_SIGNATURE_USER_OUT)(ioBuf))->VendorId[0]) ),
             Signature,strlen(Signature) )) {
             UDFPrint(("UDF: *****************************************\n"));
             UDFPrint(("UDF: ********* Our Device Driver Found ******\n"));
             UDFPrint(("UDF: *****************************************\n"));
-    
+
             (Vcb->VCBFlags) |= UDF_VCB_FLAGS_OUR_DEVICE_DRIVER;
 #ifndef _BROWSE_UDF_
             // reset driver
@@ -3537,12 +3537,12 @@ Try_FullToc:
 #endif
 
                 RC = UDFReadAndProcessFullToc(DeviceObject, Vcb);
-    
+
                 if(!OS_SUCCESS(RC)) {
                     RC = UDFUseStandard(DeviceObject,Vcb);
                     if(!OS_SUCCESS(RC)) try_return(RC);
                 }
-    
+
             }
         } else {
 #ifdef _BROWSE_UDF_
@@ -3551,7 +3551,7 @@ GetSignatureFailed:
             RC = UDFUseStandard(DeviceObject, Vcb);
             if(!OS_SUCCESS(RC)) try_return(RC);
         }
-    
+
 try_exit:   NOTHING;
 
     } _SEH2_FINALLY {
@@ -3574,7 +3574,7 @@ try_exit:   NOTHING;
             Vcb->LastPossibleLBA = DEFAULT_LAST_LBA_DVD;
             Vcb->LastLBA = 0;
         }
-        
+
         if((Vcb->LastPossibleLBA & 0x80000000) || (Vcb->LastPossibleLBA < Vcb->LastLBA)) {
             UDFPrint(("UDF: bad LastPossibleLBA %x -> %x\n", Vcb->LastPossibleLBA, Vcb->LastLBA));
             Vcb->LastPossibleLBA = Vcb->LastLBA;
@@ -3682,7 +3682,7 @@ UDFPrepareForReadOperation(
 #ifdef _BROWSE_UDF_
     PUCHAR tmp;
     OSSTATUS RC;
-    ULONG ReadBytes;
+    SIZE_T ReadBytes;
 #endif //_BROWSE_UDF_
 
 #ifdef _UDF_STRUCTURES_H_
@@ -3887,7 +3887,7 @@ UDFReadSectors(
     IN uint32 Lba,
     IN uint32 BCount,
     OUT int8* Buffer,
-    OUT uint32* ReadBytes
+    OUT PSIZE_T ReadBytes
     )
 {
 
@@ -3911,12 +3911,12 @@ UDFReadInSector(
     IN uint32 l,                 // transfer length
     IN BOOLEAN Direct,          // Disable access to non-cached data
     OUT int8* Buffer,
-    OUT uint32* ReadBytes
+    OUT PSIZE_T ReadBytes
     )
 {
     int8* tmp_buff;
     OSSTATUS status;
-    uint32 _ReadBytes;
+    SIZE_T _ReadBytes;
 
     (*ReadBytes) = 0;
     if(WCacheIsInitialized__(&(Vcb->FastCache)) && (KeGetCurrentIrql() < DISPATCH_LEVEL)) {
@@ -3953,13 +3953,13 @@ UDFReadData(
     IN uint32 Length,
     IN BOOLEAN Direct,          // Disable access to non-cached data
     OUT int8* Buffer,
-    OUT uint32* ReadBytes
+    OUT PSIZE_T ReadBytes
     )
 {
     uint32 i, l, Lba, BS=Vcb->BlockSize;
     uint32 BSh=Vcb->BlockSizeBits;
     OSSTATUS status;
-    uint32 _ReadBytes = 0;
+    SIZE_T _ReadBytes = 0;
     Vcb->VCBFlags |= UDF_VCB_SKIP_EJECT_CHECK;
     uint32 to_read;
 
@@ -4016,7 +4016,7 @@ UDFWriteSectors(
     IN uint32 BCount,
     IN BOOLEAN Direct,          // Disable access to non-cached data
     IN int8* Buffer,
-    OUT uint32* WrittenBytes
+    OUT PSIZE_T WrittenBytes
     )
 {
     OSSTATUS status;
@@ -4045,7 +4045,7 @@ UDFWriteSectors(
     }
 /*    void* buffer;
     OSSTATUS status;
-    uint32 _ReadBytes;
+    SIZE_T _ReadBytes;
     (*WrittenBytes) = 0;
     buffer = DbgAllocatePool(NonPagedPool, Vcb->WriteBlockSize);
     if(!buffer) return STATUS_INSUFFICIENT_RESOURCES;
@@ -4068,14 +4068,14 @@ UDFWriteInSector(
     IN uint32 l,                 // transfer length
     IN BOOLEAN Direct,          // Disable access to non-cached data
     OUT int8* Buffer,
-    OUT uint32* WrittenBytes
+    OUT PSIZE_T WrittenBytes
     )
 {
     int8* tmp_buff;
     OSSTATUS status;
 #ifdef _BROWSE_UDF_
-    uint32 _WrittenBytes;
-    uint32 ReadBytes;
+    SIZE_T _WrittenBytes;
+    SIZE_T ReadBytes;
 
     if(!Vcb->Modified) {
         UDFSetModified(Vcb);
@@ -4142,17 +4142,17 @@ UDFWriteData(
     IN PVCB Vcb,
     IN BOOLEAN Translate,      // Translate Logical to Physical
     IN int64 Offset,
-    IN uint32 Length,
+    IN SIZE_T Length,
     IN BOOLEAN Direct,         // setting this flag delays flushing of given
                                // data to indefinite term
     IN int8* Buffer,
-    OUT uint32* WrittenBytes
+    OUT PSIZE_T WrittenBytes
     )
 {
     uint32 i, l, Lba, BS=Vcb->BlockSize;
     uint32 BSh=Vcb->BlockSizeBits;
     OSSTATUS status;
-    uint32 _WrittenBytes;
+    SIZE_T _WrittenBytes;
     Vcb->VCBFlags |= UDF_VCB_SKIP_EJECT_CHECK;
 
     (*WrittenBytes) = 0;

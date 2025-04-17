@@ -593,40 +593,53 @@ extern "C" {
 #endif /* WINE_NO_UNICODE_MACROS */
 #endif /* !RC_INVOKED */
 
-#ifndef XFree86Server
-# define RT_CURSOR MAKEINTRESOURCE(1)
-# define RT_FONT MAKEINTRESOURCE(8)
-#endif /* ndef XFree86Server */
-#define RT_BITMAP MAKEINTRESOURCE(2)
-#define RT_ICON MAKEINTRESOURCE(3)
-#define RT_MENU MAKEINTRESOURCE(4)
-#define RT_DIALOG MAKEINTRESOURCE(5)
-#define RT_STRING MAKEINTRESOURCE(6)
-#define RT_FONTDIR MAKEINTRESOURCE(7)
-#define RT_ACCELERATOR MAKEINTRESOURCE(9)
-#define RT_RCDATA MAKEINTRESOURCE(10)
+
+#ifndef NORESOURCE
+
+/* Predefined resource types */
+#define RT_CURSOR       MAKEINTRESOURCE(1)
+#define RT_BITMAP       MAKEINTRESOURCE(2)
+#define RT_ICON         MAKEINTRESOURCE(3)
+#define RT_MENU         MAKEINTRESOURCE(4)
+#define RT_DIALOG       MAKEINTRESOURCE(5)
+#define RT_STRING       MAKEINTRESOURCE(6)
+#define RT_FONTDIR      MAKEINTRESOURCE(7)
+#define RT_FONT         MAKEINTRESOURCE(8)
+#define RT_ACCELERATOR  MAKEINTRESOURCE(9)
+#define RT_RCDATA       MAKEINTRESOURCE(10)
 #define RT_MESSAGETABLE MAKEINTRESOURCE(11)
 #define DIFFERENCE 11
 #define RT_GROUP_CURSOR MAKEINTRESOURCE((ULONG_PTR)RT_CURSOR+DIFFERENCE)
-#define RT_GROUP_ICON MAKEINTRESOURCE((ULONG_PTR)RT_ICON+DIFFERENCE)
-#define RT_VERSION MAKEINTRESOURCE(16)
-#define RT_DLGINCLUDE MAKEINTRESOURCE(17)
-#define RT_PLUGPLAY MAKEINTRESOURCE(19)
-#define RT_VXD MAKEINTRESOURCE(20)
-#define RT_ANICURSOR MAKEINTRESOURCE(21)
-#define RT_ANIICON MAKEINTRESOURCE(22)
-#define RT_HTML MAKEINTRESOURCE(23)
+#define RT_GROUP_ICON   MAKEINTRESOURCE((ULONG_PTR)RT_ICON+DIFFERENCE)
+#define RT_VERSION      MAKEINTRESOURCE(16)
+#define RT_DLGINCLUDE   MAKEINTRESOURCE(17)
+#if (WINVER >= 0x0400)
+#define RT_PLUGPLAY     MAKEINTRESOURCE(19)
+#define RT_VXD          MAKEINTRESOURCE(20)
+#define RT_ANICURSOR    MAKEINTRESOURCE(21)
+#define RT_ANIICON      MAKEINTRESOURCE(22)
+#endif /* WINVER >= 0x0400 */
+#define RT_HTML         MAKEINTRESOURCE(23)
+
 #ifndef RC_INVOKED
-#define RT_MANIFEST MAKEINTRESOURCE(24)
-#define CREATEPROCESS_MANIFEST_RESOURCE_ID  MAKEINTRESOURCE(1)
-#define ISOLATIONAWARE_MANIFEST_RESOURCE_ID MAKEINTRESOURCE(2)
+#define RT_MANIFEST                             MAKEINTRESOURCE(24)
+#define CREATEPROCESS_MANIFEST_RESOURCE_ID      MAKEINTRESOURCE(1)
+#define ISOLATIONAWARE_MANIFEST_RESOURCE_ID     MAKEINTRESOURCE(2)
 #define ISOLATIONAWARE_NOSTATICIMPORT_MANIFEST_RESOURCE_ID MAKEINTRESOURCE(3)
+#define MINIMUM_RESERVED_MANIFEST_RESOURCE_ID   MAKEINTRESOURCE(1)  /* inclusive */
+#define MAXIMUM_RESERVED_MANIFEST_RESOURCE_ID   MAKEINTRESOURCE(16) /* inclusive */
 #else
-#define RT_MANIFEST 24
-#define CREATEPROCESS_MANIFEST_RESOURCE_ID  1
-#define ISOLATIONAWARE_MANIFEST_RESOURCE_ID 2
+#define RT_MANIFEST                             24
+#define CREATEPROCESS_MANIFEST_RESOURCE_ID      1
+#define ISOLATIONAWARE_MANIFEST_RESOURCE_ID     2
 #define ISOLATIONAWARE_NOSTATICIMPORT_MANIFEST_RESOURCE_ID 3
-#endif
+#define MINIMUM_RESERVED_MANIFEST_RESOURCE_ID   1   /* inclusive */
+#define MAXIMUM_RESERVED_MANIFEST_RESOURCE_ID   16  /* inclusive */
+#endif /* !RC_INVOKED */
+
+#endif /* !NORESOURCE */
+
+
 #define EWX_FORCE 0x00000004
 #define EWX_LOGOFF 0
 #define EWX_POWEROFF 0x00000008
@@ -709,6 +722,9 @@ extern "C" {
 #define IDI_EXCLAMATION 32515
 #define IDI_ASTERISK 32516
 #define IDI_WINLOGO 32517
+#if(WINVER >= 0x0600)
+#define IDI_SHIELD  32518
+#endif /* WINVER >= 0x0600 */
 #endif
 #define IDI_WARNING IDI_EXCLAMATION
 #define IDI_ERROR IDI_HAND
@@ -759,6 +775,7 @@ extern "C" {
 #define GW_HWNDFIRST 0
 #define GW_HWNDLAST 1
 #define GW_OWNER 4
+#define GW_ENABLEDPOPUP 6
 #define SW_HIDE 0
 #define SW_NORMAL 1
 #define SW_SHOWNORMAL 1
@@ -865,32 +882,36 @@ extern "C" {
 #define DWLP_DLGPROC (DWLP_MSGRESULT + sizeof(LRESULT))
 #define DWLP_USER (DWLP_DLGPROC + sizeof(DLGPROC))
 
+#define QS_KEY              1
+#define QS_MOUSEMOVE        2
+#define QS_MOUSEBUTTON      4
+#define QS_POSTMESSAGE      8
+#define QS_TIMER            16
+#define QS_PAINT            32
+#define QS_SENDMESSAGE      64
+#define QS_HOTKEY           128
+#define QS_ALLPOSTMESSAGE   256
+
 #if (_WIN32_WINNT >= 0x0501)
-#define QS_ALLEVENTS 1215
-#define QS_ALLINPUT 1279
-#define QS_RAWINPUT 1024
+#define QS_RAWINPUT         1024
+#endif
+#if (_WIN32_WINNT >= 0x0602)
+#define QS_TOUCH            2048
+#define QS_POINTER          4096
+#endif
+
+#define QS_MOUSE            (QS_MOUSEMOVE | QS_MOUSEBUTTON)
+
+#if (_WIN32_WINNT >= 0x0602)
+#define QS_INPUT            (QS_KEY | QS_MOUSE | QS_RAWINPUT | QS_TOUCH | QS_POINTER)
+#elif (_WIN32_WINNT >= 0x0501)
+#define QS_INPUT            (QS_KEY | QS_MOUSE | QS_RAWINPUT)
 #else
-#define QS_ALLEVENTS 191
-#define QS_ALLINPUT 255
+#define QS_INPUT            (QS_KEY | QS_MOUSE)
 #endif
-#define QS_ALLPOSTMESSAGE 256
-#define QS_HOTKEY 128
-#if (_WIN32_WINNT >= 0x0501)
-#define QS_INPUT 1031
-#else
-#define QS_INPUT 7
-#endif
-#define QS_KEY 1
-#define QS_MOUSE 6
-#define QS_MOUSEBUTTON 4
-#define QS_MOUSEMOVE 2
-#define QS_PAINT 32
-#define QS_POSTMESSAGE 8
-#if (_WIN32_WINNT >= 0x0501)
-#define QS_RAWINPUT 1024
-#endif
-#define QS_SENDMESSAGE 64
-#define QS_TIMER 16
+
+#define QS_ALLEVENTS        (QS_INPUT | QS_POSTMESSAGE | QS_TIMER | QS_PAINT | QS_HOTKEY)
+#define QS_ALLINPUT         (QS_ALLEVENTS | QS_SENDMESSAGE)
 
 #define USER_TIMER_MAXIMUM  2147483647
 #define USER_TIMER_MINIMUM  10
@@ -1094,6 +1115,8 @@ extern "C" {
 #define KEYEVENTF_UNICODE 0x00000004
 #define KEYEVENTF_SCANCODE 0x00000008
 #endif
+
+#ifdef OEMRESOURCE
 #define OBM_TRTYPE 32732
 #define OBM_LFARROWI 32734
 #define OBM_RGARROWI 32735
@@ -1154,6 +1177,8 @@ extern "C" {
 #define OIC_WARNING OIC_BANG
 #define OIC_ERROR OIC_HAND
 #define OIC_INFORMATION OIC_NOTE
+#endif /* OEMRESOURCE */
+
 #define HELPINFO_MENUITEM 2
 #define HELPINFO_WINDOW 1
 #define MSGF_DIALOGBOX 0
@@ -1221,6 +1246,7 @@ extern "C" {
 #define SIF_RANGE 1
 #define SIF_DISABLENOSCROLL 8
 #define SIF_TRACKPOS   16
+#define SIF_THEMED 128      /* REACTOS Specific Only */
 #define SWP_DRAWFRAME 32
 #define SWP_FRAMECHANGED 32
 #define SWP_HIDEWINDOW 128
@@ -1251,6 +1277,9 @@ extern "C" {
 #endif /* WINVER >= 0x0400 */
 #if(_WIN32_WINNT >= 0x0500)
 #define HSHELL_ACCESSIBILITYSTATE 11
+#define ACCESS_STICKYKEYS 0x01
+#define ACCESS_FILTERKEYS 0x02
+#define ACCESS_MOUSEKEYS 0x03
 #define HSHELL_APPCOMMAND 12
 #endif /* _WIN32_WINNT >= 0x0500 */
 #if(_WIN32_WINNT >= 0x0501)
@@ -1551,8 +1580,8 @@ extern "C" {
 #endif
 
 #define SPIF_UPDATEINIFILE 1
-#define SPIF_SENDWININICHANGE 2
 #define SPIF_SENDCHANGE 2
+#define SPIF_SENDWININICHANGE SPIF_SENDCHANGE
 #define ATF_ONOFFFEEDBACK 2
 #define ATF_TIMEOUTON 1
 
@@ -1687,6 +1716,12 @@ extern "C" {
 #define WM_NCXBUTTONDBLCLK 173
 #endif /* (_WIN32_WINNT >= 0x0500) */
 
+#define GIDC_ARRIVAL 1
+#define GIDC_REMOVAL 2
+
+#define WM_INPUT_DEVICE_CHANGE 254
+#define WM_INPUT 255
+
 #define WM_KEYFIRST 256
 #define WM_KEYDOWN 256
 #define WM_KEYUP 257
@@ -1818,6 +1853,21 @@ extern "C" {
 #define WM_NCMOUSELEAVE             0x02A2
 #define WM_MOUSEHOVER               0x02A1
 #define WM_MOUSELEAVE               0x02A3
+
+#if (_WIN32_WINNT >= 0x0501)
+#define WTS_CONSOLE_CONNECT 0x1
+#define WTS_CONSOLE_DISCONNECT 0x2
+#define WTS_REMOTE_CONNECT 0x3
+#define WTS_REMOTE_DISCONNECT 0x4
+#define WTS_SESSION_LOGON 0x5
+#define WTS_SESSION_LOGOFF 0x6
+#define WTS_SESSION_LOCK 0x7
+#define WTS_SESSION_UNLOCK 0x8
+#define WTS_SESSION_REMOTE_CONTROL 0x9
+#define WTS_SESSION_CREATE 0xA
+#define WTS_SESSION_TERMINATE 0xB
+#define WM_WTSSESSION_CHANGE 0x02B1
+#endif
 
 #define WM_CUT 768
 #define WM_COPY 769
@@ -2099,14 +2149,21 @@ extern "C" {
 #define HCF_HOTKEYSOUND 16
 #define HCF_INDICATOR 32
 #define HCF_HOTKEYAVAILABLE 64
-#define MKF_AVAILABLE 2
-#define MKF_CONFIRMHOTKEY 8
-#define MKF_HOTKEYACTIVE 4
-#define MKF_HOTKEYSOUND 16
-#define MKF_INDICATOR 32
-#define MKF_MOUSEKEYSON 1
-#define MKF_MODIFIERS 64
-#define MKF_REPLACENUMBERS 128
+
+#define MKF_MOUSEKEYSON     0x00000001
+#define MKF_AVAILABLE       0x00000002
+#define MKF_HOTKEYACTIVE    0x00000004
+#define MKF_CONFIRMHOTKEY   0x00000008
+#define MKF_HOTKEYSOUND     0x00000010
+#define MKF_INDICATOR       0x00000020
+#define MKF_MODIFIERS       0x00000040
+#define MKF_REPLACENUMBERS  0x00000080
+#define MKF_LEFTBUTTONDOWN  0x01000000
+#define MKF_RIGHTBUTTONDOWN 0x02000000
+#define MKF_LEFTBUTTONSEL   0x10000000
+#define MKF_RIGHTBUTTONSEL  0x20000000
+#define MKF_MOUSEMODE       0x80000000
+
 #define SERKF_ACTIVE 8 /* May be obsolete. Not in recent MS docs. */
 #define SERKF_AVAILABLE 2
 #define SERKF_INDICATOR 4
@@ -2747,6 +2804,7 @@ extern "C" {
 #define MONITOR_DEFAULTTOPRIMARY 1
 #define MONITOR_DEFAULTTONEAREST 2
 #define MONITORINFOF_PRIMARY 1
+#define EDD_GET_DEVICE_INTERFACE_NAME 0x00000001
 #define EDS_RAWMODE 0x00000002
 #define EDS_ROTATEDMODE 0x00000004
 #define ISMEX_NOSEND 0x00000000
@@ -3179,6 +3237,17 @@ typedef struct _WNDCLASSEXW {
 	LPCWSTR lpszClassName;
 	HICON hIconSm;
 } WNDCLASSEXW,*LPWNDCLASSEXW,*PWNDCLASSEXW;
+
+#define MNGOF_TOPGAP 0x00000001
+#define MNGOF_BOTTOMGAP 0x00000002
+
+typedef struct tagMENUGETOBJECTINFO {
+	DWORD dwFlags;
+	UINT uPos;
+	HMENU hmenu;
+	PVOID riid;
+	PVOID pvObj;
+} MENUGETOBJECTINFO,*PMENUGETOBJECTINFO;
 
 typedef struct tagMENUITEMINFOA {
 	UINT cbSize;
@@ -3900,6 +3969,41 @@ typedef struct tagRAWINPUTDEVICELIST {
 	HANDLE hDevice;
 	DWORD dwType;
 } RAWINPUTDEVICELIST,*PRAWINPUTDEVICELIST;
+
+typedef struct tagRID_DEVICE_INFO_MOUSE {
+  DWORD dwId;
+  DWORD dwNumberOfButtons;
+  DWORD dwSampleRate;
+  BOOL fHasHorizontalWheel;
+} RID_DEVICE_INFO_MOUSE, *PRID_DEVICE_INFO_MOUSE;
+
+typedef struct tagRID_DEVICE_INFO_KEYBOARD {
+  DWORD dwType;
+  DWORD dwSubType;
+  DWORD dwKeyboardMode;
+  DWORD dwNumberOfFunctionKeys;
+  DWORD dwNumberOfIndicators;
+  DWORD dwNumberOfKeysTotal;
+} RID_DEVICE_INFO_KEYBOARD, *PRID_DEVICE_INFO_KEYBOARD;
+
+typedef struct tagRID_DEVICE_INFO_HID {
+  DWORD dwVendorId;
+  DWORD dwProductId;
+  DWORD dwVersionNumber;
+  USHORT usUsagePage;
+  USHORT usUsage;
+} RID_DEVICE_INFO_HID, *PRID_DEVICE_INFO_HID;
+
+typedef struct tagRID_DEVICE_INFO {
+  DWORD cbSize;
+  DWORD dwType;
+  union {
+    RID_DEVICE_INFO_MOUSE mouse;
+    RID_DEVICE_INFO_KEYBOARD keyboard;
+    RID_DEVICE_INFO_HID hid;
+  } DUMMYUNIONNAME;
+} RID_DEVICE_INFO, *PRID_DEVICE_INFO, *LPRID_DEVICE_INFO;
+
 #endif /* (_WIN32_WINNT >= 0x0501) */
 
 #define AnsiToOem CharToOemA
@@ -3920,6 +4024,44 @@ typedef struct tagRAWINPUTDEVICELIST {
   (p).y=HIWORD(*(DWORD *)&ps); \
 }
 #define POINTTOPOINTS(p) ((POINTS)MAKELONG((p).x,(p).y))
+
+#if (WINVER >= 0x0601)
+
+typedef enum tagINPUT_MESSAGE_DEVICE_TYPE {
+  IMDT_UNAVAILABLE = 0x00,
+  IMDT_KEYBOARD = 0x01,
+  IMDT_MOUSE = 0x02,
+  IMDT_TOUCH = 0x04,
+  IMDT_PEN = 0x08,
+  IMDT_TOUCHPAD = 0x10
+} INPUT_MESSAGE_DEVICE_TYPE;
+
+typedef enum tagINPUT_MESSAGE_ORIGIN_ID {
+  IMO_UNAVAILABLE = 0x00,
+  IMO_HARDWARE = 0x01,
+  IMO_INJECTED = 0x02,
+  IMO_SYSTEM = 0x04
+} INPUT_MESSAGE_ORIGIN_ID;
+
+typedef struct tagINPUT_MESSAGE_SOURCE {
+  INPUT_MESSAGE_DEVICE_TYPE deviceType;
+  INPUT_MESSAGE_ORIGIN_ID originId;
+} INPUT_MESSAGE_SOURCE;
+
+#endif /* WINVER >= 0x0601 */
+
+#if(WINVER >= 0x0602)
+
+enum tagPOINTER_INPUT_TYPE {
+  PT_POINTER = 1,
+  PT_TOUCH,
+  PT_PEN,
+  PT_MOUSE,
+  PT_TOUCHPAD
+};
+typedef DWORD POINTER_INPUT_TYPE;
+
+#endif /* WINVER >= 0x0602 */
 
 HKL WINAPI ActivateKeyboardLayout(_In_ HKL, _In_ UINT);
 BOOL WINAPI AdjustWindowRect(_Inout_ LPRECT, _In_ DWORD, _In_ BOOL);
@@ -4394,13 +4536,13 @@ BOOL WINAPI EnumDisplayDevicesW(_In_opt_ LPCWSTR, _In_ DWORD, _Inout_ PDISPLAY_D
 #endif
 int WINAPI EnumPropsA(_In_ HWND, _In_ PROPENUMPROCA);
 int WINAPI EnumPropsW(_In_ HWND, _In_ PROPENUMPROCW);
-int WINAPI EnumPropsExA(_In_ HWND, _In_ PROPENUMPROCEXA, _In_ LPARAM);
-int WINAPI EnumPropsExW(_In_ HWND, _In_ PROPENUMPROCEXW, _In_ LPARAM);
+int WINAPI EnumPropsExA(_In_ HWND, _In_ PROPENUMPROCEXA, _In_ LPARAM lParam);
+int WINAPI EnumPropsExW(_In_ HWND, _In_ PROPENUMPROCEXW, _In_ LPARAM lParam);
 #define EnumTaskWindows(h,f,p) EnumThreadWindows((DWORD)h,f,p)
 BOOL WINAPI EnumThreadWindows(_In_ DWORD, _In_ WNDENUMPROC, _In_ LPARAM);
-BOOL WINAPI EnumWindows(_In_ WNDENUMPROC, _In_ LPARAM);
-BOOL WINAPI EnumWindowStationsA(_In_ WINSTAENUMPROCA, _In_ LPARAM);
-BOOL WINAPI EnumWindowStationsW(_In_ WINSTAENUMPROCW, _In_ LPARAM);
+BOOL WINAPI EnumWindows(_In_ WNDENUMPROC lpEnumFunc, _In_ LPARAM lParam);
+BOOL WINAPI EnumWindowStationsA(_In_ WINSTAENUMPROCA, _In_ LPARAM lParam);
+BOOL WINAPI EnumWindowStationsW(_In_ WINSTAENUMPROCW, _In_ LPARAM lParam);
 BOOL WINAPI EqualRect(_In_ LPCRECT, _In_ LPCRECT);
 #define ExitWindows(r,c) ExitWindowsEx(EWX_LOGOFF,0)
 BOOL WINAPI ExitWindowsEx(_In_ UINT, _In_ DWORD);
@@ -4547,7 +4689,7 @@ HWND WINAPI GetLastActivePopup(_In_ HWND);
 HMENU WINAPI GetMenu(_In_ HWND);
 LONG WINAPI GetMenuCheckMarkDimensions(void);
 DWORD WINAPI GetMenuContextHelpId(_In_ HMENU);
-UINT WINAPI GetMenuDefaultItem(_In_ HMENU, _In_ UINT, _In_ UINT);
+UINT WINAPI GetMenuDefaultItem(_In_ HMENU hMenu, _In_ UINT fByPos, _In_ UINT gmdiFlags);
 int WINAPI GetMenuItemCount(_In_opt_ HMENU);
 UINT WINAPI GetMenuItemID(_In_ HMENU, _In_ int);
 BOOL WINAPI GetMenuItemInfoA(_In_ HMENU, _In_ UINT, _In_ BOOL, _Inout_ LPMENUITEMINFOA);
@@ -4793,6 +4935,15 @@ BOOL WINAPI GetWindowInfo(_In_ HWND, _Inout_ PWINDOWINFO);
 BOOL WINAPI GetMonitorInfoA(_In_ HMONITOR, _Inout_ LPMONITORINFO);
 BOOL WINAPI GetMonitorInfoW(_In_ HMONITOR, _Inout_ LPMONITORINFO);
 
+#if (_WIN32_WINNT >= _WIN32_WINNT_VISTA)
+#define USER_DEFAULT_SCREEN_DPI 96
+#endif /* _WIN32_WINNT >= _WIN32_WINNT_VISTA */
+
+#if (_WIN32_WINNT >= 0x0605) /* Windows 10 pre-Threshold */
+UINT WINAPI GetDpiForSystem(VOID);
+UINT WINAPI GetDpiForWindow(_In_ HWND hwnd);
+#endif /* _WIN32_WINNT >= 0x0605 */
+
 UINT
 WINAPI
 GetWindowModuleFileNameA(
@@ -4873,10 +5024,10 @@ HCURSOR WINAPI LoadCursorA(_In_opt_ HINSTANCE, _In_ LPCSTR);
 HCURSOR WINAPI LoadCursorW(_In_opt_ HINSTANCE, _In_ LPCWSTR);
 HCURSOR WINAPI LoadCursorFromFileA(_In_ LPCSTR);
 HCURSOR WINAPI LoadCursorFromFileW(_In_ LPCWSTR);
-HICON WINAPI LoadIconA(_In_opt_ HINSTANCE, _In_ LPCSTR);
-HICON WINAPI LoadIconW(_In_opt_ HINSTANCE, _In_ LPCWSTR);
-HANDLE WINAPI LoadImageA(_In_opt_ HINSTANCE, _In_ LPCSTR, _In_ UINT, _In_ int, _In_ int, _In_ UINT);
-HANDLE WINAPI LoadImageW(_In_opt_ HINSTANCE, _In_ LPCWSTR, _In_ UINT, _In_ int, _In_ int, _In_ UINT);
+HICON WINAPI LoadIconA(_In_opt_ HINSTANCE hInstance, _In_ LPCSTR lpIconName);
+HICON WINAPI LoadIconW(_In_opt_ HINSTANCE hInstance, _In_ LPCWSTR lpIconName);
+HANDLE WINAPI LoadImageA(_In_opt_ HINSTANCE hInst, _In_ LPCSTR name, _In_ UINT type, _In_ int cx, _In_ int cy, _In_ UINT fuLoad);
+HANDLE WINAPI LoadImageW(_In_opt_ HINSTANCE hInst, _In_ LPCWSTR name, _In_ UINT type, _In_ int cx, _In_ int cy, _In_ UINT fuLoad);
 HKL WINAPI LoadKeyboardLayoutA(_In_ LPCSTR, _In_ UINT);
 HKL WINAPI LoadKeyboardLayoutW(_In_ LPCWSTR, _In_ UINT);
 HMENU WINAPI LoadMenuA(_In_opt_ HINSTANCE, _In_ LPCSTR);
@@ -4928,13 +5079,13 @@ MapWindowPoints(
   _In_ UINT cPoints);
 
 int WINAPI MenuItemFromPoint(_In_opt_ HWND, _In_ HMENU, _In_ POINT);
-BOOL WINAPI MessageBeep(_In_ UINT);
-int WINAPI MessageBoxA(_In_opt_ HWND, _In_opt_ LPCSTR, _In_opt_ LPCSTR, _In_ UINT);
-int WINAPI MessageBoxW(_In_opt_ HWND, _In_opt_ LPCWSTR, _In_opt_ LPCWSTR, _In_ UINT);
-int WINAPI MessageBoxExA(_In_opt_ HWND, _In_opt_ LPCSTR, _In_opt_ LPCSTR, _In_ UINT, _In_ WORD);
-int WINAPI MessageBoxExW(_In_opt_ HWND, _In_opt_ LPCWSTR, _In_opt_ LPCWSTR, _In_ UINT, _In_ WORD);
-int WINAPI MessageBoxIndirectA(_In_ CONST MSGBOXPARAMSA*);
-int WINAPI MessageBoxIndirectW(_In_ CONST MSGBOXPARAMSW*);
+BOOL WINAPI MessageBeep(_In_ UINT uType);
+int WINAPI MessageBoxA(_In_opt_ HWND hWnd, _In_opt_ LPCSTR lpText, _In_opt_ LPCSTR lpCaption, _In_ UINT uType);
+int WINAPI MessageBoxW(_In_opt_ HWND hWnd, _In_opt_ LPCWSTR lpText, _In_opt_ LPCWSTR lpCaption, _In_ UINT uType);
+int WINAPI MessageBoxExA(_In_opt_ HWND hWnd, _In_opt_ LPCSTR lpText, _In_opt_ LPCSTR lpCaption, _In_ UINT uType, _In_ WORD wLanguageId);
+int WINAPI MessageBoxExW(_In_opt_ HWND hWnd, _In_opt_ LPCWSTR lpText, _In_opt_ LPCWSTR lpCaption, _In_ UINT uType, _In_ WORD wLanguageId);
+int WINAPI MessageBoxIndirectA(_In_ CONST MSGBOXPARAMSA* lpmbp);
+int WINAPI MessageBoxIndirectW(_In_ CONST MSGBOXPARAMSW* lpmbp);
 BOOL WINAPI ModifyMenuA(_In_ HMENU, _In_ UINT, _In_ UINT, _In_ UINT_PTR, _In_opt_ LPCSTR);
 BOOL WINAPI ModifyMenuW(_In_ HMENU, _In_ UINT, _In_ UINT, _In_ UINT_PTR, _In_opt_ LPCWSTR);
 HMONITOR WINAPI MonitorFromPoint(_In_ POINT, _In_ DWORD);
@@ -5236,8 +5387,8 @@ BOOL WINAPI SwitchDesktop(_In_ HDESK);
 #if(_WIN32_WINNT >= 0x0500)
 VOID WINAPI SwitchToThisWindow(_In_ HWND, _In_ BOOL);
 #endif /* (_WIN32_WINNT >= 0x0500) */
-BOOL WINAPI SystemParametersInfoA(_In_ UINT, _In_ UINT, _Inout_opt_ PVOID, _In_ UINT);
-BOOL WINAPI SystemParametersInfoW(_In_ UINT, _In_ UINT, _Inout_opt_ PVOID, _In_ UINT);
+BOOL WINAPI SystemParametersInfoA(_In_ UINT uiAction, _In_ UINT uiParam, _Inout_opt_ PVOID pvParam, _In_ UINT fWinIni);
+BOOL WINAPI SystemParametersInfoW(_In_ UINT uiAction, _In_ UINT uiParam, _Inout_opt_ PVOID pvParam, _In_ UINT fWinIni);
 
 LONG
 WINAPI
@@ -5312,6 +5463,9 @@ BOOL WINAPI UnionRect(_Out_ LPRECT, _In_ LPCRECT, _In_ LPCRECT);
 BOOL WINAPI UnloadKeyboardLayout(_In_ HKL);
 BOOL WINAPI UnregisterClassA(_In_ LPCSTR,HINSTANCE);
 BOOL WINAPI UnregisterClassW(_In_ LPCWSTR,HINSTANCE);
+#if (WINVER >= 0x0500)
+BOOL WINAPI UnregisterDeviceNotification(_In_ HDEVNOTIFY);
+#endif
 BOOL WINAPI UnregisterHotKey(_In_opt_ HWND, _In_ int);
 BOOL WINAPI UpdateWindow(_In_ HWND);
 #if (_WIN32_WINNT >= 0x0500)
@@ -5565,14 +5719,14 @@ typedef MONITORINFOEXW MONITORINFOEX, *LPMONITORINFOEX;
 #define wsprintf wsprintfW
 #define wvsprintf wvsprintfW
 
-#ifndef NOGDI
+#if defined(_WINGDI_) && !defined(NOGDI)
 #define ChangeDisplaySettings ChangeDisplaySettingsW
 #define ChangeDisplaySettingsEx ChangeDisplaySettingsExW
 #define CreateDesktop CreateDesktopW
 #define EnumDisplaySettings EnumDisplaySettingsW
 #define EnumDisplaySettingsEx EnumDisplaySettingsExW
 #define EnumDisplayDevices EnumDisplayDevicesW
-#endif /* NOGDI */
+#endif /* _WINGDI_ && !NOGDI */
 #else /* UNICODE */
 #define EDITWORDBREAKPROC EDITWORDBREAKPROCA
 #define PROPENUMPROC PROPENUMPROCA
@@ -5737,7 +5891,7 @@ typedef MONITORINFOEXA MONITORINFOEX, *LPMONITORINFOEX;
 #define EnumDisplaySettings EnumDisplaySettingsA
 #define EnumDisplaySettingsEx EnumDisplaySettingsExA
 #define EnumDisplayDevices EnumDisplayDevicesA
-#endif /* NOGDI */
+#endif /* _WINGDI_ && !NOGDI */
 #endif /* UNICODE */
 #endif /* RC_INVOKED */
 

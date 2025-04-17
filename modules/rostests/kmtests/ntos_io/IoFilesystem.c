@@ -221,6 +221,15 @@ TestAllInformation(VOID)
     if (FileAllInfo)
         KmtFreeGuarded(FileAllInfo);
 
+    PFILE_END_OF_FILE_INFORMATION FileEofInfo;
+    Length = sizeof(*FileEofInfo);
+    Status = QueryFileInfo(FileHandle, (PVOID*)&FileEofInfo, &Length, FileEndOfFileInformation);
+    // Checked build: STATUS_INVALID_INFO_CLASS, Free build: STATUS_INVALID_PARAMETER
+    ok(Status == STATUS_INVALID_PARAMETER || Status == STATUS_INVALID_INFO_CLASS, "Wrong Status = %lx\n", Status);
+    ok_eq_size(Length, (SIZE_T)0x5555555555555555ULL);
+    if (FileEofInfo)
+        KmtFreeGuarded(FileEofInfo);
+
 NoInfo:
     Status = ObCloseHandle(FileHandle, KernelMode);
     ok_eq_hex(Status, STATUS_SUCCESS);
@@ -242,8 +251,8 @@ Substitute(
     PWCHAR Dest = Buffer;
     UNICODE_STRING String;
 
-    SystemDriveLength = wcslen(SystemDriveName) * sizeof(WCHAR);
-    SystemRootLength = wcslen(SystemRootName) * sizeof(WCHAR);
+    SystemDriveLength = (ULONG)wcslen(SystemDriveName) * sizeof(WCHAR);
+    SystemRootLength = (ULONG)wcslen(SystemRootName) * sizeof(WCHAR);
 
     RtlInitUnicodeString(&String, Template);
     ASSERT(String.Length % sizeof(WCHAR) == 0);

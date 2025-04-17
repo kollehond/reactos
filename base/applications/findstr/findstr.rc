@@ -31,11 +31,17 @@
 #ifdef LANGUAGE_ES_ES
     #include "lang/es-ES.rc"
 #endif
+#ifdef LANGUAGE_ET_EE
+    #include "lang/et-EE.rc"
+#endif
 #ifdef LANGUAGE_FR_FR
     #include "lang/fr-FR.rc"
 #endif
 #ifdef LANGUAGE_IT_IT
     #include "lang/it-IT.rc"
+#endif
+#ifdef LANGUAGE_JA_JP
+    #include "lang/ja-JP.rc"
 #endif
 #ifdef LANGUAGE_LT_LT
     #include "lang/lt-LT.rc"

@@ -109,7 +109,7 @@ GreGetKerningPairs(
   currently selected font. If not valid, GetCharacterPlacement ignores the
   value.
 
-  M$ must use a preset "compiled in" support for each language based releases.
+  MS must use a preset "compiled in" support for each language based releases.
   ReactOS uses FreeType, this will need to be supported. ATM this is hard coded
   for GCPCLASS_LATIN!
 
@@ -293,7 +293,22 @@ FASTCALL
 FontGetObject(PTEXTOBJ plfont, ULONG cjBuffer, PVOID pvBuffer)
 {
     ULONG cjMaxSize;
-    ENUMLOGFONTEXDVW *plf = &plfont->logfont;
+    ENUMLOGFONTEXDVW *plf;
+
+    ASSERT(plfont);
+    plf = &plfont->logfont;
+
+    if (!(plfont->fl & TEXTOBJECT_INIT))
+    {
+        NTSTATUS Status;
+        DPRINT("FontGetObject font not initialized!\n");
+
+        Status = TextIntRealizeFont(plfont->BaseObject.hHmgr, plfont);
+        if (!NT_SUCCESS(Status))
+        {
+            DPRINT1("FontGetObject(TextIntRealizeFont) Status = 0x%lx\n", Status);
+        }
+    }
 
     /* If buffer is NULL, only the size is requested */
     if (pvBuffer == NULL) return sizeof(LOGFONTW);
@@ -395,7 +410,7 @@ IntGetFontLanguageInfo(PDC Dc)
   pdcattr = Dc->pdcattr;
 
   /* This might need a test for a HEBREW- or ARABIC_CHARSET as well */
-  if ( pdcattr->lTextAlign & TA_RTLREADING )
+  if ( pdcattr->flTextAlign & TA_RTLREADING )
      if( (fontsig.fsCsb[0]&GCP_REORDER_MASK)!=0 )
                     result|=GCP_REORDER;
 
@@ -423,23 +438,41 @@ RealizeFontInit(HFONT hFont)
   return pTextObj;
 }
 
+static BOOL
+IntCheckFontPathNames(
+    _In_reads_(cwc) WCHAR *pwcFiles,
+    _In_ ULONG cFiles,
+    _In_ ULONG cwc)
+{
+    ULONG ich, cRealFiles;
+
+    if (pwcFiles[cwc - 1] != UNICODE_NULL)
+        return FALSE;
+
+    for (ich = cRealFiles = 0; ich < cwc; ++ich)
+    {
+        if (!pwcFiles[ich])
+            ++cRealFiles;
+    }
+
+    return cRealFiles >= cFiles;
+}
 
 /** Functions ******************************************************************/
 
 INT
 APIENTRY
 NtGdiAddFontResourceW(
-    IN WCHAR *pwcFiles,
-    IN ULONG cwc,
-    IN ULONG cFiles,
-    IN FLONG fl,
-    IN DWORD dwPidTid,
-    IN OPTIONAL DESIGNVECTOR *pdv)
+    _In_reads_(cwc) WCHAR *pwcFiles,
+    _In_ ULONG cwc,
+    _In_ ULONG cFiles,
+    _In_ FLONG fl,
+    _In_ DWORD dwPidTid,
+    _In_opt_ DESIGNVECTOR *pdv)
 {
     UNICODE_STRING SafeFileName;
     INT Ret;
 
-    DBG_UNREFERENCED_PARAMETER(cFiles);
     DBG_UNREFERENCED_PARAMETER(dwPidTid);
     DBG_UNREFERENCED_PARAMETER(pdv);
 
@@ -449,19 +482,21 @@ NtGdiAddFontResourceW(
     if ((cwc <= 1) || (cwc > UNICODE_STRING_MAX_CHARS))
         return 0;
 
-    SafeFileName.MaximumLength = (USHORT)(cwc * sizeof(WCHAR));
-    SafeFileName.Length = SafeFileName.MaximumLength - sizeof(UNICODE_NULL);
+    SafeFileName.Length = (USHORT)((cwc - 1) * sizeof(WCHAR));
+    SafeFileName.MaximumLength = SafeFileName.Length + sizeof(UNICODE_NULL);
     SafeFileName.Buffer = ExAllocatePoolWithTag(PagedPool,
                                                 SafeFileName.MaximumLength,
                                                 TAG_STRING);
     if (!SafeFileName.Buffer)
-    {
         return 0;
-    }
 
     _SEH2_TRY
     {
         ProbeForRead(pwcFiles, cwc * sizeof(WCHAR), sizeof(WCHAR));
+
+        if (!IntCheckFontPathNames(pwcFiles, cFiles, cwc))
+            return 0;
+ 
         RtlCopyMemory(SafeFileName.Buffer, pwcFiles, SafeFileName.Length);
     }
     _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
@@ -472,7 +507,62 @@ NtGdiAddFontResourceW(
     _SEH2_END;
 
     SafeFileName.Buffer[SafeFileName.Length / sizeof(WCHAR)] = UNICODE_NULL;
-    Ret = IntGdiAddFontResource(&SafeFileName, fl);
+
+    Ret = IntGdiAddFontResourceEx(&SafeFileName, cFiles, fl, 0);
+
+    ExFreePoolWithTag(SafeFileName.Buffer, TAG_STRING);
+    return Ret;
+}
+
+BOOL
+APIENTRY
+NtGdiRemoveFontResourceW(
+    _In_reads_(cwc) WCHAR *pwszFiles,
+    _In_ ULONG cwc,
+    _In_ ULONG cFiles,
+    _In_ ULONG fl,
+    _In_ DWORD dwPidTid,
+    _In_opt_ DESIGNVECTOR *pdv)
+{
+    UNICODE_STRING SafeFileName;
+    BOOL Ret;
+
+    DBG_UNREFERENCED_PARAMETER(dwPidTid);
+    DBG_UNREFERENCED_PARAMETER(pdv);
+
+    DPRINT("NtGdiRemoveFontResourceW\n");
+
+    /* cwc = Length + trailing zero. */
+    if ((cwc <= 1) || (cwc > UNICODE_STRING_MAX_CHARS))
+        return FALSE;
+
+    SafeFileName.Length = (USHORT)((cwc - 1) * sizeof(WCHAR));
+    SafeFileName.MaximumLength = SafeFileName.Length + sizeof(UNICODE_NULL);
+    SafeFileName.Buffer = ExAllocatePoolWithTag(PagedPool,
+                                                SafeFileName.MaximumLength,
+                                                TAG_STRING);
+    if (!SafeFileName.Buffer)
+        return FALSE;
+
+    _SEH2_TRY
+    {
+        ProbeForRead(pwszFiles, cwc * sizeof(WCHAR), sizeof(WCHAR));
+
+        if (!IntCheckFontPathNames(pwszFiles, cFiles, cwc))
+            return FALSE;
+
+        RtlCopyMemory(SafeFileName.Buffer, pwszFiles, SafeFileName.Length);
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        ExFreePoolWithTag(SafeFileName.Buffer, TAG_STRING);
+        _SEH2_YIELD(return FALSE);
+    }
+    _SEH2_END;
+
+    SafeFileName.Buffer[SafeFileName.Length / sizeof(WCHAR)] = UNICODE_NULL;
+
+    Ret = IntGdiRemoveFontResource(&SafeFileName, cFiles, fl);
 
     ExFreePoolWithTag(SafeFileName.Buffer, TAG_STRING);
     return Ret;
@@ -728,7 +818,7 @@ NtGdiGetGlyphOutline(
 
   if (UnsafeBuf && cjBuf)
   {
-     pvBuf = ExAllocatePoolWithTag(PagedPool, cjBuf, GDITAG_TEXT);
+     pvBuf = ExAllocatePoolZero(PagedPool, cjBuf, GDITAG_TEXT);
      if (!pvBuf)
      {
         EngSetLastError(ERROR_NOT_ENOUGH_MEMORY);
@@ -892,9 +982,14 @@ NtGdiGetOutlineTextMetricsInternalW (HDC  hDC,
      return 0;
   }
   FontGDI = ObjToGDI(TextObj->Font, FONT);
+  if (!(FontGDI->flType & FO_TYPE_TRUETYPE))
+  {
+     TEXTOBJ_UnlockText(TextObj);
+     return 0;
+  }
   TextIntUpdateSize(dc, TextObj, FontGDI, TRUE);
   TEXTOBJ_UnlockText(TextObj);
-  Size = IntGetOutlineTextMetrics(FontGDI, 0, NULL);
+  Size = IntGetOutlineTextMetrics(FontGDI, 0, NULL, FALSE);
   if (!otm) return Size;
   if (Size > Data)
   {
@@ -907,26 +1002,26 @@ NtGdiGetOutlineTextMetricsInternalW (HDC  hDC,
       EngSetLastError(ERROR_NOT_ENOUGH_MEMORY);
       return 0;
   }
-  IntGetOutlineTextMetrics(FontGDI, Size, potm);
-  if (otm)
-  {
-     _SEH2_TRY
-     {
-         ProbeForWrite(otm, Size, 1);
-         RtlCopyMemory(otm, potm, Size);
-     }
-     _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
-     {
-         Status = _SEH2_GetExceptionCode();
-     }
-     _SEH2_END
+  RtlZeroMemory(potm, Size);
+  IntGetOutlineTextMetrics(FontGDI, Size, potm, FALSE);
 
-     if (!NT_SUCCESS(Status))
-     {
-        EngSetLastError(ERROR_INVALID_PARAMETER);
-        Size = 0;
-     }
+  _SEH2_TRY
+  {
+      ProbeForWrite(otm, Size, 1);
+      RtlCopyMemory(otm, potm, Size);
   }
+  _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+  {
+      Status = _SEH2_GetExceptionCode();
+  }
+  _SEH2_END
+
+  if (!NT_SUCCESS(Status))
+  {
+     EngSetLastError(ERROR_INVALID_PARAMETER);
+     Size = 0;
+  }
+
   ExFreePoolWithTag(potm,GDITAG_TEXT);
   return Size;
 }
@@ -1069,6 +1164,7 @@ NtGdiGetRealizationInfo(
   }
   pdcattr = pDc->pdcattr;
   pTextObj = RealizeFontInit(pdcattr->hlfntNew);
+  ASSERT(pTextObj != NULL);
   pFontGdi = ObjToGDI(pTextObj->Font, FONT);
   TEXTOBJ_UnlockText(pTextObj);
   DC_UnlockDc(pDc);

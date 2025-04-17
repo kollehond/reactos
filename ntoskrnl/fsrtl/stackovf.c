@@ -23,10 +23,10 @@
 #define FSRTLP_MAX_QUEUES 2
 
 typedef struct _STACK_OVERFLOW_WORK_ITEM
-{   
-   
+{
+
     WORK_QUEUE_ITEM WorkItem;
-    PFSRTL_STACK_OVERFLOW_ROUTINE Routine;   
+    PFSRTL_STACK_OVERFLOW_ROUTINE Routine;
     PVOID Context;
     PKEVENT Event;
 } STACK_OVERFLOW_WORK_ITEM, *PSTACK_OVERFLOW_WORK_ITEM;
@@ -61,7 +61,7 @@ FsRtlStackOverflowRead(IN PVOID Context)
     /* Otherwise, free the work item */
     else
     {
-        ExFreePoolWithTag(WorkItem, 'FSrs');
+        ExFreePoolWithTag(WorkItem, 'srSF');
     }
 
     /* Reset top level */
@@ -81,7 +81,7 @@ FsRtlpPostStackOverflow(IN PVOID Context,
     PSTACK_OVERFLOW_WORK_ITEM WorkItem;
 
     /* Try to allocate a work item */
-    WorkItem = ExAllocatePoolWithTag(NonPagedPool, sizeof(STACK_OVERFLOW_WORK_ITEM), 'FSrs');
+    WorkItem = ExAllocatePoolWithTag(NonPagedPool, sizeof(STACK_OVERFLOW_WORK_ITEM), 'srSF');
     if (WorkItem == NULL)
     {
         /* If we failed, and we are not a paging file, just raise an error */
@@ -134,7 +134,7 @@ FsRtlWorkerThread(IN PVOID StartContext)
         Irql = KeGetCurrentIrql();
         if (Irql != PASSIVE_LEVEL)
         {
-            KeBugCheckEx(IRQL_NOT_LESS_OR_EQUAL, (ULONG_PTR)WorkItem->WorkerRoutine,   
+            KeBugCheckEx(IRQL_NOT_LESS_OR_EQUAL, (ULONG_PTR)WorkItem->WorkerRoutine,
                          (ULONG_PTR)Irql, (ULONG_PTR)WorkItem->WorkerRoutine,
                          (ULONG_PTR)WorkItem);
         }
@@ -144,9 +144,9 @@ FsRtlWorkerThread(IN PVOID StartContext)
 /*
  * @implemented
  */
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 FsRtlInitializeWorkerThread(VOID)
 {
     ULONG_PTR i;

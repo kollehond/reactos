@@ -10,14 +10,12 @@
 
 #include "input.h"
 
-#include <cpl.h>
-
 #define NUM_APPLETS    (1)
 
-static LONG CALLBACK SystemApplet(VOID);
+static LONG CALLBACK SystemApplet(HWND hwnd, UINT uMsg, LPARAM lParam1, LPARAM lParam2);
 
 HINSTANCE hApplet = NULL;
-static HWND hCPLWindow;
+BOOL g_bRebootNeeded = FALSE;
 
 /* Applets */
 static APPLET Applets[NUM_APPLETS] =
@@ -38,29 +36,67 @@ InitPropSheetPage(PROPSHEETPAGEW *page, WORD idDlg, DLGPROC DlgProc)
     page->pfnDlgProc  = DlgProc;
 }
 
+static BOOL AskForReboot(HWND hwndDlg)
+{
+    WCHAR szText[128], szCaption[64];
+    LoadStringW(hApplet, IDS_REBOOT_NOW, szText, _countof(szText));
+    LoadStringW(hApplet, IDS_LANGUAGE, szCaption, _countof(szCaption));
+    return (MessageBoxW(hwndDlg, szText, szCaption, MB_ICONINFORMATION | MB_YESNO) == IDYES);
+}
+
+static int CALLBACK
+PropSheetProc(HWND hwndDlg, UINT uMsg, LPARAM lParam)
+{
+    switch (uMsg)
+    {
+        case PSCB_INITIALIZED:
+        {
+            /* Set large icon correctly */
+            HICON hIcon = LoadIconW(hApplet, MAKEINTRESOURCEW(IDI_CPLSYSTEM));
+            SendMessageW(hwndDlg, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+            break;
+        }
+
+        case PSCB_BUTTONPRESSED:
+        {
+            switch (lParam)
+            {
+                case PSBTN_OK:
+                case PSBTN_APPLYNOW:
+                {
+                    if (g_bRebootNeeded && AskForReboot(hwndDlg))
+                    {
+                        EnableProcessPrivileges(SE_SHUTDOWN_NAME, TRUE);
+                        ExitWindowsEx(EWX_REBOOT | EWX_FORCE, 0);
+                    }
+                    break;
+                }
+            }
+            break;
+        }
+    }
+    return 0;
+}
 
 /* First Applet */
 static LONG CALLBACK
-SystemApplet(VOID)
+SystemApplet(HWND hwnd, UINT uMsg, LPARAM lParam1, LPARAM lParam2)
 {
     PROPSHEETPAGEW page[2];
     PROPSHEETHEADERW header;
-    WCHAR szCaption[MAX_STR_LEN];
-
-    LoadStringW(hApplet, IDS_CPLSYSTEMNAME, szCaption, ARRAYSIZE(szCaption));
 
     ZeroMemory(&header, sizeof(header));
 
     header.dwSize      = sizeof(header);
-    header.dwFlags     = PSH_PROPSHEETPAGE;
-    header.hwndParent  = hCPLWindow;
+    header.dwFlags     = PSH_PROPSHEETPAGE | PSH_USEICONID | PSH_USECALLBACK;
+    header.hwndParent  = hwnd;
     header.hInstance   = hApplet;
-    header.hIcon       = LoadIconW(hApplet, MAKEINTRESOURCEW(IDI_CPLSYSTEM));
-    header.pszCaption  = szCaption;
+    header.pszIcon     = MAKEINTRESOURCEW(IDI_CPLSYSTEM);
+    header.pszCaption  = MAKEINTRESOURCEW(IDS_CPLSYSTEMNAME);
     header.nPages      = ARRAYSIZE(page);
     header.nStartPage  = 0;
     header.ppsp        = page;
-    header.pfnCallback = NULL;
+    header.pfnCallback = PropSheetProc;
 
     /* Settings */
     InitPropSheetPage(&page[0], IDD_PROPPAGESETTINGS, SettingsPageProc);
@@ -77,9 +113,7 @@ LONG CALLBACK
 CPlApplet(HWND hwndCPl, UINT uMsg, LPARAM lParam1, LPARAM lParam2)
 {
     CPLINFO *CPlInfo;
-    DWORD i;
-
-    i = (DWORD)lParam1;
+    UINT i = (UINT)lParam1;
 
     switch (uMsg)
     {
@@ -90,16 +124,25 @@ CPlApplet(HWND hwndCPl, UINT uMsg, LPARAM lParam1, LPARAM lParam2)
             return NUM_APPLETS;
 
         case CPL_INQUIRE:
-            CPlInfo = (CPLINFO*)lParam2;
-            CPlInfo->lData = 0;
-            CPlInfo->idIcon = Applets[i].idIcon;
-            CPlInfo->idName = Applets[i].idName;
-            CPlInfo->idInfo = Applets[i].idDescription;
+            if (i < NUM_APPLETS)
+            {
+                CPlInfo = (CPLINFO*)lParam2;
+                CPlInfo->lData = 0;
+                CPlInfo->idIcon = Applets[i].idIcon;
+                CPlInfo->idName = Applets[i].idName;
+                CPlInfo->idInfo = Applets[i].idDescription;
+            }
+            else
+            {
+                return TRUE;
+            }
             break;
 
         case CPL_DBLCLK:
-            hCPLWindow = hwndCPl;
-            Applets[i].AppletProc();
+            if (i < NUM_APPLETS)
+                Applets[i].AppletProc(hwndCPl, uMsg, lParam1, lParam2);
+            else
+                return TRUE;
             break;
     }
 

@@ -10,8 +10,9 @@ list(APPEND SOURCE
     notify.c
     precomp.h)
 
-add_library(ws2help SHARED
+add_library(ws2help MODULE
     ${SOURCE}
+    ws2help.rc
     ${CMAKE_CURRENT_BINARY_DIR}/ws2help.def)
 
 set_module_type(ws2help win32dll)

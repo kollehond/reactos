@@ -25,7 +25,7 @@ MemFree(IN PVOID lpMem);
 
 PVOID
 MemAlloc(IN DWORD dwFlags,
-         IN DWORD dwBytes);
+         IN SIZE_T dwBytes);
 
 LPWSTR
 FormatDateTime(IN LPSYSTEMTIME pDateTime);
@@ -58,7 +58,7 @@ RunCommand(IN LPCWSTR lpszCommand,
 
 
 ////////////////////  The following comes from MSDN samples  ///////////////////
-// https://msdn.microsoft.com/en-us/library/windows/desktop/dd162826(v=vs.85).aspx
+// https://learn.microsoft.com/en-us/windows/win32/gdi/positioning-objects-on-a-multiple-display-setup
 //
 
 //

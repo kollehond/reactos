@@ -1,10 +1,12 @@
 /*
- * COPYRIGHT:       See COPYING in the top level directory
- * PROJECT:         ReactOS system libraries
- * FILE:            win32ss/gdi/gdi32/objects/font.c
- * PURPOSE:
- * PROGRAMMER:
- *
+ * PROJECT:     ReactOS GDI32
+ * LICENSE:     GPL-2.0+ (https://spdx.org/licenses/GPL-2.0+)
+ * PURPOSE:     Font manipulation API
+ * COPYRIGHT:   Copyright 2019 James Tabor
+ *              Copyright 2019 Pierre Schweitzer (heis_spiter@hotmail.com)
+ *              Copyright 2019-2021 Hermes Belusca-Maito (hermes.belusca-maito@reactos.org)
+ *              Copyright 2018 Baruch Rutman (peterooch@gmail.com)
+ *              Copyright 2025 Katayama Hirofumi MZ (katayama.hirofumi.mz@gmail.com)
  */
 
 #include <precomp.h>
@@ -204,61 +206,162 @@ NewTextMetricExW2A(NEWTEXTMETRICEXA *tma, NEWTEXTMETRICEXW *tmw)
     tma->ntmFontSig = tmw->ntmFontSig;
 }
 
+// IntFontFamilyCompareEx's flags
+#define IFFCX_CHARSET 1
+#define IFFCX_STYLE 2
+
+FORCEINLINE int FASTCALL
+IntFontFamilyCompareEx(const FONTFAMILYINFO *ffi1,
+                       const FONTFAMILYINFO *ffi2, DWORD dwCompareFlags)
+{
+    const LOGFONTW *plf1 = &ffi1->EnumLogFontEx.elfLogFont;
+    const LOGFONTW *plf2 = &ffi2->EnumLogFontEx.elfLogFont;
+    ULONG WeightDiff1, WeightDiff2;
+    int cmp = _wcsicmp(plf1->lfFaceName, plf2->lfFaceName);
+    if (cmp)
+        return cmp;
+    if (dwCompareFlags & IFFCX_CHARSET)
+    {
+        if (plf1->lfCharSet < plf2->lfCharSet)
+            return -1;
+        if (plf1->lfCharSet > plf2->lfCharSet)
+            return 1;
+    }
+    if (dwCompareFlags & IFFCX_STYLE)
+    {
+        WeightDiff1 = labs(plf1->lfWeight - FW_NORMAL);
+        WeightDiff2 = labs(plf2->lfWeight - FW_NORMAL);
+        if (WeightDiff1 < WeightDiff2)
+            return -1;
+        if (WeightDiff1 > WeightDiff2)
+            return 1;
+        if (plf1->lfItalic < plf2->lfItalic)
+            return -1;
+        if (plf1->lfItalic > plf2->lfItalic)
+            return 1;
+    }
+    return 0;
+}
+
+static int __cdecl
+IntFontFamilyCompare(const void *ffi1, const void *ffi2)
+{
+    return IntFontFamilyCompareEx(ffi1, ffi2, IFFCX_STYLE | IFFCX_CHARSET);
+}
+
+// IntEnumFontFamilies' flags:
+#define IEFF_UNICODE 1
+#define IEFF_EXTENDED 2
+
+int FASTCALL
+IntFontFamilyListUnique(FONTFAMILYINFO *InfoList, INT nCount,
+                        const LOGFONTW *plf, DWORD dwFlags)
+{
+    FONTFAMILYINFO *first, *last, *result;
+    DWORD dwCompareFlags = 0;
+
+    if (plf->lfFaceName[0])
+        dwCompareFlags |= IFFCX_STYLE;
+
+    if ((dwFlags & IEFF_EXTENDED) && plf->lfCharSet == DEFAULT_CHARSET)
+        dwCompareFlags |= IFFCX_CHARSET;
+
+    first = InfoList;
+    last = &InfoList[nCount];
+
+    /* std::unique(first, last, IntFontFamilyCompareEx); */
+    if (first == last)
+        return 0;
+
+    result = first;
+    while (++first != last)
+    {
+        if (IntFontFamilyCompareEx(result, first, dwCompareFlags) != 0)
+        {
+            *(++result) = *first;
+        }
+    }
+    nCount = (int)(++result - InfoList);
+
+    return nCount;
+}
+
 static int FASTCALL
-IntEnumFontFamilies(HDC Dc, LPLOGFONTW LogFont, PVOID EnumProc, LPARAM lParam,
-                    BOOL Unicode)
+IntEnumFontFamilies(HDC Dc, const LOGFONTW *LogFont, PVOID EnumProc, LPARAM lParam,
+                    DWORD dwFlags)
 {
     int FontFamilyCount;
-    int FontFamilySize;
     PFONTFAMILYINFO Info;
     int Ret = 1;
     int i;
     ENUMLOGFONTEXA EnumLogFontExA;
     NEWTEXTMETRICEXA NewTextMetricExA;
     LOGFONTW lfW;
+    LONG InfoCount;
+    ULONG DataSize;
+    NTSTATUS Status;
 
-    Info = RtlAllocateHeap(GetProcessHeap(), 0,
-                           INITIAL_FAMILY_COUNT * sizeof(FONTFAMILYINFO));
-    if (NULL == Info)
+    DataSize = INITIAL_FAMILY_COUNT * sizeof(FONTFAMILYINFO);
+    Info = RtlAllocateHeap(GetProcessHeap(), 0, DataSize);
+    if (Info == NULL)
     {
         return 1;
     }
 
+    /* Initialize the LOGFONT structure */
+    ZeroMemory(&lfW, sizeof(lfW));
     if (!LogFont)
     {
         lfW.lfCharSet = DEFAULT_CHARSET;
-        lfW.lfPitchAndFamily = 0;
-        lfW.lfFaceName[0] = 0;
-        LogFont = &lfW;
+    }
+    else
+    {
+        lfW.lfCharSet = LogFont->lfCharSet;
+        lfW.lfPitchAndFamily = LogFont->lfPitchAndFamily;
+        StringCbCopyW(lfW.lfFaceName, sizeof(lfW.lfFaceName), LogFont->lfFaceName);
     }
 
-    FontFamilyCount = NtGdiGetFontFamilyInfo(Dc, LogFont, Info, INITIAL_FAMILY_COUNT);
+    /* Retrieve the font information */
+    InfoCount = INITIAL_FAMILY_COUNT;
+    FontFamilyCount = NtGdiGetFontFamilyInfo(Dc, &lfW, Info, &InfoCount);
     if (FontFamilyCount < 0)
     {
         RtlFreeHeap(GetProcessHeap(), 0, Info);
         return 1;
     }
-    if (INITIAL_FAMILY_COUNT < FontFamilyCount)
+
+    /* Resize the buffer if the buffer is too small */
+    if (INITIAL_FAMILY_COUNT < InfoCount)
     {
-        FontFamilySize = FontFamilyCount;
         RtlFreeHeap(GetProcessHeap(), 0, Info);
-        Info = RtlAllocateHeap(GetProcessHeap(), 0,
-                               FontFamilyCount * sizeof(FONTFAMILYINFO));
-        if (NULL == Info)
+
+        Status = RtlULongMult(InfoCount, sizeof(FONTFAMILYINFO), &DataSize);
+        if (!NT_SUCCESS(Status) || DataSize > LONG_MAX)
+        {
+            DPRINT1("Overflowed.\n");
+            return 1;
+        }
+        Info = RtlAllocateHeap(GetProcessHeap(), 0, DataSize);
+        if (Info == NULL)
         {
             return 1;
         }
-        FontFamilyCount = NtGdiGetFontFamilyInfo(Dc, LogFont, Info, FontFamilySize);
-        if (FontFamilyCount < 0 || FontFamilySize < FontFamilyCount)
+        FontFamilyCount = NtGdiGetFontFamilyInfo(Dc, &lfW, Info, &InfoCount);
+        if (FontFamilyCount < 0 || FontFamilyCount < InfoCount)
         {
             RtlFreeHeap(GetProcessHeap(), 0, Info);
             return 1;
         }
     }
 
+    /* Sort and remove redundant information */
+    qsort(Info, FontFamilyCount, sizeof(*Info), IntFontFamilyCompare);
+    FontFamilyCount = IntFontFamilyListUnique(Info, FontFamilyCount, &lfW, dwFlags);
+
+    /* call the callback */
     for (i = 0; i < FontFamilyCount; i++)
     {
-        if (Unicode)
+        if (dwFlags & IEFF_UNICODE)
         {
             Ret = ((FONTENUMPROCW) EnumProc)(
                       (VOID*)&Info[i].EnumLogFontEx,
@@ -299,7 +402,19 @@ int WINAPI
 EnumFontFamiliesExW(HDC hdc, LPLOGFONTW lpLogfont, FONTENUMPROCW lpEnumFontFamExProc,
                     LPARAM lParam, DWORD dwFlags)
 {
-    return IntEnumFontFamilies(hdc, lpLogfont, lpEnumFontFamExProc, lParam, TRUE);
+    if (lpLogfont)
+    {
+        DPRINT("EnumFontFamiliesExW(%p, %p(%S, %u, %u), %p, %p, 0x%08lX)\n",
+               hdc, lpLogfont, lpLogfont->lfFaceName, lpLogfont->lfCharSet,
+               lpLogfont->lfPitchAndFamily, lpEnumFontFamExProc, lParam, dwFlags);
+    }
+    else
+    {
+        DPRINT("EnumFontFamiliesExW(%p, NULL, %p, %p, 0x%08lX)\n",
+               hdc, lpEnumFontFamExProc, lParam, dwFlags);
+    }
+    return IntEnumFontFamilies(hdc, lpLogfont, lpEnumFontFamExProc, lParam,
+                               IEFF_UNICODE | IEFF_EXTENDED);
 }
 
 
@@ -312,6 +427,9 @@ EnumFontFamiliesW(HDC hdc, LPCWSTR lpszFamily, FONTENUMPROCW lpEnumFontFamProc,
 {
     LOGFONTW LogFont;
 
+    DPRINT("EnumFontFamiliesW(%p, %S, %p, %p)\n",
+           hdc, lpszFamily, lpEnumFontFamProc, lParam);
+
     ZeroMemory(&LogFont, sizeof(LOGFONTW));
     LogFont.lfCharSet = DEFAULT_CHARSET;
     if (NULL != lpszFamily)
@@ -320,7 +438,7 @@ EnumFontFamiliesW(HDC hdc, LPCWSTR lpszFamily, FONTENUMPROCW lpEnumFontFamProc,
         lstrcpynW(LogFont.lfFaceName, lpszFamily, LF_FACESIZE);
     }
 
-    return IntEnumFontFamilies(hdc, &LogFont, lpEnumFontFamProc, lParam, TRUE);
+    return IntEnumFontFamilies(hdc, &LogFont, lpEnumFontFamProc, lParam, IEFF_UNICODE);
 }
 
 
@@ -335,13 +453,25 @@ EnumFontFamiliesExA (HDC hdc, LPLOGFONTA lpLogfont, FONTENUMPROCA lpEnumFontFamE
 
     if (lpLogfont)
     {
+        DPRINT("EnumFontFamiliesExA(%p, %p(%s, %u, %u), %p, %p, 0x%08lX)\n",
+               hdc, lpLogfont, lpLogfont->lfFaceName, lpLogfont->lfCharSet,
+               lpLogfont->lfPitchAndFamily, lpEnumFontFamExProc, lParam, dwFlags);
+    }
+    else
+    {
+        DPRINT("EnumFontFamiliesExA(%p, NULL, %p, %p, 0x%08lX)\n",
+               hdc, lpEnumFontFamExProc, lParam, dwFlags);
+    }
+
+    if (lpLogfont)
+    {
         LogFontA2W(&LogFontW,lpLogfont);
         pLogFontW = &LogFontW;
     }
     else pLogFontW = NULL;
 
     /* no need to convert LogFontW back to lpLogFont b/c it's an [in] parameter only */
-    return IntEnumFontFamilies(hdc, pLogFontW, lpEnumFontFamExProc, lParam, FALSE);
+    return IntEnumFontFamilies(hdc, pLogFontW, lpEnumFontFamExProc, lParam, IEFF_EXTENDED);
 }
 
 
@@ -354,6 +484,9 @@ EnumFontFamiliesA(HDC hdc, LPCSTR lpszFamily, FONTENUMPROCA lpEnumFontFamProc,
 {
     LOGFONTW LogFont;
 
+    DPRINT("EnumFontFamiliesA(%p, %s, %p, %p)\n",
+           hdc, lpszFamily, lpEnumFontFamProc, lParam);
+
     ZeroMemory(&LogFont, sizeof(LOGFONTW));
     LogFont.lfCharSet = DEFAULT_CHARSET;
     if (NULL != lpszFamily)
@@ -362,7 +495,7 @@ EnumFontFamiliesA(HDC hdc, LPCSTR lpszFamily, FONTENUMPROCA lpEnumFontFamProc,
         MultiByteToWideChar(CP_THREAD_ACP, 0, lpszFamily, -1, LogFont.lfFaceName, LF_FACESIZE);
     }
 
-    return IntEnumFontFamilies(hdc, &LogFont, lpEnumFontFamProc, lParam, FALSE);
+    return IntEnumFontFamilies(hdc, &LogFont, lpEnumFontFamProc, lParam, 0);
 }
 
 
@@ -465,7 +598,7 @@ GetCharacterPlacementW(
     }
 
     /* Treat the case where no special handling was requested in a fastpath way */
-    /* copy will do if the GCP_REORDER flag is not set */ 
+    /* copy will do if the GCP_REORDER flag is not set */
     if (lpResults->lpOutString)
         lstrcpynW( lpResults->lpOutString, lpString, nSet );
 
@@ -1209,7 +1342,7 @@ GetOutlineTextMetricsA(
     else
         output->otmpFullName = 0;
 
-    assert(left == 0);
+    ASSERT(left == 0);
 
     if(output != lpOTM)
     {
@@ -1580,6 +1713,90 @@ CreateFontIndirectA(
 }
 
 
+#if DBG
+VOID DumpFamilyInfo(const FONTFAMILYINFO *Info, LONG Count)
+{
+    LONG i;
+    const LOGFONTW *plf;
+
+    DPRINT1("---\n");
+    DPRINT1("Count: %d\n", Count);
+    for (i = 0; i < Count; ++i)
+    {
+        plf = &Info[i].EnumLogFontEx.elfLogFont;
+        DPRINT1("%d: '%S',%u,'%S', %ld:%ld, %ld, %d, %d\n", i,
+            plf->lfFaceName, plf->lfCharSet, Info[i].EnumLogFontEx.elfFullName,
+            plf->lfHeight, plf->lfWidth, plf->lfWeight, plf->lfItalic, plf->lfPitchAndFamily);
+    }
+}
+
+VOID DoFontSystemUnittest(VOID)
+{
+#ifndef RTL_SOFT_ASSERT
+#define RTL_SOFT_ASSERT(exp) \
+  (void)((!(exp)) ? \
+    DbgPrint("%s(%d): Soft assertion failed\n Expression: %s\n", __FILE__, __LINE__, #exp), FALSE : TRUE)
+#define RTL_SOFT_ASSERT_defined
+#endif
+
+    LOGFONTW LogFont;
+    FONTFAMILYINFO Info[4];
+    UNICODE_STRING Str1, Str2;
+    LONG ret, InfoCount;
+
+    //DumpFontInfo(TRUE);
+
+    /* L"" DEFAULT_CHARSET */
+    RtlZeroMemory(&LogFont, sizeof(LogFont));
+    LogFont.lfCharSet = DEFAULT_CHARSET;
+    InfoCount = RTL_NUMBER_OF(Info);
+    ret = NtGdiGetFontFamilyInfo(NULL, &LogFont, Info, &InfoCount);
+    DPRINT1("ret: %ld, InfoCount: %ld\n", ret, InfoCount);
+    DumpFamilyInfo(Info, ret);
+    RTL_SOFT_ASSERT(ret == RTL_NUMBER_OF(Info));
+    RTL_SOFT_ASSERT(InfoCount > 32);
+
+    /* L"Microsoft Sans Serif" ANSI_CHARSET */
+    RtlZeroMemory(&LogFont, sizeof(LogFont));
+    LogFont.lfCharSet = ANSI_CHARSET;
+    StringCbCopyW(LogFont.lfFaceName, sizeof(LogFont.lfFaceName), L"Microsoft Sans Serif");
+    InfoCount = RTL_NUMBER_OF(Info);
+    ret = NtGdiGetFontFamilyInfo(NULL, &LogFont, Info, &InfoCount);
+    DPRINT1("ret: %ld, InfoCount: %ld\n", ret, InfoCount);
+    DumpFamilyInfo(Info, ret);
+    RTL_SOFT_ASSERT(ret != -1);
+    RTL_SOFT_ASSERT(InfoCount > 0);
+    RTL_SOFT_ASSERT(InfoCount < 16);
+
+    RtlInitUnicodeString(&Str1, Info[0].EnumLogFontEx.elfLogFont.lfFaceName);
+    RtlInitUnicodeString(&Str2, L"Microsoft Sans Serif");
+    ret = RtlCompareUnicodeString(&Str1, &Str2, TRUE);
+    RTL_SOFT_ASSERT(ret == 0);
+
+    RtlInitUnicodeString(&Str1, Info[0].EnumLogFontEx.elfFullName);
+    RtlInitUnicodeString(&Str2, L"Tahoma");
+    ret = RtlCompareUnicodeString(&Str1, &Str2, TRUE);
+    RTL_SOFT_ASSERT(ret == 0);
+
+    /* L"Non-Existent" DEFAULT_CHARSET */
+    RtlZeroMemory(&LogFont, sizeof(LogFont));
+    LogFont.lfCharSet = ANSI_CHARSET;
+    StringCbCopyW(LogFont.lfFaceName, sizeof(LogFont.lfFaceName), L"Non-Existent");
+    InfoCount = RTL_NUMBER_OF(Info);
+    ret = NtGdiGetFontFamilyInfo(NULL, &LogFont, Info, &InfoCount);
+    DPRINT1("ret: %ld, InfoCount: %ld\n", ret, InfoCount);
+    DumpFamilyInfo(Info, ret);
+    RTL_SOFT_ASSERT(ret == 0);
+    RTL_SOFT_ASSERT(InfoCount == 0);
+
+#ifdef RTL_SOFT_ASSERT_defined
+#undef RTL_SOFT_ASSERT_defined
+#undef RTL_SOFT_ASSERT
+#endif
+}
+#endif
+
+/* EOF */
 /*
  * @implemented
  */
@@ -1589,6 +1806,14 @@ CreateFontIndirectW(
     CONST LOGFONTW		*lplf
 )
 {
+#if 0
+    static BOOL bDidTest = FALSE;
+    if (!bDidTest)
+    {
+        bDidTest = TRUE;
+        DoFontSystemUnittest();
+    }
+#endif
     if (lplf)
     {
         ENUMLOGFONTEXDVW Logfont;
@@ -1716,6 +1941,144 @@ CreateFontW(
     return CreateFontIndirectW(&logfont);
 }
 
+// Convert single or multiple font path(s)
+PWSTR
+FASTCALL
+IntConvertFontPaths(
+    _In_ PCWSTR pszFiles,
+    _Out_ PDWORD pcFiles,
+    _Out_ PDWORD pcwc,
+    _Inout_ PDWORD pfl,
+    _In_ BOOL bFlag)
+{
+    // FIXME: pfl
+    // FIXME: bFlag
+
+    *pcwc = *pcFiles = 0;
+
+    if (!*pszFiles)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return NULL;
+    }
+
+    // Build "Fonts" path
+    WCHAR szFontsDir[MAX_PATH];
+    GetWindowsDirectoryW(szFontsDir, _countof(szFontsDir));
+    StringCchCatW(szFontsDir, _countof(szFontsDir), L"\\Fonts");
+
+    // Count the number of paths separated by '|'.
+    ULONG pathCount = 1;
+    for (PCWSTR pch1 = pszFiles; *pch1; ++pch1)
+    {
+        if (*pch1 == L'|')
+            pathCount++;
+    }
+
+    // Allocate memory for the paths.
+    SIZE_T cchBuff = pathCount * MAX_PATH;
+    PWSTR pszBuff = HEAP_alloc(cchBuff * sizeof(WCHAR));
+    if (!pszBuff)
+        return NULL;
+
+    pszBuff[0] = UNICODE_NULL;
+    *pcFiles = pathCount;
+
+    // Convert paths
+    DWORD dwError = ERROR_SUCCESS;
+    PCWSTR pch1, pch1Prev;
+    BOOL bFirst = TRUE;
+    for (pch1 = pch1Prev = pszFiles;; ++pch1)
+    {
+        if (*pch1 && *pch1 != L'|')
+            continue;
+
+        UINT_PTR spanLen = pch1 - pch1Prev;
+        if (spanLen < _countof(L".ttf") || spanLen >= MAX_PATH)
+        {
+            dwError = ERROR_INVALID_FUNCTION;
+            break;
+        }
+
+        WCHAR szFileName[MAX_PATH], szFullPath[MAX_PATH];
+        StringCchCopyNW(szFileName, _countof(szFileName), pch1Prev, spanLen);
+
+        // Search file
+        if (!SearchPathW(L".", szFileName, NULL, _countof(szFullPath), szFullPath, NULL) &&
+            !SearchPathW(szFontsDir, szFileName, NULL, _countof(szFullPath), szFullPath, NULL))
+        {
+            dwError = ERROR_FILE_NOT_FOUND;
+            break;
+        }
+
+        if (bFirst)
+        {
+            bFirst = FALSE;
+        }
+        else
+        {
+            SIZE_T cch = wcslen(szFullPath);
+            if (cch < _countof(L".pfb"))
+            {
+                dwError = ERROR_INVALID_FUNCTION;
+                break;
+            }
+
+            // Check filename extension
+            PCWSTR pchDotExt = &szFullPath[cch - 4];
+            if (_wcsicmp(pchDotExt, L".pfb") != 0 &&
+                _wcsicmp(pchDotExt, L".mmm") != 0)
+            {
+                dwError = ERROR_INVALID_FUNCTION;
+                break;
+            }
+        }
+
+        // Convert to an NT path
+        UNICODE_STRING NtAbsPath;
+        if (!RtlDosPathNameToNtPathName_U(szFullPath, &NtAbsPath, NULL, NULL))
+        {
+            dwError = ERROR_OUTOFMEMORY;
+            break;
+        }
+
+        // Append a path and '|' to pszBuff
+        if (StringCchCatW(pszBuff, cchBuff, NtAbsPath.Buffer) != S_OK ||
+            StringCchCatW(pszBuff, cchBuff, L"|") != S_OK)
+        {
+            RtlFreeUnicodeString(&NtAbsPath);
+            dwError = ERROR_INVALID_FUNCTION;
+            break;
+        }
+
+        RtlFreeUnicodeString(&NtAbsPath);
+
+        if (!*pch1)
+            break;
+
+        pch1Prev = pch1 + 1;
+    }
+
+    if (dwError != ERROR_SUCCESS)
+    {
+        HEAP_free(pszBuff);
+        *pcwc = *pcFiles = 0;
+        if (dwError != ERROR_INVALID_FUNCTION)
+            SetLastError(dwError);
+        return NULL;
+    }
+
+    *pcwc = (DWORD)wcslen(pszBuff);
+
+    // Convert '|' to '\0'
+    for (PWSTR pch2 = pszBuff; *pch2; ++pch2)
+    {
+        if (*pch2 == L'|')
+            *pch2 = UNICODE_NULL;
+    }
+
+    return pszBuff;
+}
 
 /*
  * @unimplemented
@@ -1732,157 +2095,165 @@ CreateScalableFontResourceA(
     return FALSE;
 }
 
-
-/*
- * @implemented
- */
-int
+/* @implemented */
+INT
 WINAPI
-AddFontResourceExW ( LPCWSTR lpszFilename, DWORD fl, PVOID pvReserved )
+AddFontResourceExW(
+    _In_ LPCWSTR lpszFilename,
+    _In_ DWORD fl,
+    _In_opt_ PVOID pvReserved)
 {
     if (fl & ~(FR_PRIVATE | FR_NOT_ENUM))
     {
-        SetLastError( ERROR_INVALID_PARAMETER );
+        SetLastError(ERROR_INVALID_PARAMETER);
         return 0;
     }
 
-    return GdiAddFontResourceW(lpszFilename, fl,0);
+    return GdiAddFontResourceW(lpszFilename, fl, NULL);
 }
 
-
-/*
- * @implemented
- */
-int
+/* @implemented */
+INT
 WINAPI
-AddFontResourceExA ( LPCSTR lpszFilename, DWORD fl, PVOID pvReserved )
+AddFontResourceExA(
+    _In_ LPCSTR lpszFilename,
+    _In_ DWORD fl,
+    _In_opt_ PVOID pvReserved)
 {
-    NTSTATUS Status;
-    PWSTR FilenameW;
-    int rc;
-
     if (fl & ~(FR_PRIVATE | FR_NOT_ENUM))
     {
-        SetLastError( ERROR_INVALID_PARAMETER );
+        SetLastError(ERROR_INVALID_PARAMETER);
         return 0;
     }
 
-    Status = HEAP_strdupA2W ( &FilenameW, lpszFilename );
-    if ( !NT_SUCCESS (Status) )
-    {
-        SetLastError (RtlNtStatusToDosError(Status));
+    if (!lpszFilename)
         return 0;
-    }
 
-    rc = GdiAddFontResourceW ( FilenameW, fl, 0 );
-    HEAP_free ( FilenameW );
-    return rc;
-}
-
-
-/*
- * @implemented
- */
-int
-WINAPI
-AddFontResourceA ( LPCSTR lpszFilename )
-{
-    NTSTATUS Status;
     PWSTR FilenameW;
-    int rc = 0;
+    WCHAR szBuff[MAX_PATH];
 
-    Status = HEAP_strdupA2W ( &FilenameW, lpszFilename );
-    if ( !NT_SUCCESS (Status) )
+    _SEH2_TRY
     {
-        SetLastError (RtlNtStatusToDosError(Status));
+        FilenameW = HEAP_strdupA2W_buf(lpszFilename, szBuff, _countof(szBuff));
     }
-    else
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
     {
-        rc = GdiAddFontResourceW ( FilenameW, 0, 0);
-
-        HEAP_free ( FilenameW );
+        _SEH2_YIELD(return 0);
     }
-    return rc;
-}
+    _SEH2_END;
 
-
-/*
- * @implemented
- */
-int
-WINAPI
-AddFontResourceW ( LPCWSTR lpszFilename )
-{
-    return GdiAddFontResourceW ( lpszFilename, 0, 0 );
-}
-
-
-/*
- * @implemented
- */
-BOOL
-WINAPI
-RemoveFontResourceW(LPCWSTR lpFileName)
-{
-    return RemoveFontResourceExW(lpFileName,0,0);
-}
-
-
-/*
- * @implemented
- */
-BOOL
-WINAPI
-RemoveFontResourceA(LPCSTR lpFileName)
-{
-    return RemoveFontResourceExA(lpFileName,0,0);
-}
-
-/*
- * @unimplemented
- */
-BOOL
-WINAPI
-RemoveFontResourceExA(LPCSTR lpFileName,
-                      DWORD fl,
-                      PVOID pdv
-                     )
-{
-    NTSTATUS Status;
-    LPWSTR lpFileNameW;
-
-    /* FIXME the flags */
-    /* FIXME the pdv */
-    /* FIXME NtGdiRemoveFontResource handle flags and pdv */
-
-    Status = HEAP_strdupA2W ( &lpFileNameW, lpFileName );
-    if (!NT_SUCCESS (Status))
-        SetLastError (RtlNtStatusToDosError(Status));
-    else
+    if (!FilenameW)
     {
-
-        HEAP_free ( lpFileNameW );
+        SetLastError(ERROR_OUTOFMEMORY);
+        return 0;
     }
 
-    return 0;
+    INT ret = GdiAddFontResourceW(FilenameW, fl, NULL);
+    HEAP_strdupA2W_buf_free(FilenameW, szBuff);
+    return ret;
 }
 
-/*
- * @unimplemented
- */
+/* @implemented */
+INT
+WINAPI
+AddFontResourceA(_In_ LPCSTR lpszFilename)
+{
+    return AddFontResourceExA(lpszFilename, 0, NULL);
+}
+
+/* @implemented */
+INT
+WINAPI
+AddFontResourceW(_In_ LPCWSTR lpszFilename)
+{
+    return GdiAddFontResourceW(lpszFilename, 0, NULL);
+}
+
+/* @implemented */
 BOOL
 WINAPI
-RemoveFontResourceExW(LPCWSTR lpFileName,
-                      DWORD fl,
-                      PVOID pdv)
+RemoveFontResourceW(_In_ LPCWSTR lpFileName)
 {
-    /* FIXME the flags */
-    /* FIXME the pdv */
-    /* FIXME NtGdiRemoveFontResource handle flags and pdv */
+    return RemoveFontResourceExW(lpFileName, 0, NULL);
+}
+
+/* @implemented */
+BOOL
+WINAPI
+RemoveFontResourceA(_In_ LPCSTR lpFileName)
+{
+    return RemoveFontResourceExA(lpFileName, 0, NULL);
+}
+
+/* @implemented */
+BOOL
+WINAPI
+RemoveFontResourceExA(
+    _In_ LPCSTR lpFileName,
+    _In_ DWORD fl,
+    _In_opt_ PVOID pdv)
+{
+    if (fl & ~(FR_PRIVATE | FR_NOT_ENUM))
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    if (!lpFileName)
+        return FALSE;
+
+    WCHAR szBuff[MAX_PATH];
+    PWSTR FilenameW;
+
+    _SEH2_TRY
+    {
+        FilenameW = HEAP_strdupA2W_buf(lpFileName, szBuff, _countof(szBuff));
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        FilenameW = NULL;
+    }
+    _SEH2_END;
+
+    if (!FilenameW)
+    {
+        SetLastError(ERROR_OUTOFMEMORY);
+        return FALSE;
+    }
+
+    BOOL result = RemoveFontResourceExW(FilenameW, fl, pdv);
+    HEAP_strdupA2W_buf_free(FilenameW, szBuff);
+    return result;
+}
+
+/* @implemented */
+BOOL
+WINAPI
+RemoveFontResourceExW(
+    _In_ LPCWSTR lpFileName,
+    _In_ DWORD fl,
+    _In_opt_ PVOID pdv)
+{
     DPRINT("RemoveFontResourceExW\n");
-    return 0;
-}
 
+    if (fl & ~(FR_PRIVATE | FR_NOT_ENUM))
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    if (!lpFileName)
+        return FALSE;
+
+    ULONG cFiles, cwc;
+    PWSTR pszConverted = IntConvertFontPaths(lpFileName, &cFiles, &cwc, &fl, TRUE);
+    if (!pszConverted)
+        return FALSE;
+
+    BOOL ret = NtGdiRemoveFontResourceW(pszConverted, cwc, cFiles, fl, 0, NULL);
+    HEAP_free(pszConverted);
+    return ret;
+}
 
 /***********************************************************************
  *           GdiGetCharDimensions
@@ -2016,27 +2387,14 @@ SetMapperFlags(
 {
     DWORD Ret = GDI_ERROR;
     PDC_ATTR Dc_Attr;
-#if 0
-    if (GDI_HANDLE_GET_TYPE(hDC) != GDI_OBJECT_TYPE_DC)
+
+    /* Get the DC attribute */
+    Dc_Attr = GdiGetDcAttr(hDC);
+    if (Dc_Attr == NULL)
     {
-        if (GDI_HANDLE_GET_TYPE(hDC) == GDI_OBJECT_TYPE_METADC)
-            return MFDRV_SetMapperFlags( hDC, flags);
-        else
-        {
-            PLDC pLDC = Dc_Attr->pvLDC;
-            if ( !pLDC )
-            {
-                SetLastError(ERROR_INVALID_HANDLE);
-                return GDI_ERROR;
-            }
-            if (pLDC->iType == LDC_EMFLDC)
-            {
-                return EMFDRV_SetMapperFlags( hDC, flags);
-            }
-        }
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return GDI_ERROR;
     }
-#endif
-    if (!GdiGetHandleUserData((HGDIOBJ) hDC, GDI_OBJECT_TYPE_DC, (PVOID) &Dc_Attr)) return GDI_ERROR;
 
     if (NtCurrentTeb()->GdiTebBatch.HDC == hDC)
     {
@@ -2186,55 +2544,33 @@ NewEnumFontFamiliesExW(
     return ret;
 }
 
-/*
- * @implemented
- */
-int
+/* @implemented */
+INT
 WINAPI
 GdiAddFontResourceW(
     LPCWSTR lpszFilename,
     FLONG fl,
     DESIGNVECTOR *pdv)
 {
-    INT Ret;
-    WCHAR lpszBuffer[MAX_PATH];
-    WCHAR lpszAbsPath[MAX_PATH];
-    UNICODE_STRING NtAbsPath;
-
-    /* FIXME: We don't support multiple files passed in lpszFilename
-     *        as L"abcxxxxx.pfm|abcxxxxx.pfb"
-     */
-
-    /* Does the file exist in CurrentDirectory or in the Absolute Path passed? */
-    GetCurrentDirectoryW(MAX_PATH, lpszBuffer);
-
-    if (!SearchPathW(lpszBuffer, lpszFilename, NULL, MAX_PATH, lpszAbsPath, NULL))
-    {
-        /* Nope. Then let's check Fonts folder */
-        GetWindowsDirectoryW(lpszBuffer, MAX_PATH);
-        StringCbCatW(lpszBuffer, sizeof(lpszBuffer), L"\\Fonts");
-
-        if (!SearchPathW(lpszBuffer, lpszFilename, NULL, MAX_PATH, lpszAbsPath, NULL))
-        {
-            DPRINT1("Font not found. The Buffer is: %ls, the FileName is: %S\n", lpszBuffer, lpszFilename);
-            return 0;
-        }
-    }
-
-    /* We found the font file so: */
-    if (!RtlDosPathNameToNtPathName_U(lpszAbsPath, &NtAbsPath, NULL, NULL))
-    {
-        DPRINT1("Can't convert Path! Path: %ls\n", lpszAbsPath);
+    ULONG cFiles, cwc;
+    PWSTR pszConverted = IntConvertFontPaths(lpszFilename, &cFiles, &cwc, &fl, FALSE);
+    if (!pszConverted)
         return 0;
-    }
 
-    /* The Nt call expects a null-terminator included in cwc param. */
-    ASSERT(NtAbsPath.Buffer[NtAbsPath.Length / sizeof(WCHAR)] == UNICODE_NULL);
-    Ret = NtGdiAddFontResourceW(NtAbsPath.Buffer, NtAbsPath.Length / sizeof(WCHAR) + 1, 1, fl, 0, pdv);
+    INT ret = NtGdiAddFontResourceW(pszConverted, cwc, cFiles, fl, 0, pdv);
+    HEAP_free(pszConverted);
+    if (ret)
+        return ret;
 
-    RtlFreeUnicodeString(&NtAbsPath);
+    pszConverted = IntConvertFontPaths(lpszFilename, &cFiles, &cwc, &fl, TRUE);
+    if (!pszConverted)
+        return 0;
 
-    return Ret;
+    ret = NtGdiAddFontResourceW(pszConverted, cwc, cFiles, fl, 0, pdv);
+    HEAP_free(pszConverted);
+    if (!ret)
+        SetLastError(ERROR_INVALID_PARAMETER);
+    return ret;
 }
 
 /*
@@ -2462,4 +2798,3 @@ cGetTTFFromFOT(DWORD x1 ,DWORD x2 ,DWORD x3, DWORD x4, DWORD x5, DWORD x6, DWORD
     SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
     return 0;
 }
-

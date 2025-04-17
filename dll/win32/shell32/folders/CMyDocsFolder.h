@@ -26,44 +26,72 @@ class CMyDocsFolder :
     public CComCoClass<CMyDocsFolder, &CLSID_MyDocuments>,
     public CComObjectRootEx<CComMultiThreadModelNoCS>,
     public IShellFolder2,
-    public IPersistFolder2
+    public IPersistFolder2,
+    public IItemNameLimits
 {
     private:
         CComPtr<IShellFolder2> m_pisfInner;
         LPITEMIDLIST m_pidlInner;
+
+        HRESULT EnsureFolder();
+
     public:
         CMyDocsFolder();
         ~CMyDocsFolder();
 
+        HRESULT WINAPI FinalConstruct();
+
         // IShellFolder
-        virtual HRESULT WINAPI ParseDisplayName(HWND hwndOwner, LPBC pbc, LPOLESTR lpszDisplayName, DWORD *pchEaten, PIDLIST_RELATIVE *ppidl, DWORD *pdwAttributes);
-        virtual HRESULT WINAPI EnumObjects(HWND hwndOwner, DWORD dwFlags, LPENUMIDLIST *ppEnumIDList);
-        virtual HRESULT WINAPI BindToObject(PCUIDLIST_RELATIVE pidl, LPBC pbcReserved, REFIID riid, LPVOID *ppvOut);
-        virtual HRESULT WINAPI BindToStorage(PCUIDLIST_RELATIVE pidl, LPBC pbcReserved, REFIID riid, LPVOID *ppvOut);
-        virtual HRESULT WINAPI CompareIDs(LPARAM lParam, PCUIDLIST_RELATIVE pidl1, PCUIDLIST_RELATIVE pidl2);
-        virtual HRESULT WINAPI CreateViewObject(HWND hwndOwner, REFIID riid, LPVOID *ppvOut);
-        virtual HRESULT WINAPI GetAttributesOf(UINT cidl, PCUITEMID_CHILD_ARRAY apidl, DWORD *rgfInOut);
-        virtual HRESULT WINAPI GetUIObjectOf(HWND hwndOwner, UINT cidl, PCUITEMID_CHILD_ARRAY apidl, REFIID riid, UINT * prgfInOut, LPVOID * ppvOut);
-        virtual HRESULT WINAPI GetDisplayNameOf(PCUITEMID_CHILD pidl, DWORD dwFlags, LPSTRRET strRet);
-        virtual HRESULT WINAPI SetNameOf(HWND hwndOwner, PCUITEMID_CHILD pidl, LPCOLESTR lpName, DWORD dwFlags, PITEMID_CHILD *pPidlOut);
+        STDMETHOD(ParseDisplayName)(HWND hwndOwner, LPBC pbc, LPOLESTR lpszDisplayName, DWORD *pchEaten, PIDLIST_RELATIVE *ppidl, DWORD *pdwAttributes) override;
+        STDMETHOD(EnumObjects)(HWND hwndOwner, DWORD dwFlags, LPENUMIDLIST *ppEnumIDList) override;
+        STDMETHOD(BindToObject)(PCUIDLIST_RELATIVE pidl, LPBC pbcReserved, REFIID riid, LPVOID *ppvOut) override;
+        STDMETHOD(BindToStorage)(PCUIDLIST_RELATIVE pidl, LPBC pbcReserved, REFIID riid, LPVOID *ppvOut) override;
+        STDMETHOD(CompareIDs)(LPARAM lParam, PCUIDLIST_RELATIVE pidl1, PCUIDLIST_RELATIVE pidl2) override;
+        STDMETHOD(CreateViewObject)(HWND hwndOwner, REFIID riid, LPVOID *ppvOut) override;
+        STDMETHOD(GetAttributesOf)(UINT cidl, PCUITEMID_CHILD_ARRAY apidl, DWORD *rgfInOut) override;
+        STDMETHOD(GetUIObjectOf)(HWND hwndOwner, UINT cidl, PCUITEMID_CHILD_ARRAY apidl, REFIID riid, UINT * prgfInOut, LPVOID * ppvOut) override;
+        STDMETHOD(GetDisplayNameOf)(PCUITEMID_CHILD pidl, DWORD dwFlags, LPSTRRET strRet) override;
+        STDMETHOD(SetNameOf)(HWND hwndOwner, PCUITEMID_CHILD pidl, LPCOLESTR lpName, DWORD dwFlags, PITEMID_CHILD *pPidlOut) override;
 
         /* ShellFolder2 */
-        virtual HRESULT WINAPI GetDefaultSearchGUID(GUID *pguid);
-        virtual HRESULT WINAPI EnumSearches(IEnumExtraSearch **ppenum);
-        virtual HRESULT WINAPI GetDefaultColumn(DWORD dwRes, ULONG *pSort, ULONG *pDisplay);
-        virtual HRESULT WINAPI GetDefaultColumnState(UINT iColumn, DWORD *pcsFlags);
-        virtual HRESULT WINAPI GetDetailsEx(PCUITEMID_CHILD pidl, const SHCOLUMNID *pscid, VARIANT *pv);
-        virtual HRESULT WINAPI GetDetailsOf(PCUITEMID_CHILD pidl, UINT iColumn, SHELLDETAILS *psd);
-        virtual HRESULT WINAPI MapColumnToSCID(UINT column, SHCOLUMNID *pscid);
+        STDMETHOD(GetDefaultSearchGUID)(GUID *pguid) override;
+        STDMETHOD(EnumSearches)(IEnumExtraSearch **ppenum) override;
+        STDMETHOD(GetDefaultColumn)(DWORD dwRes, ULONG *pSort, ULONG *pDisplay) override;
+        STDMETHOD(GetDefaultColumnState)(UINT iColumn, DWORD *pcsFlags) override;
+        STDMETHOD(GetDetailsEx)(PCUITEMID_CHILD pidl, const SHCOLUMNID *pscid, VARIANT *pv) override;
+        STDMETHOD(GetDetailsOf)(PCUITEMID_CHILD pidl, UINT iColumn, SHELLDETAILS *psd) override;
+        STDMETHOD(MapColumnToSCID)(UINT column, SHCOLUMNID *pscid) override;
 
         // IPersist
-        virtual HRESULT WINAPI GetClassID(CLSID *lpClassId);
+        STDMETHOD(GetClassID)(CLSID *lpClassId) override;
 
         // IPersistFolder
-        virtual HRESULT WINAPI Initialize(LPCITEMIDLIST pidl);
+        STDMETHOD(Initialize)(PCIDLIST_ABSOLUTE pidl) override;
 
         // IPersistFolder2
-        virtual HRESULT WINAPI GetCurFolder(LPITEMIDLIST * pidl);
+        STDMETHOD(GetCurFolder)(PIDLIST_ABSOLUTE * pidl) override;
+
+        /*** IItemNameLimits methods ***/
+
+        STDMETHODIMP
+        GetMaxLength(LPCWSTR pszName, int *piMaxNameLen) override
+        {
+            return E_NOTIMPL;
+        }
+
+        STDMETHODIMP
+        GetValidCharacters(LPWSTR *ppwszValidChars, LPWSTR *ppwszInvalidChars) override
+        {
+            if (ppwszValidChars)
+            {
+                *ppwszValidChars = NULL;
+            }
+            if (ppwszInvalidChars)
+            {
+                SHStrDupW(INVALID_FILETITLE_CHARACTERSW, ppwszInvalidChars);
+            }
+            return S_OK;
+        }
 
         DECLARE_REGISTRY_RESOURCEID(IDR_MYDOCUMENTS)
         DECLARE_NOT_AGGREGATABLE(CMyDocsFolder)
@@ -76,6 +104,7 @@ class CMyDocsFolder :
         COM_INTERFACE_ENTRY_IID(IID_IPersistFolder, IPersistFolder)
         COM_INTERFACE_ENTRY_IID(IID_IPersistFolder2, IPersistFolder2)
         COM_INTERFACE_ENTRY_IID(IID_IPersist, IPersist)
+        COM_INTERFACE_ENTRY_IID(IID_IItemNameLimits, IItemNameLimits)
         END_COM_MAP()
 };
 

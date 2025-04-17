@@ -1,5 +1,4 @@
 
-set_cpp()
 
 remove_definitions(-D_WIN32_WINNT=0x502)
 add_definitions(-D_WIN32_WINNT=0x600)
@@ -11,7 +10,7 @@ list(APPEND SOURCE
     pin.c
     guid.c)
 
-add_library(usbaudio SHARED
+add_library(usbaudio MODULE
     ${SOURCE}
     usbaudio.rc)
 

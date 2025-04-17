@@ -1,31 +1,33 @@
-/* $Id: tif_dir.h,v 1.55 2017-06-01 12:44:04 erouault Exp $ */
-
 /*
  * Copyright (c) 1988-1997 Sam Leffler
  * Copyright (c) 1991-1997 Silicon Graphics, Inc.
  *
- * Permission to use, copy, modify, distribute, and sell this software and 
+ * Permission to use, copy, modify, distribute, and sell this software and
  * its documentation for any purpose is hereby granted without fee, provided
  * that (i) the above copyright notices and this permission notice appear in
  * all copies of the software and related documentation, and (ii) the names of
  * Sam Leffler and Silicon Graphics may not be used in any advertising or
  * publicity relating to the software without the specific, prior written
  * permission of Sam Leffler and Silicon Graphics.
- * 
- * THE SOFTWARE IS PROVIDED "AS-IS" AND WITHOUT WARRANTY OF ANY KIND, 
- * EXPRESS, IMPLIED OR OTHERWISE, INCLUDING WITHOUT LIMITATION, ANY 
- * WARRANTY OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.  
- * 
+ *
+ * THE SOFTWARE IS PROVIDED "AS-IS" AND WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS, IMPLIED OR OTHERWISE, INCLUDING WITHOUT LIMITATION, ANY
+ * WARRANTY OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+ *
  * IN NO EVENT SHALL SAM LEFFLER OR SILICON GRAPHICS BE LIABLE FOR
  * ANY SPECIAL, INCIDENTAL, INDIRECT OR CONSEQUENTIAL DAMAGES OF ANY KIND,
  * OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
- * WHETHER OR NOT ADVISED OF THE POSSIBILITY OF DAMAGE, AND ON ANY THEORY OF 
- * LIABILITY, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE 
+ * WHETHER OR NOT ADVISED OF THE POSSIBILITY OF DAMAGE, AND ON ANY THEORY OF
+ * LIABILITY, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
  * OF THIS SOFTWARE.
  */
 
 #ifndef _TIFFDIR_
 #define	_TIFFDIR_
+
+#include "tiff.h"
+#include "tiffio.h"
+
 /*
  * ``Library-private'' Directory-related Definitions.
  */
@@ -56,6 +58,7 @@ typedef struct {
 		uint32 toff_long;
 		uint64 toff_long8;
 	} tdir_offset;		/* either offset or the data itself if fits */
+	uint8  tdir_ignore;	/* flag status to ignore tag when parsing tags in tif_dirread.c */
 } TIFFDirEntry;
 
 /*
@@ -93,15 +96,16 @@ typedef struct {
 	/* even though the name is misleading, td_stripsperimage is the number
 	 * of striles (=strips or tiles) per plane, and td_nstrips the total
 	 * number of striles */
-	uint32  td_stripsperimage;  
+	uint32  td_stripsperimage;
 	uint32  td_nstrips;              /* size of offset & bytecount arrays */
-	uint64* td_stripoffset;
-	uint64* td_stripbytecount;
+	uint64* td_stripoffset_p;        /* should be accessed with TIFFGetStrileOffset */
+	uint64* td_stripbytecount_p;     /* should be accessed with TIFFGetStrileByteCount */
+        uint32  td_stripoffsetbyteallocsize; /* number of elements currently allocated for td_stripoffset/td_stripbytecount. Only used if TIFF_LAZYSTRILELOAD is set */
+#ifdef STRIPBYTECOUNTSORTED_UNUSED
 	int     td_stripbytecountsorted; /* is the bytecount array sorted ascending? */
-#if defined(DEFER_STRILE_LOAD)
+#endif
         TIFFDirEntry td_stripoffset_entry;    /* for deferred loading */
         TIFFDirEntry td_stripbytecount_entry; /* for deferred loading */
-#endif
 	uint16  td_nsubifd;
 	uint64* td_subifd;
 	/* YCbCr parameters */
@@ -116,6 +120,8 @@ typedef struct {
 
 	int     td_customValueCount;
         TIFFTagValue *td_customValues;
+
+        unsigned char td_deferstrilearraywriting; /* see TIFFDeferStrileArrayWriting() */
 } TIFFDirectory;
 
 /*
@@ -258,7 +264,7 @@ extern const TIFFFieldArray* _TIFFGetExifFields(void);
 extern void _TIFFSetupFields(TIFF* tif, const TIFFFieldArray* infoarray);
 extern void _TIFFPrintFieldInfo(TIFF*, FILE*);
 
-extern int _TIFFFillStriles(TIFF*);        
+extern int _TIFFFillStriles(TIFF*);
 
 typedef enum {
 	tfiatImage,

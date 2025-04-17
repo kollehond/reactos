@@ -39,6 +39,7 @@
 @ stdcall CertEnumCertificatesInStore(ptr ptr)
 @ stdcall CertEnumPhysicalStore(ptr long ptr ptr)
 @ stdcall CertEnumSystemStore(long ptr ptr ptr)
+@ stdcall CertEnumSystemStoreLocation(long ptr ptr)
 @ stdcall CertFindAttribute(str long ptr)
 @ stdcall CertFindCRLInStore(ptr long long long ptr ptr)
 @ stdcall CertFindCTLInStore(ptr long long long ptr ptr)
@@ -180,6 +181,7 @@
 @ stdcall CryptSIPRetrieveSubjectGuidForCatalogFile(wstr long ptr)
 @ stdcall CryptSIPVerifyIndirectData(ptr ptr)
 @ stub CryptSetAsyncParam
+@ stdcall CryptSetKeyIdentifierProperty(ptr long long wstr ptr ptr)
 @ stdcall CryptSetOIDFunctionValue(long str str wstr long ptr long)
 @ stub CryptSetProviderU
 @ stdcall CryptSignAndEncodeCertificate(long long long str ptr ptr ptr ptr ptr)
@@ -194,7 +196,7 @@
 @ stdcall CryptUnprotectMemory(ptr long long)
 @ stdcall CryptUnregisterDefaultOIDFunction(long str wstr)
 @ stdcall CryptUnregisterOIDFunction(long str str)
-@ stub CryptUnregisterOIDInfo
+@ stdcall CryptUnregisterOIDInfo(ptr)
 @ stdcall CryptVerifyCertificateSignature(long long ptr long ptr)
 @ stdcall CryptVerifyCertificateSignatureEx(long long long ptr long ptr long ptr)
 @ stdcall CryptVerifyDetachedMessageHash(ptr ptr long long ptr ptr ptr ptr)

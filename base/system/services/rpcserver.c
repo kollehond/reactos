@@ -4,7 +4,7 @@
  * FILE:        base/system/services/rpcserver.c
  * PURPOSE:     RPC server interface for the advapi32 calls
  * COPYRIGHT:   Copyright 2005-2006 Eric Kohl
- *              Copyright 2006-2007 Hervé Poussineau <hpoussin@reactos.org>
+ *              Copyright 2006-2007 HervÃ© Poussineau <hpoussin@reactos.org>
  *              Copyright 2007 Ged Murphy <gedmurphy@reactos.org>
  */
 
@@ -14,6 +14,8 @@
 
 #include <winnls.h>
 #include <strsafe.h>
+
+#include <pseh/pseh2.h>
 
 #define NDEBUG
 #include <debug.h>
@@ -154,7 +156,7 @@ ScmCreateManagerHandle(LPWSTR lpDatabaseName,
     }
     else if (_wcsicmp(lpDatabaseName, SERVICES_ACTIVE_DATABASEW) != 0)
     {
-        DPRINT("Invalid Database name %S.\n", lpDatabaseName);
+        DPRINT("Invalid Database name %S\n", lpDatabaseName);
         return ERROR_INVALID_NAME;
     }
 
@@ -208,7 +210,7 @@ ScmGetServiceManagerFromHandle(SC_RPC_HANDLE Handle)
     }
     _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
     {
-        DPRINT1("Exception: Invalid Service Manager handle!\n");
+        DPRINT1("Exception: Invalid Service Manager handle\n");
     }
     _SEH2_END;
 
@@ -228,7 +230,7 @@ ScmGetServiceFromHandle(SC_RPC_HANDLE Handle)
     }
     _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
     {
-        DPRINT1("Exception: Invalid Service handle!\n");
+        DPRINT1("Exception: Invalid Service handle\n");
     }
     _SEH2_END;
 
@@ -427,7 +429,7 @@ ScmConvertToBootPathName(wchar_t *CanonName, wchar_t **RelativeName)
                                   (ServiceNameLen + 1) * sizeof(WCHAR));
         if (*RelativeName == NULL)
         {
-            DPRINT("Error allocating memory for boot driver name!\n");
+            DPRINT("Error allocating memory for boot driver name\n");
             return ERROR_NOT_ENOUGH_MEMORY;
         }
 
@@ -449,7 +451,7 @@ ScmConvertToBootPathName(wchar_t *CanonName, wchar_t **RelativeName)
 
         if (*RelativeName == NULL)
         {
-            DPRINT("Error allocating memory for boot driver name!\n");
+            DPRINT("Error allocating memory for boot driver name\n");
             return ERROR_NOT_ENOUGH_MEMORY;
         }
 
@@ -463,7 +465,6 @@ ScmConvertToBootPathName(wchar_t *CanonName, wchar_t **RelativeName)
 
     /* Get buffer size needed for expanding env strings */
     BufferSize = ExpandEnvironmentStringsW(L"%SystemRoot%\\", &Dest, 1);
-
     if (BufferSize <= 1)
     {
         DPRINT("Error during a call to ExpandEnvironmentStringsW()\n");
@@ -476,7 +477,7 @@ ScmConvertToBootPathName(wchar_t *CanonName, wchar_t **RelativeName)
                          (BufferSize + 1) * sizeof(WCHAR));
     if (!Expanded)
     {
-        DPRINT("Error allocating memory for boot driver name!\n");
+        DPRINT("Error allocating memory for boot driver name\n");
         return ERROR_NOT_ENOUGH_MEMORY;
     }
 
@@ -507,7 +508,7 @@ ScmConvertToBootPathName(wchar_t *CanonName, wchar_t **RelativeName)
                          NtPathName.Length + sizeof(UNICODE_NULL));
     if (!Expanded)
     {
-        DPRINT("Error allocating memory for boot driver name!\n");
+        DPRINT("Error allocating memory for boot driver name\n");
         RtlFreeUnicodeString(&NtPathName);
         return ERROR_NOT_ENOUGH_MEMORY;
     }
@@ -528,7 +529,7 @@ ScmConvertToBootPathName(wchar_t *CanonName, wchar_t **RelativeName)
                                   (ServiceNameLen - ExpandedLen) * sizeof(WCHAR) + 13*sizeof(WCHAR));
         if (*RelativeName == NULL)
         {
-            DPRINT("Error allocating memory for boot driver name!\n");
+            DPRINT("Error allocating memory for boot driver name\n");
             return ERROR_NOT_ENOUGH_MEMORY;
         }
 
@@ -662,7 +663,7 @@ ScmCanonDriverImagePath(DWORD dwStartType,
 
         if (*lpCanonName == NULL)
         {
-            DPRINT("Error allocating memory for canonized service name!\n");
+            DPRINT("Error allocating memory for canonized service name\n");
             return ERROR_NOT_ENOUGH_MEMORY;
         }
 
@@ -688,7 +689,7 @@ ScmCanonDriverImagePath(DWORD dwStartType,
 
         if (*lpCanonName == NULL)
         {
-            DPRINT("Error allocating memory for canonized service name!\n");
+            DPRINT("Error allocating memory for canonized service name\n");
             return ERROR_NOT_ENOUGH_MEMORY;
         }
 
@@ -711,7 +712,7 @@ ScmCanonDriverImagePath(DWORD dwStartType,
 
         if (*lpCanonName == NULL)
         {
-            DPRINT("Error allocating memory for canonized service name!\n");
+            DPRINT("Error allocating memory for canonized service name\n");
             return ERROR_NOT_ENOUGH_MEMORY;
         }
 
@@ -724,7 +725,7 @@ ScmCanonDriverImagePath(DWORD dwStartType,
     /* It seems to be a DOS path, convert it */
     if (!RtlDosPathNameToNtPathName_U(lpServiceName, &NtServiceName, NULL, NULL))
     {
-        DPRINT("RtlDosPathNameToNtPathName_U() failed!\n");
+        DPRINT("RtlDosPathNameToNtPathName_U() failed\n");
         return ERROR_INVALID_PARAMETER;
     }
 
@@ -734,7 +735,7 @@ ScmCanonDriverImagePath(DWORD dwStartType,
 
     if (*lpCanonName == NULL)
     {
-        DPRINT("Error allocating memory for canonized service name!\n");
+        DPRINT("Error allocating memory for canonized service name\n");
         RtlFreeUnicodeString(&NtServiceName);
         return ERROR_NOT_ENOUGH_MEMORY;
     }
@@ -757,7 +758,7 @@ ScmCanonDriverImagePath(DWORD dwStartType,
     {
         /* There is a problem, free name and return */
         HeapFree(GetProcessHeap(), 0, *lpCanonName);
-        DPRINT("Error converting named!\n");
+        DPRINT("Error converting named\n");
         return Result;
     }
 
@@ -776,9 +777,8 @@ ScmCanonDriverImagePath(DWORD dwStartType,
 }
 
 
-/* Internal recursive function */
-/* Need to search for every dependency on every service */
-static DWORD
+/* Recursively search for every dependency on every service */
+DWORD
 Int_EnumDependentServicesW(HKEY hServicesKey,
                            PSERVICE lpService,
                            DWORD dwServiceState,
@@ -815,7 +815,7 @@ Int_EnumDependentServicesW(HKEY hServicesKey,
                                NULL);
     if (dwError != ERROR_SUCCESS)
     {
-        DPRINT("ERROR! Unable to get number of services keys.\n");
+        DPRINT("ERROR! Unable to get number of services keys\n");
         return dwError;
     }
 
@@ -938,10 +938,6 @@ RCloseServiceHandle(
     PMANAGER_HANDLE hManager;
     PSERVICE_HANDLE hService;
     PSERVICE lpService;
-    HKEY hServicesKey;
-    DWORD dwError;
-    DWORD pcbBytesNeeded = 0;
-    DWORD dwServicesReturned = 0;
 
     DPRINT("RCloseServiceHandle() called\n");
 
@@ -985,68 +981,9 @@ RCloseServiceHandle(
         HeapFree(GetProcessHeap(), 0, hService);
         hService = NULL;
 
-        ASSERT(lpService->dwRefCount > 0);
 
-        lpService->dwRefCount--;
-        DPRINT("CloseServiceHandle - lpService->dwRefCount %u\n",
-               lpService->dwRefCount);
-
-        if (lpService->dwRefCount == 0)
-        {
-            /* If this service has been marked for deletion */
-            if (lpService->bDeleted &&
-                lpService->Status.dwCurrentState == SERVICE_STOPPED)
-            {
-                /* Open the Services Reg key */
-                dwError = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
-                                        L"System\\CurrentControlSet\\Services",
-                                        0,
-                                        KEY_SET_VALUE | KEY_READ,
-                                        &hServicesKey);
-                if (dwError != ERROR_SUCCESS)
-                {
-                    DPRINT("Failed to open services key\n");
-                    ScmUnlockDatabase();
-                    return dwError;
-                }
-
-                /* Call the internal function with NULL, just to get bytes we need */
-                Int_EnumDependentServicesW(hServicesKey,
-                                           lpService,
-                                           SERVICE_ACTIVE,
-                                           NULL,
-                                           &pcbBytesNeeded,
-                                           &dwServicesReturned);
-
-                /* if pcbBytesNeeded returned a value then there are services running that are dependent on this service */
-                if (pcbBytesNeeded)
-                {
-                    DPRINT("Deletion failed due to running dependencies.\n");
-                    RegCloseKey(hServicesKey);
-                    ScmUnlockDatabase();
-                    return ERROR_SUCCESS;
-                }
-
-                /* There are no references and no running dependencies,
-                   it is now safe to delete the service */
-
-                /* Delete the Service Key */
-                dwError = ScmDeleteRegKey(hServicesKey,
-                                          lpService->lpServiceName);
-
-                RegCloseKey(hServicesKey);
-
-                if (dwError != ERROR_SUCCESS)
-                {
-                    DPRINT("Failed to Delete the Service Registry key\n");
-                    ScmUnlockDatabase();
-                    return dwError;
-                }
-
-                /* Delete the Service */
-                ScmDeleteServiceRecord(lpService);
-            }
-        }
+        DPRINT("Closing service %S with %d references\n", lpService->lpServiceName, lpService->RefCount);
+        ScmDereferenceService(lpService);
 
         ScmUnlockDatabase();
 
@@ -1092,7 +1029,7 @@ RControlService(
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT1("Invalid service handle!\n");
+        DPRINT1("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -1100,7 +1037,7 @@ RControlService(
     lpService = hSvc->ServiceEntry;
     if (lpService == NULL)
     {
-        DPRINT1("lpService == NULL!\n");
+        DPRINT1("lpService == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -1173,7 +1110,7 @@ RControlService(
            are dependent on this service */
         if (pcbBytesNeeded != 0)
         {
-            DPRINT("Service has running dependencies. Failed to stop service.\n");
+            DPRINT("Service has running dependencies. Failed to stop service\n");
             return ERROR_DEPENDENT_SERVICES_RUNNING;
         }
     }
@@ -1250,8 +1187,8 @@ RControlService(
         /* Send control code to the service */
         dwError = ScmControlService(lpService->lpImage->hControlPipe,
                                     lpService->lpServiceName,
-                                    (SERVICE_STATUS_HANDLE)lpService,
-                                    dwControl);
+                                    dwControl,
+                                    (SERVICE_STATUS_HANDLE)lpService);
 
         /* Return service status information */
         RtlCopyMemory(lpServiceStatus,
@@ -1315,7 +1252,7 @@ RDeleteService(
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT1("Invalid service handle!\n");
+        DPRINT1("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -1326,7 +1263,7 @@ RDeleteService(
     lpService = hSvc->ServiceEntry;
     if (lpService == NULL)
     {
-        DPRINT("lpService == NULL!\n");
+        DPRINT("lpService == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -1335,7 +1272,7 @@ RDeleteService(
 
     if (lpService->bDeleted)
     {
-        DPRINT("The service has already been marked for delete!\n");
+        DPRINT("Service has already been marked for delete\n");
         dwError = ERROR_SERVICE_MARKED_FOR_DELETE;
         goto Done;
     }
@@ -1371,7 +1308,7 @@ RLockServiceDatabase(
     hMgr = ScmGetServiceManagerFromHandle(hSCManager);
     if (hMgr == NULL)
     {
-        DPRINT1("Invalid service manager handle!\n");
+        DPRINT1("Invalid service manager handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -1405,7 +1342,7 @@ RQueryServiceObjectSecurity(
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT1("Invalid service handle!\n");
+        DPRINT1("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -1427,7 +1364,7 @@ RQueryServiceObjectSecurity(
     lpService = hSvc->ServiceEntry;
     if (lpService == NULL)
     {
-        DPRINT("lpService == NULL!\n");
+        DPRINT("lpService == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -1490,14 +1427,16 @@ RSetServiceObjectSecurity(
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT1("Invalid service handle!\n");
+        DPRINT1("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
     if (dwSecurityInformation == 0 ||
         dwSecurityInformation & ~(OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION
         | DACL_SECURITY_INFORMATION | SACL_SECURITY_INFORMATION))
+    {
         return ERROR_INVALID_PARAMETER;
+    }
 
     if (!RtlValidSecurityDescriptor((PSECURITY_DESCRIPTOR)lpSecurityDescriptor))
         return ERROR_INVALID_PARAMETER;
@@ -1513,11 +1452,15 @@ RSetServiceObjectSecurity(
 
     if ((dwSecurityInformation & OWNER_SECURITY_INFORMATION) &&
         (((PISECURITY_DESCRIPTOR)lpSecurityDescriptor)->Owner == NULL))
+    {
         return ERROR_INVALID_PARAMETER;
+    }
 
     if ((dwSecurityInformation & GROUP_SECURITY_INFORMATION) &&
         (((PISECURITY_DESCRIPTOR)lpSecurityDescriptor)->Group == NULL))
+    {
         return ERROR_INVALID_PARAMETER;
+    }
 
     if (!RtlAreAllAccessesGranted(hSvc->Handle.DesiredAccess,
                                   DesiredAccess))
@@ -1529,7 +1472,7 @@ RSetServiceObjectSecurity(
     lpService = hSvc->ServiceEntry;
     if (lpService == NULL)
     {
-        DPRINT1("lpService == NULL!\n");
+        DPRINT1("lpService == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -1613,7 +1556,7 @@ RQueryServiceStatus(
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT1("Invalid service handle!\n");
+        DPRINT1("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -1627,7 +1570,7 @@ RQueryServiceStatus(
     lpService = hSvc->ServiceEntry;
     if (lpService == NULL)
     {
-        DPRINT("lpService == NULL!\n");
+        DPRINT("lpService == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -1665,6 +1608,81 @@ ScmIsValidServiceState(DWORD dwCurrentState)
     }
 }
 
+static
+DWORD
+WINAPI
+ScmStopThread(PVOID pParam)
+{
+    PSERVICE lpService = (PSERVICE)pParam;
+    WCHAR szLogBuffer[80];
+    LPCWSTR lpLogStrings[2];
+
+    /* Check if we are about to stop this service */
+    if (lpService->lpImage->dwImageRunCount == 1)
+    {
+        /* Stop the dispatcher thread.
+         * We must not send a control message while holding the database lock, otherwise it can cause timeouts
+         * We are sure that the service won't be deleted in the meantime because we still have a reference to it. */
+        DPRINT("Stopping the dispatcher thread for service %S\n", lpService->lpServiceName);
+        ScmControlService(lpService->lpImage->hControlPipe,
+                          L"",
+                          SERVICE_CONTROL_STOP,
+                          (SERVICE_STATUS_HANDLE)lpService);
+    }
+
+    /* Lock the service database exclusively */
+    ScmLockDatabaseExclusive();
+
+    DPRINT("Service %S image count:%d\n", lpService->lpServiceName, lpService->lpImage->dwImageRunCount);
+
+    /* Decrement the image run counter */
+    lpService->lpImage->dwImageRunCount--;
+
+    /* If we just stopped the last running service... */
+    if (lpService->lpImage->dwImageRunCount == 0)
+    {
+        /* Remove the service image */
+        DPRINT("Removing service image for %S\n", lpService->lpServiceName);
+        ScmRemoveServiceImage(lpService->lpImage);
+        lpService->lpImage = NULL;
+    }
+
+    /* Report the results of the status change here */
+    if (lpService->Status.dwWin32ExitCode != ERROR_SUCCESS)
+    {
+        /* Log a failed service stop */
+        StringCchPrintfW(szLogBuffer, ARRAYSIZE(szLogBuffer),
+                         L"%lu", lpService->Status.dwWin32ExitCode);
+        lpLogStrings[0] = lpService->lpDisplayName;
+        lpLogStrings[1] = szLogBuffer;
+
+        ScmLogEvent(EVENT_SERVICE_EXIT_FAILED,
+                    EVENTLOG_ERROR_TYPE,
+                    ARRAYSIZE(lpLogStrings),
+                    lpLogStrings);
+    }
+    else
+    {
+        /* Log a successful service status change */
+        LoadStringW(GetModuleHandle(NULL), IDS_SERVICE_STOPPED, szLogBuffer, ARRAYSIZE(szLogBuffer));
+        lpLogStrings[0] = lpService->lpDisplayName;
+        lpLogStrings[1] = szLogBuffer;
+
+        ScmLogEvent(EVENT_SERVICE_STATUS_SUCCESS,
+                    EVENTLOG_INFORMATION_TYPE,
+                    ARRAYSIZE(lpLogStrings),
+                    lpLogStrings);
+    }
+
+    /* Remove the reference that was added when the service started */
+    DPRINT("Service %S has %d references while stoping\n", lpService->lpServiceName, lpService->RefCount);
+    ScmDereferenceService(lpService);
+
+    /* Unlock the service database */
+    ScmUnlockDatabase();
+
+    return 0;
+}
 
 /* Function 7 */
 DWORD
@@ -1692,7 +1710,7 @@ RSetServiceStatus(
 
     if (hServiceStatus == 0)
     {
-        DPRINT("hServiceStatus == NULL!\n");
+        DPRINT("hServiceStatus == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -1701,7 +1719,7 @@ RSetServiceStatus(
     /* Check current state */
     if (!ScmIsValidServiceState(lpServiceStatus->dwCurrentState))
     {
-        DPRINT("Invalid service state!\n");
+        DPRINT("Invalid service state\n");
         return ERROR_INVALID_DATA;
     }
 
@@ -1709,14 +1727,14 @@ RSetServiceStatus(
     if (!(lpServiceStatus->dwServiceType & SERVICE_WIN32) &&
          (lpServiceStatus->dwServiceType & SERVICE_DRIVER))
     {
-        DPRINT("Invalid service type!\n");
+        DPRINT("Invalid service type\n");
         return ERROR_INVALID_DATA;
     }
 
     /* Check accepted controls */
     if (lpServiceStatus->dwControlsAccepted & ~0xFF)
     {
-        DPRINT("Invalid controls accepted!\n");
+        DPRINT("Invalid controls accepted\n");
         return ERROR_INVALID_DATA;
     }
 
@@ -1747,58 +1765,62 @@ RSetServiceStatus(
     /* Restore the previous service type */
     lpService->Status.dwServiceType = dwPreviousType;
 
-    /* Dereference a stopped service */
-    if ((lpServiceStatus->dwServiceType & SERVICE_WIN32) &&
-        (lpServiceStatus->dwCurrentState == SERVICE_STOPPED))
+    DPRINT("Service %S changed state %d to %d\n", lpService->lpServiceName, dwPreviousState, lpServiceStatus->dwCurrentState);
+
+    if (lpServiceStatus->dwCurrentState != SERVICE_STOPPED &&
+        dwPreviousState == SERVICE_STOPPED)
     {
-        /* Decrement the image run counter */
-        lpService->lpImage->dwImageRunCount--;
+        /* Keep a reference on all non stopped services */
+        ScmReferenceService(lpService);
+        DPRINT("Service %S has %d references after starting\n", lpService->lpServiceName, lpService->RefCount);
+    }
 
-        /* If we just stopped the last running service... */
-        if (lpService->lpImage->dwImageRunCount == 0)
+    /* Check if the service just stopped */
+    if (lpServiceStatus->dwCurrentState == SERVICE_STOPPED &&
+        dwPreviousState != SERVICE_STOPPED)
+    {
+        HANDLE hStopThread;
+        DWORD dwStopThreadId;
+        DPRINT("Service %S, currentstate: %d, prev: %d\n", lpService->lpServiceName, lpServiceStatus->dwCurrentState, dwPreviousState);
+
+        /*
+         * The service just changed its status to stopped.
+         * Create a thread that will complete the stop sequence.
+         * This thread will remove the reference that was added when the service started.
+         * This will ensure that the service will remain valid as long as this reference is still held.
+         */
+        hStopThread = CreateThread(NULL,
+                                   0,
+                                   ScmStopThread,
+                                   (LPVOID)lpService,
+                                   0,
+                                   &dwStopThreadId);
+        if (hStopThread == NULL)
         {
-            /* Stop the dispatcher thread */
-            ScmControlService(lpService->lpImage->hControlPipe,
-                              L"",
-                              (SERVICE_STATUS_HANDLE)lpService,
-                              SERVICE_CONTROL_STOP);
-
-            /* Remove the service image */
-            ScmRemoveServiceImage(lpService->lpImage);
-            lpService->lpImage = NULL;
+            DPRINT1("Failed to create thread to complete service stop\n");
+            /* We can't leave without releasing the reference.
+             * We also can't remove it without holding the lock. */
+            ScmDereferenceService(lpService);
+            DPRINT1("Service %S has %d references after stop\n", lpService->lpServiceName, lpService->RefCount);
+        }
+        else
+        {
+            CloseHandle(hStopThread);
         }
     }
 
     /* Unlock the service database */
     ScmUnlockDatabase();
 
-    if ((lpServiceStatus->dwCurrentState == SERVICE_STOPPED) &&
-        (dwPreviousState != SERVICE_STOPPED) &&
-        (lpServiceStatus->dwWin32ExitCode != ERROR_SUCCESS))
-    {
-        /* Log a failed service stop */
-        StringCchPrintfW(szLogBuffer, ARRAYSIZE(szLogBuffer),
-                         L"%lu", lpServiceStatus->dwWin32ExitCode);
-        lpLogStrings[0] = lpService->lpDisplayName;
-        lpLogStrings[1] = szLogBuffer;
+    /* Don't log any events here regarding a service stop as it can become invalid at any time */
 
-        ScmLogEvent(EVENT_SERVICE_EXIT_FAILED,
-                    EVENTLOG_ERROR_TYPE,
-                    2,
-                    lpLogStrings);
-    }
-    else if (lpServiceStatus->dwCurrentState != dwPreviousState &&
-             (lpServiceStatus->dwCurrentState == SERVICE_STOPPED ||
-              lpServiceStatus->dwCurrentState == SERVICE_RUNNING ||
-              lpServiceStatus->dwCurrentState == SERVICE_PAUSED))
+    if (lpServiceStatus->dwCurrentState != dwPreviousState &&
+        (lpServiceStatus->dwCurrentState == SERVICE_RUNNING ||
+         lpServiceStatus->dwCurrentState == SERVICE_PAUSED))
     {
         /* Log a successful service status change */
         switch(lpServiceStatus->dwCurrentState)
         {
-            case SERVICE_STOPPED:
-                uID = IDS_SERVICE_STOPPED;
-                break;
-
             case SERVICE_RUNNING:
                 uID = IDS_SERVICE_RUNNING;
                 break;
@@ -1843,11 +1865,13 @@ RNotifyBootConfigStatus(
     SVCCTL_HANDLEW lpMachineName,
     DWORD BootAcceptable)
 {
-    DPRINT1("RNotifyBootConfigStatus(%p %lu) called\n", lpMachineName, BootAcceptable);
-    return ERROR_SUCCESS;
+    DPRINT("RNotifyBootConfigStatus(%p %lu)\n",
+           lpMachineName, BootAcceptable);
 
-//    UNIMPLEMENTED;
-//    return ERROR_CALL_NOT_IMPLEMENTED;
+    if (BootAcceptable)
+        return ScmAcceptBoot();
+
+    return ScmRunLastKnownGood();
 }
 
 
@@ -1875,7 +1899,7 @@ RI_ScSetServiceBitsW(
 
     if (hServiceStatus == 0)
     {
-        DPRINT("hServiceStatus == NULL!\n");
+        DPRINT("hServiceStatus == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -1929,6 +1953,7 @@ RChangeServiceConfigW(
     HKEY hServiceKey = NULL;
     LPWSTR lpDisplayNameW = NULL;
     LPWSTR lpImagePathW = NULL;
+    LPWSTR lpClearTextPassword = NULL;
 
     DPRINT("RChangeServiceConfigW() called\n");
     DPRINT("dwServiceType = 0x%lx\n", dwServiceType);
@@ -1936,6 +1961,9 @@ RChangeServiceConfigW(
     DPRINT("dwErrorControl = %lu\n", dwErrorControl);
     DPRINT("lpBinaryPathName = %S\n", lpBinaryPathName);
     DPRINT("lpLoadOrderGroup = %S\n", lpLoadOrderGroup);
+    DPRINT("lpServiceStartName = %S\n", lpServiceStartName);
+    DPRINT("lpPassword = %p\n", lpPassword);
+    DPRINT("dwPwSite = %lu\n", dwPwSize);
     DPRINT("lpDisplayName = %S\n", lpDisplayName);
 
     if (ScmShutdown)
@@ -1944,7 +1972,7 @@ RChangeServiceConfigW(
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT1("Invalid service handle!\n");
+        DPRINT1("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -1961,7 +1989,9 @@ RChangeServiceConfigW(
         (dwServiceType != SERVICE_FILE_SYSTEM_DRIVER) &&
         ((dwServiceType & ~SERVICE_INTERACTIVE_PROCESS) != SERVICE_WIN32_OWN_PROCESS) &&
         ((dwServiceType & ~SERVICE_INTERACTIVE_PROCESS) != SERVICE_WIN32_SHARE_PROCESS))
-            return ERROR_INVALID_PARAMETER;
+    {
+        return ERROR_INVALID_PARAMETER;
+    }
 
     /* Check for invalid start type value */
     if ((dwStartType != SERVICE_NO_CHANGE) &&
@@ -1970,7 +2000,9 @@ RChangeServiceConfigW(
         (dwStartType != SERVICE_AUTO_START) &&
         (dwStartType != SERVICE_DEMAND_START) &&
         (dwStartType != SERVICE_DISABLED))
+    {
         return ERROR_INVALID_PARAMETER;
+    }
 
     /* Only drivers can be boot start or system start services */
     if ((dwStartType == SERVICE_BOOT_START) ||
@@ -1987,7 +2019,9 @@ RChangeServiceConfigW(
         (dwErrorControl != SERVICE_ERROR_NORMAL) &&
         (dwErrorControl != SERVICE_ERROR_SEVERE) &&
         (dwErrorControl != SERVICE_ERROR_CRITICAL))
+    {
         return ERROR_INVALID_PARAMETER;
+    }
 
     if (lpdwTagId && (!lpLoadOrderGroup || !*lpLoadOrderGroup))
     {
@@ -1997,7 +2031,7 @@ RChangeServiceConfigW(
     lpService = hSvc->ServiceEntry;
     if (lpService == NULL)
     {
-        DPRINT("lpService == NULL!\n");
+        DPRINT("lpService == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -2006,7 +2040,7 @@ RChangeServiceConfigW(
 
     if (lpService->bDeleted)
     {
-        DPRINT("The service has already been marked for delete!\n");
+        DPRINT("Service has already been marked for delete\n");
         dwError = ERROR_SERVICE_MARKED_FOR_DELETE;
         goto done;
     }
@@ -2168,32 +2202,73 @@ RChangeServiceConfigW(
             goto done;
     }
 
-    if (lpPassword != NULL)
+    /* Start name and password are only used by Win32 services */
+    if (lpService->Status.dwServiceType & SERVICE_WIN32)
     {
-        if (wcslen((LPWSTR)lpPassword) != 0)
+        /* Write service start name */
+        if (lpServiceStartName != NULL && *lpServiceStartName != 0)
         {
-            /* FIXME: Decrypt the password */
-
-            /* Write the password */
-            dwError = ScmSetServicePassword(lpService->szServiceName,
-                                            (LPCWSTR)lpPassword);
+            dwError = RegSetValueExW(hServiceKey,
+                                     L"ObjectName",
+                                     0,
+                                     REG_SZ,
+                                     (LPBYTE)lpServiceStartName,
+                                     (DWORD)((wcslen(lpServiceStartName) + 1) * sizeof(WCHAR)));
             if (dwError != ERROR_SUCCESS)
                 goto done;
         }
-        else
-        {
-            /* Delete the password */
-            dwError = ScmSetServicePassword(lpService->szServiceName,
-                                            NULL);
-            if (dwError == ERROR_FILE_NOT_FOUND)
-                dwError = ERROR_SUCCESS;
 
-            if (dwError != ERROR_SUCCESS)
-                goto done;
+        if (lpPassword != NULL)
+        {
+            if (*(LPWSTR)lpPassword != 0)
+            {
+                /* Decrypt the password */
+                dwError = ScmDecryptPassword(hService,
+                                             lpPassword,
+                                             dwPwSize,
+                                             &lpClearTextPassword);
+                if (dwError != ERROR_SUCCESS)
+                {
+                    DPRINT1("ScmDecryptPassword failed (Error %lu)\n", dwError);
+                    goto done;
+                }
+                DPRINT("Clear text password: %S\n", lpClearTextPassword);
+
+                /* Write the password */
+                dwError = ScmSetServicePassword(lpService->szServiceName,
+                                                lpClearTextPassword);
+                if (dwError != ERROR_SUCCESS)
+                {
+                    DPRINT1("ScmSetServicePassword failed (Error %lu)\n", dwError);
+                    goto done;
+                }
+            }
+            else
+            {
+                /* Delete the password */
+                dwError = ScmSetServicePassword(lpService->szServiceName,
+                                                NULL);
+                if (dwError == ERROR_FILE_NOT_FOUND)
+                    dwError = ERROR_SUCCESS;
+
+                if (dwError != ERROR_SUCCESS)
+                {
+                    DPRINT1("ScmSetServicePassword failed (Error %lu)\n", dwError);
+                    goto done;
+                }
+            }
         }
     }
 
 done:
+    if (lpClearTextPassword != NULL)
+    {
+        /* Wipe and release the password buffer */
+        SecureZeroMemory(lpClearTextPassword,
+                         (wcslen(lpClearTextPassword) + 1) * sizeof(WCHAR));
+        HeapFree(GetProcessHeap(), 0, lpClearTextPassword);
+    }
+
     if (hServiceKey != NULL)
         RegCloseKey(hServiceKey);
 
@@ -2232,6 +2307,7 @@ RCreateServiceW(
     PSERVICE lpService = NULL;
     SC_HANDLE hServiceHandle = NULL;
     LPWSTR lpImagePath = NULL;
+    LPWSTR lpClearTextPassword = NULL;
     HKEY hServiceKey = NULL;
     LPWSTR lpObjectName;
 
@@ -2252,7 +2328,7 @@ RCreateServiceW(
     hManager = ScmGetServiceManagerFromHandle(hSCManager);
     if (hManager == NULL)
     {
-        DPRINT1("Invalid service manager handle!\n");
+        DPRINT1("Invalid service manager handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -2265,22 +2341,20 @@ RCreateServiceW(
         return ERROR_ACCESS_DENIED;
     }
 
-    if (wcslen(lpServiceName) == 0)
-    {
+    if (*lpServiceName == 0)
         return ERROR_INVALID_NAME;
-    }
 
-    if (wcslen(lpBinaryPathName) == 0)
-    {
+    if (*lpBinaryPathName == 0)
         return ERROR_INVALID_PARAMETER;
-    }
 
     /* Check for invalid service type value */
     if ((dwServiceType != SERVICE_KERNEL_DRIVER) &&
         (dwServiceType != SERVICE_FILE_SYSTEM_DRIVER) &&
         ((dwServiceType & ~SERVICE_INTERACTIVE_PROCESS) != SERVICE_WIN32_OWN_PROCESS) &&
         ((dwServiceType & ~SERVICE_INTERACTIVE_PROCESS) != SERVICE_WIN32_SHARE_PROCESS))
-            return ERROR_INVALID_PARAMETER;
+    {
+        return ERROR_INVALID_PARAMETER;
+    }
 
     /* Check for invalid start type value */
     if ((dwStartType != SERVICE_BOOT_START) &&
@@ -2288,7 +2362,9 @@ RCreateServiceW(
         (dwStartType != SERVICE_AUTO_START) &&
         (dwStartType != SERVICE_DEMAND_START) &&
         (dwStartType != SERVICE_DISABLED))
+    {
         return ERROR_INVALID_PARAMETER;
+    }
 
     /* Only drivers can be boot start or system start services */
     if ((dwStartType == SERVICE_BOOT_START) ||
@@ -2296,7 +2372,9 @@ RCreateServiceW(
     {
         if ((dwServiceType != SERVICE_KERNEL_DRIVER) &&
             (dwServiceType != SERVICE_FILE_SYSTEM_DRIVER))
+        {
             return ERROR_INVALID_PARAMETER;
+        }
     }
 
     /* Check for invalid error control value */
@@ -2304,13 +2382,15 @@ RCreateServiceW(
         (dwErrorControl != SERVICE_ERROR_NORMAL) &&
         (dwErrorControl != SERVICE_ERROR_SEVERE) &&
         (dwErrorControl != SERVICE_ERROR_CRITICAL))
+    {
         return ERROR_INVALID_PARAMETER;
+    }
 
     if ((dwServiceType == (SERVICE_WIN32_OWN_PROCESS | SERVICE_INTERACTIVE_PROCESS)) &&
         (lpServiceStartName))
     {
         /* We allow LocalSystem to run interactive. */
-        if (wcsicmp(lpServiceStartName, L"LocalSystem"))
+        if (_wcsicmp(lpServiceStartName, L"LocalSystem"))
         {
             return ERROR_INVALID_PARAMETER;
         }
@@ -2334,7 +2414,7 @@ RCreateServiceW(
         if (lpService->bDeleted)
             return ERROR_SERVICE_MARKED_FOR_DELETE;
 
-        /* Return Error exist */
+        /* Return service-exists error */
         return ERROR_SERVICE_EXISTS;
     }
 
@@ -2542,13 +2622,19 @@ RCreateServiceW(
         if (dwError != ERROR_SUCCESS)
             goto done;
 
-        if (lpPassword != NULL && wcslen((LPWSTR)lpPassword) != 0)
+        if (lpPassword != NULL && *(LPWSTR)lpPassword != 0)
         {
-            /* FIXME: Decrypt the password */
+            /* Decrypt the password */
+            dwError = ScmDecryptPassword(hSCManager,
+                                         lpPassword,
+                                         dwPwSize,
+                                         &lpClearTextPassword);
+            if (dwError != ERROR_SUCCESS)
+                goto done;
 
             /* Write the password */
             dwError = ScmSetServicePassword(lpServiceName,
-                                            (LPCWSTR)lpPassword);
+                                            lpClearTextPassword);
             if (dwError != ERROR_SUCCESS)
                 goto done;
         }
@@ -2570,8 +2656,12 @@ RCreateServiceW(
     if (dwError != ERROR_SUCCESS)
         goto done;
 
-    lpService->dwRefCount = 1;
-    DPRINT("CreateService - lpService->dwRefCount %u\n", lpService->dwRefCount);
+    ScmReferenceService(lpService);
+
+    /* Get the service tag (if Win32) */
+    ScmGenerateServiceTag(lpService);
+
+    DPRINT("CreateService - lpService->RefCount %u\n", lpService->RefCount);
 
 done:
     /* Unlock the service database */
@@ -2579,6 +2669,14 @@ done:
 
     if (hServiceKey != NULL)
         RegCloseKey(hServiceKey);
+
+    if (lpClearTextPassword != NULL)
+    {
+        /* Wipe and release the password buffer */
+        SecureZeroMemory(lpClearTextPassword,
+                         (wcslen(lpClearTextPassword) + 1) * sizeof(WCHAR));
+        HeapFree(GetProcessHeap(), 0, lpClearTextPassword);
+    }
 
     if (dwError == ERROR_SUCCESS)
     {
@@ -2647,7 +2745,7 @@ REnumDependentServicesW(
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT1("Invalid service handle!\n");
+        DPRINT1("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -2694,7 +2792,7 @@ REnumDependentServicesW(
                                 (dwServicesReturned + 1) * sizeof(PSERVICE));
     if (!lpServicesArray)
     {
-        DPRINT1("Could not allocate a buffer!!\n");
+        DPRINT1("Could not allocate buffer\n");
         dwError = ERROR_NOT_ENOUGH_MEMORY;
         goto Done;
     }
@@ -2857,7 +2955,7 @@ ROpenServiceW(
     hManager = ScmGetServiceManagerFromHandle(hSCManager);
     if (hManager == NULL)
     {
-        DPRINT1("Invalid service manager handle!\n");
+        DPRINT1("Invalid service manager handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -2874,7 +2972,7 @@ ROpenServiceW(
     lpService = ScmGetServiceEntryByName(lpServiceName);
     if (lpService == NULL)
     {
-        DPRINT("Could not find a service!\n");
+        DPRINT("Could not find service\n");
         dwError = ERROR_SERVICE_DOES_NOT_EXIST;
         goto Done;
     }
@@ -2898,8 +2996,8 @@ ROpenServiceW(
         goto Done;
     }
 
-    lpService->dwRefCount++;
-    DPRINT("OpenService - lpService->dwRefCount %u\n",lpService->dwRefCount);
+    ScmReferenceService(lpService);
+    DPRINT("OpenService %S - lpService->RefCount %u\n", lpService->lpServiceName, lpService->RefCount);
 
     *lpServiceHandle = (SC_RPC_HANDLE)hHandle;
     DPRINT("*hService = %p\n", *lpServiceHandle);
@@ -2933,7 +3031,6 @@ RQueryServiceConfigW(
     LPWSTR lpDependencies = NULL;
     DWORD dwDependenciesLength = 0;
     DWORD dwRequiredSize;
-    WCHAR lpEmptyString[] = {0,0};
     LPWSTR lpStr;
 
     DPRINT("RQueryServiceConfigW() called\n");
@@ -2944,7 +3041,7 @@ RQueryServiceConfigW(
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT1("Invalid service handle!\n");
+        DPRINT1("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -2958,7 +3055,7 @@ RQueryServiceConfigW(
     lpService = hSvc->ServiceEntry;
     if (lpService == NULL)
     {
-        DPRINT("lpService == NULL!\n");
+        DPRINT("lpService == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -3035,7 +3132,7 @@ RQueryServiceConfigW(
         }
         else
         {
-            wcscpy(lpStr, lpEmptyString);
+            *lpStr = 0;
         }
 
         lpServiceConfig->lpBinaryPathName = (LPWSTR)((ULONG_PTR)lpStr - (ULONG_PTR)lpServiceConfig);
@@ -3048,7 +3145,7 @@ RQueryServiceConfigW(
         }
         else
         {
-            wcscpy(lpStr, lpEmptyString);
+            *lpStr = 0;
         }
 
         lpServiceConfig->lpLoadOrderGroup = (LPWSTR)((ULONG_PTR)lpStr - (ULONG_PTR)lpServiceConfig);
@@ -3063,7 +3160,7 @@ RQueryServiceConfigW(
         }
         else
         {
-            wcscpy(lpStr, lpEmptyString);
+            *lpStr = 0;
         }
 
         lpServiceConfig->lpDependencies = (LPWSTR)((ULONG_PTR)lpStr - (ULONG_PTR)lpServiceConfig);
@@ -3079,7 +3176,7 @@ RQueryServiceConfigW(
         }
         else
         {
-            wcscpy(lpStr, lpEmptyString);
+            *lpStr = 0;
         }
 
         lpServiceConfig->lpServiceStartName = (LPWSTR)((ULONG_PTR)lpStr - (ULONG_PTR)lpServiceConfig);
@@ -3092,7 +3189,7 @@ RQueryServiceConfigW(
         }
         else
         {
-            wcscpy(lpStr, lpEmptyString);
+            *lpStr = 0;
         }
 
         lpServiceConfig->lpDisplayName = (LPWSTR)((ULONG_PTR)lpStr - (ULONG_PTR)lpServiceConfig);
@@ -3142,7 +3239,7 @@ RQueryServiceLockStatusW(
     hMgr = ScmGetServiceManagerFromHandle(hSCManager);
     if (hMgr == NULL)
     {
-        DPRINT1("Invalid service manager handle!\n");
+        DPRINT1("Invalid service manager handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -3198,7 +3295,7 @@ RStartServiceW(
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT1("Invalid service handle!\n");
+        DPRINT1("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -3212,7 +3309,7 @@ RStartServiceW(
     lpService = hSvc->ServiceEntry;
     if (lpService == NULL)
     {
-        DPRINT("lpService == NULL!\n");
+        DPRINT("lpService == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -3223,7 +3320,7 @@ RStartServiceW(
         return ERROR_SERVICE_MARKED_FOR_DELETE;
 
     /* Start the service */
-    dwError = ScmStartService(lpService, argc, (LPWSTR*)argv);
+    dwError = ScmStartService(lpService, argc, (PCWSTR*)argv);
 
     return dwError;
 }
@@ -3238,8 +3335,9 @@ RGetServiceDisplayNameW(
     LPWSTR lpDisplayName,
     DWORD *lpcchBuffer)
 {
-//    PMANAGER_HANDLE hManager;
+    // PMANAGER_HANDLE hManager;
     PSERVICE lpService;
+    LPCWSTR lpSvcDisplayName;
     DWORD dwLength;
     DWORD dwError;
 
@@ -3249,55 +3347,41 @@ RGetServiceDisplayNameW(
     DPRINT("lpDisplayName: %p\n", lpDisplayName);
     DPRINT("*lpcchBuffer: %lu\n", *lpcchBuffer);
 
-//    hManager = (PMANAGER_HANDLE)hSCManager;
-//    if (hManager->Handle.Tag != MANAGER_TAG)
-//    {
-//        DPRINT("Invalid manager handle!\n");
-//        return ERROR_INVALID_HANDLE;
-//    }
+#if 0
+    hManager = (PMANAGER_HANDLE)hSCManager;
+    if (hManager->Handle.Tag != MANAGER_TAG)
+    {
+        DPRINT("Invalid manager handle\n");
+        return ERROR_INVALID_HANDLE;
+    }
+#endif
 
     /* Get service database entry */
     lpService = ScmGetServiceEntryByName(lpServiceName);
     if (lpService == NULL)
     {
-        DPRINT("Could not find a service!\n");
-
-        /* If the service could not be found and lpcchBuffer is less than 2, windows
-           puts null in lpDisplayName and puts 2 in lpcchBuffer */
-        if (*lpcchBuffer < 2)
-        {
-            *lpcchBuffer = 2;
-            if (lpDisplayName != NULL)
-            {
-                *lpDisplayName = 0;
-            }
-        }
-
+        DPRINT("Could not find service\n");
         return ERROR_SERVICE_DOES_NOT_EXIST;
     }
 
-    if (!lpService->lpDisplayName)
-    {
-        dwLength = (DWORD)wcslen(lpService->lpServiceName);
+    if (lpService->lpDisplayName)
+        lpSvcDisplayName = lpService->lpDisplayName;
+    else
+        lpSvcDisplayName = lpService->lpServiceName;
 
-        if (lpDisplayName != NULL &&
-            *lpcchBuffer > dwLength)
-        {
-            wcscpy(lpDisplayName, lpService->lpServiceName);
-        }
+    dwLength = (DWORD)wcslen(lpSvcDisplayName);
+
+    if (*lpcchBuffer > dwLength)
+    {
+        if (lpDisplayName != NULL)
+            wcscpy(lpDisplayName, lpSvcDisplayName);
+
+        dwError = ERROR_SUCCESS;
     }
     else
     {
-        dwLength = (DWORD)wcslen(lpService->lpDisplayName);
-
-        if (lpDisplayName != NULL &&
-            *lpcchBuffer > dwLength)
-        {
-            wcscpy(lpDisplayName, lpService->lpDisplayName);
-        }
+        dwError = ERROR_INSUFFICIENT_BUFFER;
     }
-
-    dwError = (*lpcchBuffer > dwLength) ? ERROR_SUCCESS : ERROR_INSUFFICIENT_BUFFER;
 
     *lpcchBuffer = dwLength;
 
@@ -3314,7 +3398,7 @@ RGetServiceKeyNameW(
     LPWSTR lpServiceName,
     DWORD *lpcchBuffer)
 {
-//    PMANAGER_HANDLE hManager;
+    // PMANAGER_HANDLE hManager;
     PSERVICE lpService;
     DWORD dwLength;
     DWORD dwError;
@@ -3325,44 +3409,36 @@ RGetServiceKeyNameW(
     DPRINT("lpServiceName: %p\n", lpServiceName);
     DPRINT("*lpcchBuffer: %lu\n", *lpcchBuffer);
 
-//    hManager = (PMANAGER_HANDLE)hSCManager;
-//    if (hManager->Handle.Tag != MANAGER_TAG)
-//    {
-//        DPRINT("Invalid manager handle!\n");
-//        return ERROR_INVALID_HANDLE;
-//    }
+#if 0
+    hManager = (PMANAGER_HANDLE)hSCManager;
+    if (hManager->Handle.Tag != MANAGER_TAG)
+    {
+        DPRINT("Invalid manager handle\n");
+        return ERROR_INVALID_HANDLE;
+    }
+#endif
 
     /* Get service database entry */
     lpService = ScmGetServiceEntryByDisplayName(lpDisplayName);
     if (lpService == NULL)
     {
-        DPRINT("Could not find a service!\n");
-
-        /* If the service could not be found and lpcchBuffer is less than 2, windows
-           puts null in lpDisplayName and puts 2 in lpcchBuffer */
-        if (*lpcchBuffer < 2)
-        {
-            *lpcchBuffer = 2;
-            if (lpServiceName != NULL)
-            {
-                *lpServiceName = 0;
-            }
-        }
-
+        DPRINT("Could not find service\n");
         return ERROR_SERVICE_DOES_NOT_EXIST;
     }
 
     dwLength = (DWORD)wcslen(lpService->lpServiceName);
 
-    if (lpServiceName != NULL &&
-        *lpcchBuffer > dwLength)
+    if (*lpcchBuffer > dwLength)
     {
-        wcscpy(lpServiceName, lpService->lpServiceName);
-        *lpcchBuffer = dwLength;
-        return ERROR_SUCCESS;
-    }
+        if (lpServiceName != NULL)
+            wcscpy(lpServiceName, lpService->lpServiceName);
 
-    dwError = (*lpcchBuffer > dwLength) ? ERROR_SUCCESS : ERROR_INSUFFICIENT_BUFFER;
+        dwError = ERROR_SUCCESS;
+    }
+    else
+    {
+        dwError = ERROR_INSUFFICIENT_BUFFER;
+    }
 
     *lpcchBuffer = dwLength;
 
@@ -3707,7 +3783,7 @@ REnumDependentServicesA(
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT1("Invalid service handle!\n");
+        DPRINT1("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -3759,7 +3835,7 @@ REnumDependentServicesA(
                                 (dwServicesReturned + 1) * sizeof(PSERVICE));
     if (!lpServicesArray)
     {
-        DPRINT("Could not allocate a buffer!!\n");
+        DPRINT("Could not allocate buffer\n");
         dwError = ERROR_NOT_ENOUGH_MEMORY;
         goto Done;
     }
@@ -3865,7 +3941,7 @@ REnumServicesStatusA(
         lpStatusPtrW = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwBufSize);
         if (!lpStatusPtrW)
         {
-            DPRINT("Failed to allocate buffer!\n");
+            DPRINT("Failed to allocate buffer\n");
             return ERROR_NOT_ENOUGH_MEMORY;
         }
     }
@@ -4026,7 +4102,6 @@ RQueryServiceConfigA(
     LPWSTR lpDependencies = NULL;
     DWORD dwDependenciesLength = 0;
     DWORD dwRequiredSize;
-    CHAR lpEmptyString[]={0,0};
     LPSTR lpStr;
 
     DPRINT("RQueryServiceConfigA() called\n");
@@ -4037,7 +4112,7 @@ RQueryServiceConfigA(
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT1("Invalid service handle!\n");
+        DPRINT1("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -4051,7 +4126,7 @@ RQueryServiceConfigA(
     lpService = hSvc->ServiceEntry;
     if (lpService == NULL)
     {
-        DPRINT("lpService == NULL!\n");
+        DPRINT("lpService == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -4086,28 +4161,28 @@ RQueryServiceConfigA(
     if (lpImagePath != NULL)
         dwRequiredSize += (DWORD)(wcslen(lpImagePath) + 1);
     else
-        dwRequiredSize += 2;
+        dwRequiredSize += 2 * sizeof(CHAR);
 
     if ((lpService->lpGroup != NULL) && (lpService->lpGroup->lpGroupName != NULL))
         dwRequiredSize += (DWORD)(wcslen(lpService->lpGroup->lpGroupName) + 1);
     else
-        dwRequiredSize += 2;
+        dwRequiredSize += 2 * sizeof(CHAR);
 
     /* Add Dependencies length */
     if (lpDependencies != NULL)
         dwRequiredSize += dwDependenciesLength;
     else
-        dwRequiredSize += 2;
+        dwRequiredSize += 2 * sizeof(CHAR);
 
     if (lpServiceStartName != NULL)
         dwRequiredSize += (DWORD)(wcslen(lpServiceStartName) + 1);
     else
-        dwRequiredSize += 2;
+        dwRequiredSize += 2 * sizeof(CHAR);
 
     if (lpService->lpDisplayName != NULL)
         dwRequiredSize += (DWORD)(wcslen(lpService->lpDisplayName) + 1);
     else
-        dwRequiredSize += 2;
+        dwRequiredSize += 2 * sizeof(CHAR);
 
     if (lpServiceConfig == NULL || cbBufSize < dwRequiredSize)
     {
@@ -4138,7 +4213,7 @@ RQueryServiceConfigA(
         }
         else
         {
-            strcpy(lpStr, lpEmptyString);
+            *lpStr = 0;
         }
 
         lpServiceConfig->lpBinaryPathName = (LPSTR)((ULONG_PTR)lpStr - (ULONG_PTR)lpServiceConfig);
@@ -4157,7 +4232,7 @@ RQueryServiceConfigA(
         }
         else
         {
-            strcpy(lpStr, lpEmptyString);
+            *lpStr = 0;
         }
 
         lpServiceConfig->lpLoadOrderGroup = (LPSTR)((ULONG_PTR)lpStr - (ULONG_PTR)lpServiceConfig);
@@ -4177,7 +4252,7 @@ RQueryServiceConfigA(
         }
         else
         {
-            strcpy(lpStr, lpEmptyString);
+            *lpStr = 0;
         }
 
         lpServiceConfig->lpDependencies = (LPSTR)((ULONG_PTR)lpStr - (ULONG_PTR)lpServiceConfig);
@@ -4199,7 +4274,7 @@ RQueryServiceConfigA(
         }
         else
         {
-            strcpy(lpStr, lpEmptyString);
+            *lpStr = 0;
         }
 
         lpServiceConfig->lpServiceStartName = (LPSTR)((ULONG_PTR)lpStr - (ULONG_PTR)lpServiceConfig);
@@ -4218,7 +4293,7 @@ RQueryServiceConfigA(
         }
         else
         {
-            strcpy(lpStr, lpEmptyString);
+            *lpStr = 0;
         }
 
         lpServiceConfig->lpDisplayName = (LPSTR)((ULONG_PTR)lpStr - (ULONG_PTR)lpServiceConfig);
@@ -4268,7 +4343,7 @@ RQueryServiceLockStatusA(
     hMgr = ScmGetServiceManagerFromHandle(hSCManager);
     if (hMgr == NULL)
     {
-        DPRINT1("Invalid service manager handle!\n");
+        DPRINT1("Invalid service manager handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -4303,7 +4378,7 @@ RStartServiceA(
     DWORD dwError = ERROR_SUCCESS;
     PSERVICE_HANDLE hSvc;
     PSERVICE lpService = NULL;
-    LPWSTR *lpVector = NULL;
+    PWSTR* pVector = NULL;
     DWORD i;
     DWORD dwLength;
 
@@ -4315,7 +4390,7 @@ RStartServiceA(
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT1("Invalid service handle!\n");
+        DPRINT1("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -4329,7 +4404,7 @@ RStartServiceA(
     lpService = hSvc->ServiceEntry;
     if (lpService == NULL)
     {
-        DPRINT("lpService == NULL!\n");
+        DPRINT("lpService == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -4342,25 +4417,25 @@ RStartServiceA(
     /* Build a Unicode argument vector */
     if (argc > 0)
     {
-        lpVector = HeapAlloc(GetProcessHeap(),
-                             HEAP_ZERO_MEMORY,
-                             argc * sizeof(LPWSTR));
-        if (lpVector == NULL)
+        pVector = HeapAlloc(GetProcessHeap(),
+                            HEAP_ZERO_MEMORY,
+                            argc * sizeof(PWSTR));
+        if (!pVector)
             return ERROR_NOT_ENOUGH_MEMORY;
 
         for (i = 0; i < argc; i++)
         {
             dwLength = MultiByteToWideChar(CP_ACP,
                                            0,
-                                           ((LPSTR*)argv)[i],
+                                           argv[i].StringPtr,
                                            -1,
                                            NULL,
                                            0);
 
-            lpVector[i] = HeapAlloc(GetProcessHeap(),
-                                    HEAP_ZERO_MEMORY,
-                                    dwLength * sizeof(WCHAR));
-            if (lpVector[i] == NULL)
+            pVector[i] = HeapAlloc(GetProcessHeap(),
+                                   HEAP_ZERO_MEMORY,
+                                   dwLength * sizeof(WCHAR));
+            if (!pVector[i])
             {
                 dwError = ERROR_NOT_ENOUGH_MEMORY;
                 goto done;
@@ -4368,26 +4443,26 @@ RStartServiceA(
 
             MultiByteToWideChar(CP_ACP,
                                 0,
-                                ((LPSTR*)argv)[i],
+                                argv[i].StringPtr,
                                 -1,
-                                lpVector[i],
+                                pVector[i],
                                 dwLength);
         }
     }
 
     /* Start the service */
-    dwError = ScmStartService(lpService, argc, lpVector);
+    dwError = ScmStartService(lpService, argc, (PCWSTR*)pVector);
 
 done:
     /* Free the Unicode argument vector */
-    if (lpVector != NULL)
+    if (pVector)
     {
         for (i = 0; i < argc; i++)
         {
-            if (lpVector[i] != NULL)
-                HeapFree(GetProcessHeap(), 0, lpVector[i]);
+            if (pVector[i])
+                HeapFree(GetProcessHeap(), 0, pVector[i]);
         }
-        HeapFree(GetProcessHeap(), 0, lpVector);
+        HeapFree(GetProcessHeap(), 0, pVector);
     }
 
     return dwError;
@@ -4403,11 +4478,11 @@ RGetServiceDisplayNameA(
     LPSTR lpDisplayName,
     LPBOUNDED_DWORD_4K lpcchBuffer)
 {
-//    PMANAGER_HANDLE hManager;
+    // PMANAGER_HANDLE hManager;
     PSERVICE lpService = NULL;
-    DWORD dwLength;
-    DWORD dwError;
+    LPCWSTR lpSvcDisplayName;
     LPWSTR lpServiceNameW;
+    DWORD dwLength;
 
     DPRINT("RGetServiceDisplayNameA() called\n");
     DPRINT("hSCManager = %p\n", hSCManager);
@@ -4415,13 +4490,16 @@ RGetServiceDisplayNameA(
     DPRINT("lpDisplayName: %p\n", lpDisplayName);
     DPRINT("*lpcchBuffer: %lu\n", *lpcchBuffer);
 
-//    hManager = (PMANAGER_HANDLE)hSCManager;
-//    if (hManager->Handle.Tag != MANAGER_TAG)
-//    {
-//        DPRINT("Invalid manager handle!\n");
-//        return ERROR_INVALID_HANDLE;
-//    }
+#if 0
+    hManager = (PMANAGER_HANDLE)hSCManager;
+    if (hManager->Handle.Tag != MANAGER_TAG)
+    {
+        DPRINT("Invalid manager handle\n");
+        return ERROR_INVALID_HANDLE;
+    }
+#endif
 
+    /* Get service database entry */
     if (lpServiceName != NULL)
     {
         dwLength = (DWORD)(strlen(lpServiceName) + 1);
@@ -4445,61 +4523,71 @@ RGetServiceDisplayNameA(
 
     if (lpService == NULL)
     {
-        DPRINT("Could not find a service!\n");
-
-        /* If the service could not be found and lpcchBuffer is 0, windows
-           puts null in lpDisplayName and puts 1 in lpcchBuffer */
-        if (*lpcchBuffer == 0)
-        {
-            *lpcchBuffer = 1;
-            if (lpDisplayName != NULL)
-            {
-                *lpDisplayName = 0;
-            }
-        }
+        DPRINT("Could not find service\n");
         return ERROR_SERVICE_DOES_NOT_EXIST;
     }
 
-    if (!lpService->lpDisplayName)
+    if (lpService->lpDisplayName)
+        lpSvcDisplayName = lpService->lpDisplayName;
+    else
+        lpSvcDisplayName = lpService->lpServiceName;
+
+    /*
+     * NOTE: On Windows the comparison on *lpcchBuffer is made against
+     * the number of (wide) characters of the UNICODE display name, and
+     * not against the number of bytes needed to store the ANSI string.
+     */
+    dwLength = (DWORD)wcslen(lpSvcDisplayName);
+
+    if (*lpcchBuffer > dwLength)
     {
-        dwLength = (DWORD)wcslen(lpService->lpServiceName);
         if (lpDisplayName != NULL &&
-            *lpcchBuffer > dwLength)
-        {
             WideCharToMultiByte(CP_ACP,
                                 0,
-                                lpService->lpServiceName,
-                                (int)wcslen(lpService->lpServiceName),
+                                lpSvcDisplayName,
+                                -1,
                                 lpDisplayName,
-                                dwLength + 1,
+                                (int)*lpcchBuffer,
                                 NULL,
-                                NULL);
-            return ERROR_SUCCESS;
+                                NULL) == 0)
+        {
+            /*
+             * But then, if *lpcchBuffer was greater than the number of
+             * (wide) characters of the UNICODE display name, yet smaller
+             * than the number of bytes needed due to the possible presence
+             * of DBCS characters, the *exact* number of bytes is returned
+             * (without the NULL terminator).
+             */
+            dwLength = (DWORD)WideCharToMultiByte(CP_ACP,
+                                                  0,
+                                                  lpSvcDisplayName,
+                                                  (int)dwLength,
+                                                  NULL,
+                                                  0,
+                                                  NULL,
+                                                  NULL);
+            *lpDisplayName = 0;
+            *lpcchBuffer = dwLength;
+            return ERROR_INSUFFICIENT_BUFFER;
         }
+
+        /*
+         * NOTE: On Windows, RGetServiceDisplayNameA() does not update
+         * *lpcchBuffer on success, contrary to RGetServiceDisplayNameW().
+         */
+        return ERROR_SUCCESS;
     }
     else
     {
-        dwLength = (DWORD)wcslen(lpService->lpDisplayName);
-        if (lpDisplayName != NULL &&
-            *lpcchBuffer > dwLength)
-        {
-            WideCharToMultiByte(CP_ACP,
-                                0,
-                                lpService->lpDisplayName,
-                                (int)wcslen(lpService->lpDisplayName),
-                                lpDisplayName,
-                                dwLength + 1,
-                                NULL,
-                                NULL);
-            return ERROR_SUCCESS;
-        }
+        /*
+         * NOTE: On Windows, if *lpcchBuffer is smaller than the number of
+         * (wide) characters of the UNICODE display name, only an upper
+         * estimation is returned by doubling the string length, to account
+         * for the presence of any possible DBCS characters.
+         */
+        *lpcchBuffer = dwLength * sizeof(WCHAR);
+        return ERROR_INSUFFICIENT_BUFFER;
     }
-
-    dwError = (*lpcchBuffer > dwLength) ? ERROR_SUCCESS : ERROR_INSUFFICIENT_BUFFER;
-
-    *lpcchBuffer = dwLength * 2;
-
-    return dwError;
 }
 
 
@@ -4512,16 +4600,27 @@ RGetServiceKeyNameA(
     LPSTR lpServiceName,
     LPBOUNDED_DWORD_4K lpcchBuffer)
 {
+    // PMANAGER_HANDLE hManager;
     PSERVICE lpService;
-    DWORD dwLength;
-    DWORD dwError;
     LPWSTR lpDisplayNameW;
+    DWORD dwLength;
 
     DPRINT("RGetServiceKeyNameA() called\n");
     DPRINT("hSCManager = %p\n", hSCManager);
     DPRINT("lpDisplayName: %s\n", lpDisplayName);
     DPRINT("lpServiceName: %p\n", lpServiceName);
     DPRINT("*lpcchBuffer: %lu\n", *lpcchBuffer);
+
+#if 0
+    hManager = (PMANAGER_HANDLE)hSCManager;
+    if (hManager->Handle.Tag != MANAGER_TAG)
+    {
+        DPRINT("Invalid manager handle\n");
+        return ERROR_INVALID_HANDLE;
+    }
+#endif
+
+    /* Get service database entry */
 
     dwLength = (DWORD)(strlen(lpDisplayName) + 1);
     lpDisplayNameW = HeapAlloc(GetProcessHeap(),
@@ -4543,42 +4642,66 @@ RGetServiceKeyNameA(
 
     if (lpService == NULL)
     {
-        DPRINT("Could not find the service!\n");
-
-        /* If the service could not be found and lpcchBuffer is 0,
-           put null in lpDisplayName and puts 1 in lpcchBuffer, verified WINXP. */
-        if (*lpcchBuffer == 0)
-        {
-            *lpcchBuffer = 1;
-            if (lpServiceName != NULL)
-            {
-                *lpServiceName = 0;
-            }
-        }
-
+        DPRINT("Could not find service\n");
         return ERROR_SERVICE_DOES_NOT_EXIST;
     }
 
+    /*
+     * NOTE: On Windows the comparison on *lpcchBuffer is made against
+     * the number of (wide) characters of the UNICODE service name, and
+     * not against the number of bytes needed to store the ANSI string.
+     */
     dwLength = (DWORD)wcslen(lpService->lpServiceName);
-    if (lpServiceName != NULL &&
-        *lpcchBuffer > dwLength)
+
+    if (*lpcchBuffer > dwLength)
     {
-        WideCharToMultiByte(CP_ACP,
-                            0,
-                            lpService->lpServiceName,
-                            (int)wcslen(lpService->lpServiceName),
-                            lpServiceName,
-                            dwLength + 1,
-                            NULL,
-                            NULL);
+        if (lpServiceName != NULL &&
+            WideCharToMultiByte(CP_ACP,
+                                0,
+                                lpService->lpServiceName,
+                                -1,
+                                lpServiceName,
+                                (int)*lpcchBuffer,
+                                NULL,
+                                NULL) == 0)
+        {
+            /*
+             * But then, if *lpcchBuffer was greater than the number of
+             * (wide) characters of the UNICODE service name, yet smaller
+             * than the number of bytes needed due to the possible presence
+             * of DBCS characters, the *exact* number of bytes is returned
+             * (without the NULL terminator).
+             */
+            dwLength = (DWORD)WideCharToMultiByte(CP_ACP,
+                                                  0,
+                                                  lpService->lpServiceName,
+                                                  (int)dwLength,
+                                                  NULL,
+                                                  0,
+                                                  NULL,
+                                                  NULL);
+            *lpServiceName = 0;
+            *lpcchBuffer = dwLength;
+            return ERROR_INSUFFICIENT_BUFFER;
+        }
+
+        /*
+         * NOTE: On Windows, RGetServiceKeyNameA() does not update
+         * *lpcchBuffer on success, contrary to RGetServiceKeyNameW().
+         */
         return ERROR_SUCCESS;
     }
-
-    dwError = (*lpcchBuffer > dwLength) ? ERROR_SUCCESS : ERROR_INSUFFICIENT_BUFFER;
-
-    *lpcchBuffer = dwLength * 2;
-
-    return dwError;
+    else
+    {
+        /*
+         * NOTE: On Windows, if *lpcchBuffer is smaller than the number of
+         * (wide) characters of the UNICODE service name, only an upper
+         * estimation is returned by doubling the string length, to account
+         * for the presence of any possible DBCS characters.
+         */
+        *lpcchBuffer = dwLength * sizeof(WCHAR);
+        return ERROR_INSUFFICIENT_BUFFER;
+    }
 }
 
 
@@ -4602,7 +4725,7 @@ RI_ScGetCurrentGroupStateW(
     hManager = ScmGetServiceManagerFromHandle(hSCManager);
     if (hManager == NULL)
     {
-        DPRINT1("Invalid service manager handle!\n");
+        DPRINT1("Invalid service manager handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -4674,7 +4797,7 @@ REnumServiceGroupW(
     hManager = ScmGetServiceManagerFromHandle(hSCManager);
     if (hManager == NULL)
     {
-        DPRINT1("Invalid service manager handle!\n");
+        DPRINT1("Invalid service manager handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -4689,14 +4812,14 @@ REnumServiceGroupW(
     if ((dwServiceType == 0) ||
         ((dwServiceType & ~SERVICE_TYPE_ALL) != 0))
     {
-        DPRINT("Not a valid Service Type!\n");
+        DPRINT("Invalid Service Type\n");
         return ERROR_INVALID_PARAMETER;
     }
 
     if ((dwServiceState == 0) ||
         ((dwServiceState & ~SERVICE_STATE_ALL) != 0))
     {
-        DPRINT("Not a valid Service State!\n");
+        DPRINT("Invalid Service State\n");
         return ERROR_INVALID_PARAMETER;
     }
 
@@ -4921,7 +5044,9 @@ RChangeServiceConfig2A(
 
     if ((Info.dwInfoLevel < SERVICE_CONFIG_DESCRIPTION) ||
         (Info.dwInfoLevel > SERVICE_CONFIG_FAILURE_ACTIONS))
+    {
         return ERROR_INVALID_LEVEL;
+    }
 
     InfoW.dwInfoLevel = Info.dwInfoLevel;
 
@@ -5106,11 +5231,13 @@ ScmSetFailureActions(HKEY hServiceKey,
                                NULL,
                                &dwType,
                                NULL,
-                              &dwRequiredSize);
+                               &dwRequiredSize);
     if (dwError != ERROR_SUCCESS &&
         dwError != ERROR_MORE_DATA &&
         dwError != ERROR_FILE_NOT_FOUND)
+    {
         return dwError;
+    }
 
     dwRequiredSize = (dwType == REG_BINARY) ? max(sizeof(SERVICE_FAILURE_ACTIONSW), dwRequiredSize)
                                             : sizeof(SERVICE_FAILURE_ACTIONSW);
@@ -5323,12 +5450,14 @@ RChangeServiceConfig2W(
 
     if ((Info.dwInfoLevel < SERVICE_CONFIG_DESCRIPTION) ||
         (Info.dwInfoLevel > SERVICE_CONFIG_FAILURE_ACTIONS))
+    {
         return ERROR_INVALID_LEVEL;
+    }
 
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT("Invalid service handle!\n");
+        DPRINT("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -5352,7 +5481,7 @@ RChangeServiceConfig2W(
     lpService = hSvc->ServiceEntry;
     if (lpService == NULL)
     {
-        DPRINT("lpService == NULL!\n");
+        DPRINT("lpService == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -5368,7 +5497,7 @@ RChangeServiceConfig2W(
 
     if (lpService->bDeleted)
     {
-        DPRINT("The service has already been marked for delete!\n");
+        DPRINT("Service has already been marked for delete\n");
         dwError = ERROR_SERVICE_MARKED_FOR_DELETE;
         goto done;
     }
@@ -5463,12 +5592,14 @@ RQueryServiceConfig2A(
 
     if ((dwInfoLevel < SERVICE_CONFIG_DESCRIPTION) ||
         (dwInfoLevel > SERVICE_CONFIG_FAILURE_ACTIONS))
+    {
         return ERROR_INVALID_LEVEL;
+    }
 
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT1("Invalid service handle!\n");
+        DPRINT1("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -5482,7 +5613,7 @@ RQueryServiceConfig2A(
     lpService = hSvc->ServiceEntry;
     if (lpService == NULL)
     {
-        DPRINT("lpService == NULL!\n");
+        DPRINT("lpService == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -5551,7 +5682,9 @@ RQueryServiceConfig2A(
         if (dwError != ERROR_SUCCESS &&
             dwError != ERROR_MORE_DATA &&
             dwError != ERROR_FILE_NOT_FOUND)
+        {
             goto done;
+        }
 
         dwRequiredSize = (dwType == REG_BINARY) ? max(sizeof(SERVICE_FAILURE_ACTIONSA), dwRequiredSize)
                                                 : sizeof(SERVICE_FAILURE_ACTIONSA);
@@ -5705,12 +5838,14 @@ RQueryServiceConfig2W(
 
     if ((dwInfoLevel < SERVICE_CONFIG_DESCRIPTION) ||
         (dwInfoLevel > SERVICE_CONFIG_FAILURE_ACTIONS))
+    {
         return ERROR_INVALID_LEVEL;
+    }
 
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT1("Invalid service handle!\n");
+        DPRINT1("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -5724,7 +5859,7 @@ RQueryServiceConfig2W(
     lpService = hSvc->ServiceEntry;
     if (lpService == NULL)
     {
-        DPRINT("lpService == NULL!\n");
+        DPRINT("lpService == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -5785,7 +5920,9 @@ RQueryServiceConfig2W(
         if (dwError != ERROR_SUCCESS &&
             dwError != ERROR_MORE_DATA &&
             dwError != ERROR_FILE_NOT_FOUND)
+        {
             goto done;
+        }
 
         dwRequiredSize = (dwType == REG_BINARY) ? max(sizeof(SERVICE_FAILURE_ACTIONSW), dwRequiredSize)
                                                 : sizeof(SERVICE_FAILURE_ACTIONSW);
@@ -5925,7 +6062,7 @@ RQueryServiceStatusEx(
     hSvc = ScmGetServiceFromHandle(hService);
     if (hSvc == NULL)
     {
-        DPRINT1("Invalid service handle!\n");
+        DPRINT1("Invalid service handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -5939,7 +6076,7 @@ RQueryServiceStatusEx(
     lpService = hSvc->ServiceEntry;
     if (lpService == NULL)
     {
-        DPRINT("lpService == NULL!\n");
+        DPRINT("lpService == NULL\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -5959,7 +6096,7 @@ RQueryServiceStatusEx(
     else
         lpStatus->dwProcessId = lpService->lpImage->dwProcessId;
 
-    lpStatus->dwServiceFlags = 0;			/* FIXME */
+    lpStatus->dwServiceFlags = 0;   /* FIXME */
 
     /* Unlock the service database */
     ScmUnlockDatabase();
@@ -6004,7 +6141,7 @@ REnumServicesStatusExA(
         pszGroupNameW = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, (strlen(pszGroupName) + 1) * sizeof(WCHAR));
         if (!pszGroupNameW)
         {
-             DPRINT("Failed to allocate buffer!\n");
+             DPRINT("Failed to allocate buffer\n");
              dwError = ERROR_NOT_ENOUGH_MEMORY;
              goto Done;
         }
@@ -6022,7 +6159,7 @@ REnumServicesStatusExA(
         lpStatusPtrW = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, cbBufSize);
         if (!lpStatusPtrW)
         {
-            DPRINT("Failed to allocate buffer!\n");
+            DPRINT("Failed to allocate buffer\n");
             dwError = ERROR_NOT_ENOUGH_MEMORY;
             goto Done;
         }
@@ -6146,7 +6283,7 @@ REnumServicesStatusExW(
     hManager = ScmGetServiceManagerFromHandle(hSCManager);
     if (hManager == NULL)
     {
-        DPRINT1("Invalid service manager handle!\n");
+        DPRINT1("Invalid service manager handle\n");
         return ERROR_INVALID_HANDLE;
     }
 
@@ -6161,14 +6298,14 @@ REnumServicesStatusExW(
     if ((dwServiceType == 0) ||
         ((dwServiceType & ~SERVICE_TYPE_ALL) != 0))
     {
-        DPRINT("Not a valid Service Type!\n");
+        DPRINT("Invalid Service Type\n");
         return ERROR_INVALID_PARAMETER;
     }
 
     if ((dwServiceState == 0) ||
         ((dwServiceState & ~SERVICE_STATE_ALL) != 0))
     {
-        DPRINT("Not a valid Service State!\n");
+        DPRINT("Invalid Service State\n");
         return ERROR_INVALID_PARAMETER;
     }
 
@@ -6176,7 +6313,7 @@ REnumServicesStatusExW(
     if (!RtlAreAllAccessesGranted(hManager->Handle.DesiredAccess,
                                   SC_MANAGER_ENUMERATE_SERVICE))
     {
-        DPRINT("Insufficient access rights! 0x%lx\n",
+        DPRINT("Insufficient access rights 0x%lx\n",
                hManager->Handle.DesiredAccess);
         return ERROR_ACCESS_DENIED;
     }
@@ -6468,11 +6605,44 @@ RCreateServiceWOW64W(
 /* Function 46 */
 DWORD
 WINAPI
-RQueryServiceTagInfo(
-    handle_t BindingHandle)  /* FIXME */
+RI_ScQueryServiceTagInfo(
+    SC_RPC_HANDLE hSCManager,
+    TAG_INFO_LEVEL dwInfoLevel,
+    PTAG_INFO_NAME_FROM_TAG_IN_PARAMS * lpInParams,
+    PTAG_INFO_NAME_FROM_TAG_OUT_PARAMS * lpOutParams)
 {
-    UNIMPLEMENTED;
-    return ERROR_CALL_NOT_IMPLEMENTED;
+    PMANAGER_HANDLE hManager;
+
+    /* Validate handle */
+    hManager = ScmGetServiceManagerFromHandle(hSCManager);
+    if (hManager == NULL)
+    {
+        return ERROR_INVALID_HANDLE;
+    }
+
+    /* FIXME: should check whether client is local */
+
+    /* Check access rights */
+    if (!RtlAreAllAccessesGranted(hManager->Handle.DesiredAccess,
+                                  SC_MANAGER_ENUMERATE_SERVICE))
+    {
+        return ERROR_ACCESS_DENIED;
+    }
+
+    /* Check parameters */
+    if (lpInParams == NULL || lpOutParams == NULL)
+    {
+        return ERROR_INVALID_PARAMETER;
+    }
+
+    /* Check info level */
+    if (dwInfoLevel != TagInfoLevelNameFromTag)
+    {
+        return ERROR_RETRY;
+    }
+
+    /* Call internal helper */
+    return ScmGetServiceNameFromTag(*lpInParams, lpOutParams);
 }
 
 
@@ -6556,11 +6726,42 @@ RSendPnPMessage(
 /* Function 53 */
 DWORD
 WINAPI
-RValidatePnPService(
-    handle_t BindingHandle)  /* FIXME */
+RI_ScValidatePnPService(
+    _In_ SC_RPC_HANDLE hSCManager,
+    _In_ LPWSTR pszServiceName,
+    _Out_ RPC_SERVICE_STATUS_HANDLE *phServiceStatus)
 {
-    UNIMPLEMENTED;
-    return ERROR_CALL_NOT_IMPLEMENTED;
+    PMANAGER_HANDLE hManager;
+    PSERVICE pService;
+
+    DPRINT("RI_ScValidatePnPService(%p %S %p)\n", hSCManager, pszServiceName, phServiceStatus);
+
+    /* Validate handle */
+    hManager = ScmGetServiceManagerFromHandle(hSCManager);
+    if (hManager == NULL)
+    {
+        DPRINT1("Invalid handle\n");
+        return ERROR_INVALID_HANDLE;
+    }
+
+    /* FIXME: should check whether client is local */
+
+    /* Check access rights */
+    if (!RtlAreAllAccessesGranted(hManager->Handle.DesiredAccess,
+                                  SC_MANAGER_CONNECT))
+    {
+        DPRINT1("No SC_MANAGER_CONNECT access\n");
+        return ERROR_ACCESS_DENIED;
+    }
+
+    pService = ScmGetServiceEntryByName(pszServiceName);
+    DPRINT("pService: %p\n", pService);
+    if (pService == NULL)
+        return ERROR_SERVICE_DOES_NOT_EXIST;
+
+    *phServiceStatus = (RPC_SERVICE_STATUS_HANDLE)pService;
+
+    return ERROR_SUCCESS;
 }
 
 

@@ -15,6 +15,10 @@
 #define MODULE_INVOLVED_IN_ARM3
 #include <mm/ARM3/miarm.h>
 
+VOID
+NTAPI
+MmRebalanceMemoryConsumersAndWait(VOID);
+
 /* GLOBALS ********************************************************************/
 
 #define HYDRA_PROCESS (PEPROCESS)1
@@ -33,7 +37,7 @@ MiCheckForUserStackOverflow(IN PVOID Address,
     PETHREAD CurrentThread = PsGetCurrentThread();
     PTEB Teb = CurrentThread->Tcb.Teb;
     PVOID StackBase, DeallocationStack, NextStackAddress;
-    SIZE_T GuranteedSize;
+    SIZE_T GuaranteedSize;
     NTSTATUS Status;
 
     /* Do we own the address space lock? */
@@ -56,15 +60,15 @@ MiCheckForUserStackOverflow(IN PVOID Address,
     /* Read the current settings */
     StackBase = Teb->NtTib.StackBase;
     DeallocationStack = Teb->DeallocationStack;
-    GuranteedSize = Teb->GuaranteedStackBytes;
+    GuaranteedSize = Teb->GuaranteedStackBytes;
     DPRINT("Handling guard page fault with Stacks Addresses 0x%p and 0x%p, guarantee: %lx\n",
-            StackBase, DeallocationStack, GuranteedSize);
+            StackBase, DeallocationStack, GuaranteedSize);
 
     /* Guarantees make this code harder, for now, assume there aren't any */
-    ASSERT(GuranteedSize == 0);
+    ASSERT(GuaranteedSize == 0);
 
     /* So allocate only the minimum guard page size */
-    GuranteedSize = PAGE_SIZE;
+    GuaranteedSize = PAGE_SIZE;
 
     /* Does this faulting stack address actually exist in the stack? */
     if ((Address >= StackBase) || (Address < DeallocationStack))
@@ -76,13 +80,34 @@ MiCheckForUserStackOverflow(IN PVOID Address,
     }
 
     /* This is where the stack will start now */
-    NextStackAddress = (PVOID)((ULONG_PTR)PAGE_ALIGN(Address) - GuranteedSize);
+    NextStackAddress = (PVOID)((ULONG_PTR)PAGE_ALIGN(Address) - GuaranteedSize);
 
     /* Do we have at least one page between here and the end of the stack? */
     if (((ULONG_PTR)NextStackAddress - PAGE_SIZE) <= (ULONG_PTR)DeallocationStack)
     {
-        /* We don't -- Windows would try to make this guard page valid now */
+        /* We don't -- Trying to make this guard page valid now */
         DPRINT1("Close to our death...\n");
+
+        /* Calculate the next memory address */
+        NextStackAddress = (PVOID)((ULONG_PTR)PAGE_ALIGN(DeallocationStack) + GuaranteedSize);
+
+        /* Allocate the memory */
+        Status = ZwAllocateVirtualMemory(NtCurrentProcess(),
+                                         &NextStackAddress,
+                                         0,
+                                         &GuaranteedSize,
+                                         MEM_COMMIT,
+                                         PAGE_READWRITE);
+        if (NT_SUCCESS(Status))
+        {
+            /* Success! */
+            Teb->NtTib.StackLimit = NextStackAddress;
+        }
+        else
+        {
+            DPRINT1("Failed to allocate memory\n");
+        }
+
         return STATUS_STACK_OVERFLOW;
     }
 
@@ -90,13 +115,13 @@ MiCheckForUserStackOverflow(IN PVOID Address,
     ASSERT((PsGetCurrentProcess()->Peb->NtGlobalFlag & FLG_DISABLE_STACK_EXTENSION) == 0);
 
     /* Update the stack limit */
-    Teb->NtTib.StackLimit = (PVOID)((ULONG_PTR)NextStackAddress + GuranteedSize);
+    Teb->NtTib.StackLimit = (PVOID)((ULONG_PTR)NextStackAddress + GuaranteedSize);
 
     /* Now move the guard page to the next page */
     Status = ZwAllocateVirtualMemory(NtCurrentProcess(),
                                      &NextStackAddress,
                                      0,
-                                     &GuranteedSize,
+                                     &GuaranteedSize,
                                      MEM_COMMIT,
                                      PAGE_READWRITE | PAGE_GUARD);
     if ((NT_SUCCESS(Status) || (Status == STATUS_ALREADY_COMMITTED)))
@@ -298,7 +323,7 @@ MiCheckVirtualAddress(IN PVOID VirtualAddress,
         }
 
         /* Return full access rights */
-        *ProtectCode = MM_READWRITE;
+        *ProtectCode = MM_EXECUTE_READWRITE;
         return NULL;
     }
     else if (MI_IS_SESSION_ADDRESS(VirtualAddress))
@@ -632,7 +657,7 @@ MiResolveDemandZeroFault(IN PVOID Address,
     ASSERT(PointerPte->u.Hard.Valid == 0);
 
     /* Assert we have enough pages */
-    ASSERT(MmAvailablePages >= 32);
+    //ASSERT(MmAvailablePages >= 32);
 
 #if MI_TRACE_PFNS
     if (UserPdeFault) MI_SET_USAGE(MI_USAGE_PAGE_TABLE);
@@ -653,6 +678,11 @@ MiResolveDemandZeroFault(IN PVOID Address,
             PageFrameNumber = MiRemoveAnyPage(Color);
             NeedZero = TRUE;
         }
+        else
+        {
+            /* Page guaranteed to be zero-filled */
+            NeedZero = FALSE;
+        }
     }
     else
     {
@@ -667,7 +697,15 @@ MiResolveDemandZeroFault(IN PVOID Address,
         {
             /* System wants a zero page, obtain one */
             PageFrameNumber = MiRemoveZeroPage(Color);
+            /* No need to zero-fill it */
+            NeedZero = FALSE;
         }
+    }
+
+    if (PageFrameNumber == 0)
+    {
+        MiReleasePfnLock(OldIrql);
+        return STATUS_NO_MEMORY;
     }
 
     /* Initialize it */
@@ -878,6 +916,9 @@ MiResolvePageFileFault(_In_ BOOLEAN StoreInstruction,
     ASSERT(CurrentProcess > HYDRA_PROCESS);
     ASSERT(*OldIrql != MM_NOIRQL);
 
+    MI_SET_USAGE(MI_USAGE_PAGE_FILE);
+    MI_SET_PROCESS(CurrentProcess);
+
     /* We must hold the PFN lock */
     MI_ASSERT_PFN_LOCK_HELD();
 
@@ -889,6 +930,10 @@ MiResolvePageFileFault(_In_ BOOLEAN StoreInstruction,
     /* Get any page, it will be overwritten */
     Color = MI_GET_NEXT_PROCESS_COLOR(CurrentProcess);
     Page = MiRemoveAnyPage(Color);
+    if (Page == 0)
+    {
+        return STATUS_NO_MEMORY;
+    }
 
     /* Initialize this PFN */
     MiInitializePfn(Page, PointerPte, StoreInstruction);
@@ -1189,6 +1234,9 @@ MiResolveProtoPteFault(IN BOOLEAN StoreInstruction,
         ASSERT(TempPte.u.Hard.Valid == 1);
         ProtoPageFrameIndex = PFN_FROM_PTE(&TempPte);
 
+        MI_SET_USAGE(MI_USAGE_COW);
+        MI_SET_PROCESS(Process);
+
         /* Get a new page for the private copy */
         if (Process > HYDRA_PROCESS)
             Color = MI_GET_NEXT_PROCESS_COLOR(Process);
@@ -1196,6 +1244,11 @@ MiResolveProtoPteFault(IN BOOLEAN StoreInstruction,
             Color = MI_GET_NEXT_COLOR();
 
         PageFrameIndex = MiRemoveAnyPage(Color);
+        if (PageFrameIndex == 0)
+        {
+            MiReleasePfnLock(OldIrql);
+            return STATUS_NO_MEMORY;
+        }
 
         /* Perform the copy */
         MiCopyPfn(PageFrameIndex, ProtoPageFrameIndex);
@@ -1259,6 +1312,14 @@ MiResolveProtoPteFault(IN BOOLEAN StoreInstruction,
                                           (ULONG)TempPte.u.Soft.Protection,
                                           Process,
                                           OldIrql);
+#if MI_TRACE_PFNS
+        /* Update debug info */
+        if (TrapInformation)
+            MiGetPfnEntry(PointerProtoPte->u.Hard.PageFrameNumber)->CallSite = (PVOID)((PKTRAP_FRAME)TrapInformation)->Eip;
+        else
+            MiGetPfnEntry(PointerProtoPte->u.Hard.PageFrameNumber)->CallSite = _ReturnAddress();
+#endif
+                                      
         ASSERT(NT_SUCCESS(Status));
     }
 
@@ -1610,6 +1671,14 @@ MiDispatchFault(IN ULONG FaultCode,
     ASSERT(KeAreAllApcsDisabled() == TRUE);
     if (NT_SUCCESS(Status))
     {
+#if MI_TRACE_PFNS
+        /* Update debug info */
+        if (TrapInformation)
+            MiGetPfnEntry(PointerPte->u.Hard.PageFrameNumber)->CallSite = (PVOID)((PKTRAP_FRAME)TrapInformation)->Eip;
+        else
+            MiGetPfnEntry(PointerPte->u.Hard.PageFrameNumber)->CallSite = _ReturnAddress();
+#endif
+
         //
         // Make sure we're returning in a sane state and pass the status down
         //
@@ -1619,9 +1688,9 @@ MiDispatchFault(IN ULONG FaultCode,
     }
 
     //
-    // Generate an access fault
+    // Return status
     //
-    return STATUS_ACCESS_VIOLATION;
+    return Status;
 }
 
 NTSTATUS
@@ -1875,7 +1944,7 @@ _WARN("Session space stuff is not implemented yet!")
                 return STATUS_IN_PAGE_ERROR | 0x10000000;
             }
         }
-
+RetryKernel:
         /* Acquire the working set lock */
         KeRaiseIrql(APC_LEVEL, &LockIrql);
         MiLockWorkingSet(CurrentThread, WorkingSet);
@@ -2042,6 +2111,12 @@ _WARN("Session space stuff is not implemented yet!")
         MiUnlockWorkingSet(CurrentThread, WorkingSet);
         KeLowerIrql(LockIrql);
 
+        if (Status == STATUS_NO_MEMORY)
+        {
+            MmRebalanceMemoryConsumersAndWait();
+            goto RetryKernel;
+        }
+
         /* We are done! */
         DPRINT("Fault resolved with status: %lx\n", Status);
         return Status;
@@ -2076,11 +2151,15 @@ UserFault:
         }
 
         /* Resolve a demand zero fault */
-        MiResolveDemandZeroFault(PointerPpe,
+        Status = MiResolveDemandZeroFault(PointerPpe,
                                  PointerPxe,
-                                 MM_READWRITE,
+                                 MM_EXECUTE_READWRITE,
                                  CurrentProcess,
                                  MM_NOIRQL);
+        if (!NT_SUCCESS(Status))
+        {
+            goto ExitUser;
+        }
 
         /* We should come back with a valid PXE */
         ASSERT(PointerPxe->u.Hard.Valid == 1);
@@ -2110,14 +2189,19 @@ UserFault:
         }
 
         /* Resolve a demand zero fault */
-        MiResolveDemandZeroFault(PointerPde,
+        Status = MiResolveDemandZeroFault(PointerPde,
                                  PointerPpe,
-                                 MM_READWRITE,
+                                 MM_EXECUTE_READWRITE,
                                  CurrentProcess,
                                  MM_NOIRQL);
+        if (!NT_SUCCESS(Status))
+        {
+            goto ExitUser;
+        }
 
         /* We should come back with a valid PPE */
         ASSERT(PointerPpe->u.Hard.Valid == 1);
+        MiIncrementPageTableReferences(PointerPde);
     }
 #endif
 
@@ -2152,13 +2236,27 @@ UserFault:
         }
 
         /* Resolve a demand zero fault */
-        MiResolveDemandZeroFault(PointerPte,
+        Status = MiResolveDemandZeroFault(PointerPte,
                                  PointerPde,
-                                 MM_READWRITE,
+                                 MM_EXECUTE_READWRITE,
                                  CurrentProcess,
                                  MM_NOIRQL);
+        if (!NT_SUCCESS(Status))
+        {
+            goto ExitUser;
+        }
+
+#if _MI_PAGING_LEVELS >= 3
+        MiIncrementPageTableReferences(PointerPte);
+#endif
+
 #if MI_TRACE_PFNS
         UserPdeFault = FALSE;
+        /* Update debug info */
+        if (TrapInformation)
+            MiGetPfnEntry(PointerPde->u.Hard.PageFrameNumber)->CallSite = (PVOID)((PKTRAP_FRAME)TrapInformation)->Eip;
+        else
+            MiGetPfnEntry(PointerPde->u.Hard.PageFrameNumber)->CallSite = _ReturnAddress();
 #endif
         /* We should come back with APCs enabled, and with a valid PDE */
         ASSERT(KeAreAllApcsDisabled() == TRUE);
@@ -2189,8 +2287,17 @@ UserFault:
 
                 ASSERT(MmAvailablePages > 0);
 
+                MI_SET_USAGE(MI_USAGE_COW);
+                MI_SET_PROCESS(CurrentProcess);
+
                 /* Allocate a new page and copy it */
                 PageFrameIndex = MiRemoveAnyPage(MI_GET_NEXT_PROCESS_COLOR(CurrentProcess));
+                if (PageFrameIndex == 0)
+                {
+                    MiReleasePfnLock(LockIrql);
+                    Status = STATUS_NO_MEMORY;
+                    goto ExitUser;
+                }
                 OldPageFrameIndex = PFN_FROM_PTE(&TempPte);
 
                 MiCopyPfn(PageFrameIndex, OldPageFrameIndex);
@@ -2226,14 +2333,26 @@ UserFault:
             }
         }
 
+#if _MI_HAS_NO_EXECUTE
         /* Check for execution of non-executable memory */
         if (MI_IS_INSTRUCTION_FETCH(FaultCode) &&
             !MI_IS_PAGE_EXECUTABLE(&TempPte))
         {
+            /* Check if execute enable was set */
+            if (CurrentProcess->Pcb.Flags.ExecuteEnable)
+            {
+                /* Fix up the PTE to be executable */
+                TempPte.u.Hard.NoExecute = 0;
+                MI_UPDATE_VALID_PTE(PointerPte, TempPte);
+                MiUnlockProcessWorkingSet(CurrentProcess, CurrentThread);
+                return STATUS_SUCCESS;
+            }
+
             /* Return the status */
             MiUnlockProcessWorkingSet(CurrentProcess, CurrentThread);
             return STATUS_ACCESS_VIOLATION;
         }
+#endif
 
         /* The fault has already been resolved by a different thread */
         MiUnlockProcessWorkingSet(CurrentProcess, CurrentThread);
@@ -2241,14 +2360,27 @@ UserFault:
     }
 
     /* Quick check for demand-zero */
-    if (TempPte.u.Long == (MM_READWRITE << MM_PTE_SOFTWARE_PROTECTION_BITS))
+    if ((TempPte.u.Long == (MM_READWRITE << MM_PTE_SOFTWARE_PROTECTION_BITS)) ||
+        (TempPte.u.Long == (MM_EXECUTE_READWRITE << MM_PTE_SOFTWARE_PROTECTION_BITS)))
     {
         /* Resolve the fault */
-        MiResolveDemandZeroFault(Address,
+        Status = MiResolveDemandZeroFault(Address,
                                  PointerPte,
-                                 MM_READWRITE,
+                                 TempPte.u.Soft.Protection,
                                  CurrentProcess,
                                  MM_NOIRQL);
+        if (!NT_SUCCESS(Status))
+        {
+            goto ExitUser;
+        }
+
+#if MI_TRACE_PFNS
+        /* Update debug info */
+        if (TrapInformation)
+            MiGetPfnEntry(PointerPte->u.Hard.PageFrameNumber)->CallSite = (PVOID)((PKTRAP_FRAME)TrapInformation)->Eip;
+        else
+            MiGetPfnEntry(PointerPte->u.Hard.PageFrameNumber)->CallSite = _ReturnAddress();
+#endif
 
         /* Return the status */
         MiUnlockProcessWorkingSet(CurrentProcess, CurrentThread);
@@ -2278,7 +2410,14 @@ UserFault:
          * Check if this is a real user-mode address or actually a kernel-mode
          * page table for a user mode address
          */
-        if (Address <= MM_HIGHEST_USER_ADDRESS)
+        if (Address <= MM_HIGHEST_USER_ADDRESS
+#if _MI_PAGING_LEVELS >= 3
+            || MiIsUserPte(Address)
+#if _MI_PAGING_LEVELS == 4
+            || MiIsUserPde(Address)
+#endif
+#endif
+        )
         {
             /* Add an additional page table reference */
             MiIncrementPageTableReferences(Address);
@@ -2317,7 +2456,7 @@ UserFault:
                 _WARN("This is probably completely broken!");
                 MI_WRITE_INVALID_PDE((PMMPDE)PointerPte, DemandZeroPde);
 #else
-                MI_WRITE_INVALID_PTE(PointerPte, DemandZeroPde);
+                MI_WRITE_INVALID_PDE(PointerPte, DemandZeroPde);
 #endif
             }
             else
@@ -2331,7 +2470,7 @@ UserFault:
             OldIrql = MiAcquirePfnLock();
 
             /* Make sure we have enough pages */
-            ASSERT(MmAvailablePages >= 32);
+            //ASSERT(MmAvailablePages >= 32);
 
             /* Try to get a zero page */
             MI_SET_USAGE(MI_USAGE_PEB_TEB);
@@ -2342,10 +2481,15 @@ UserFault:
             {
                 /* Grab a page out of there. Later we should grab a colored zero page */
                 PageFrameIndex = MiRemoveAnyPage(Color);
-                ASSERT(PageFrameIndex);
 
                 /* Release the lock since we need to do some zeroing */
                 MiReleasePfnLock(OldIrql);
+
+                if (PageFrameIndex == 0)
+                {
+                    Status = STATUS_NO_MEMORY;
+                    goto ExitUser;
+                }
 
                 /* Zero out the page, since it's for user-mode */
                 MiZeroPfn(PageFrameIndex);
@@ -2489,9 +2633,18 @@ UserFault:
                              TrapInformation,
                              Vad);
 
+ExitUser:
+
     /* Return the status */
     ASSERT(KeGetCurrentIrql() <= APC_LEVEL);
     MiUnlockProcessWorkingSet(CurrentProcess, CurrentThread);
+
+    if (Status == STATUS_NO_MEMORY)
+    {
+        MmRebalanceMemoryConsumersAndWait();
+        goto UserFault;
+    }
+
     return Status;
 }
 
@@ -2555,7 +2708,7 @@ MmSetExecuteOptions(IN ULONG ExecuteOptions)
     }
 
     /* Change the NX state in the process lock */
-    KiAcquireProcessLock(CurrentProcess, &ProcessLock);
+    KiAcquireProcessLockRaiseToSynch(CurrentProcess, &ProcessLock);
 
     /* Don't change anything if the permanent flag was set */
     if (!CurrentProcess->Flags.Permanent)
@@ -2589,7 +2742,7 @@ MmSetExecuteOptions(IN ULONG ExecuteOptions)
             CurrentProcess->Flags.ImageDispatchEnable = TRUE;
         }
 
-        /* These are turned on by default if no-execution is also eanbled */
+        /* These are turned on by default if no-execution is also enabled */
         if (CurrentProcess->Flags.ExecuteEnable)
         {
             CurrentProcess->Flags.ExecuteDispatchEnable = TRUE;

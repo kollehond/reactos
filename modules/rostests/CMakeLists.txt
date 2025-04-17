@@ -1,6 +1,8 @@
 
 start_module_group(rostests)
 
+add_definitions(-DHAVE_APITEST)
+
 if(MSVC_IDE)
     add_definitions(-DWINETEST_MSVC_IDE_FORMATTING)
 endif()
@@ -9,10 +11,13 @@ add_subdirectory(apitests)
 #add_subdirectory(dibtests)
 add_subdirectory(drivers)
 #add_subdirectory(dxtest)
+if(MSVC OR NOT ARCH STREQUAL "amd64") # FIXME build is broken with new x64 PSEH
 add_subdirectory(kmtests)
+endif()
 #add_subdirectory(regtests)
 add_subdirectory(rosautotest)
 add_subdirectory(tests)
+add_subdirectory(unittests)
 add_subdirectory(win32)
 add_subdirectory(winetests)
 

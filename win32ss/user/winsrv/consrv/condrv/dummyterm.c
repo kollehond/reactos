@@ -61,7 +61,7 @@ DummyWriteStream(IN OUT PTERMINAL This,
      */
 
     // /* Stop here if the console is paused */
-    // if (Console->UnpauseEvent != NULL) return STATUS_PENDING;
+    // if (Console->ConsolePaused) return STATUS_PENDING;
 
     return STATUS_PENDING;
 }
@@ -126,6 +126,13 @@ DummySetPalette(IN OUT PTERMINAL This,
     return TRUE;
 }
 
+static BOOL NTAPI
+DummySetCodePage(IN OUT PTERMINAL This,
+                 UINT CodePage)
+{
+    return TRUE;
+}
+
 static INT NTAPI
 DummyShowMouseCursor(IN OUT PTERMINAL This,
                      BOOL Show)
@@ -149,6 +156,7 @@ static TERMINAL_VTBL DummyVtbl =
     DummyReleaseScreenBuffer,
     DummyGetLargestConsoleWindowSize,
     DummySetPalette,
+    DummySetCodePage,
     DummyShowMouseCursor,
 };
 

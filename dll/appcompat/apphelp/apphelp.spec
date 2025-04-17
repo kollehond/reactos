@@ -47,7 +47,7 @@
 @ stub SdbFindNextStringIndexedTag
 @ stdcall SdbFindNextTag(ptr long long)
 @ stub SdbFindNextTagRef
-@ stub SdbFreeDatabaseInformation
+@ stdcall SdbFreeDatabaseInformation(ptr)
 @ stdcall SdbFreeFileAttributes(ptr)
 @ stub SdbFreeFileInfo
 @ stub SdbFreeFlagInfo
@@ -55,7 +55,7 @@
 @ stdcall SdbGetAppPatchDir(ptr wstr long)
 @ stdcall SdbGetBinaryTagData(ptr long)
 @ stdcall SdbGetDatabaseID(ptr ptr)
-@ stub SdbGetDatabaseInformation
+@ stdcall SdbGetDatabaseInformation(ptr ptr)
 @ stub SdbGetDatabaseInformationByName
 @ stub SdbGetDatabaseMatch
 @ stdcall SdbGetDatabaseVersion(wstr ptr ptr)
@@ -129,7 +129,7 @@
 @ stub SdbReadStringTagRef
 @ stdcall SdbReadWORDTag(ptr long long)
 @ stub SdbReadWORDTagRef
-@ stub SdbRegisterDatabase
+@ stdcall SdbRegisterDatabase(wstr long)
 @ stdcall SdbReleaseDatabase(ptr)
 @ stub SdbReleaseMatchingExe
 @ stub SdbResolveDatabase
@@ -147,7 +147,7 @@
 @ stdcall SdbTagIDToTagRef(ptr ptr long ptr)
 @ stdcall SdbTagRefToTagID(ptr long ptr ptr)
 @ stdcall SdbTagToString(long)
-@ stub SdbUnregisterDatabase
+@ stdcall SdbUnregisterDatabase(ptr)
 @ stdcall SdbWriteBinaryTag(ptr long ptr long)
 @ stdcall SdbWriteBinaryTagFromFile(ptr long wstr)
 @ stub SdbWriteBYTETag
@@ -160,7 +160,7 @@
 @ stdcall SdbWriteWORDTag(ptr long long)
 @ stdcall SE_DllLoaded(ptr)
 @ stdcall SE_DllUnloaded(ptr)
-@ stub SE_DynamicShim
+@ stdcall SE_DynamicShim(wstr ptr ptr str ptr)
 @ stub SE_DynamicUnshim
 @ stdcall SE_InstallAfterInit(ptr ptr)
 @ stdcall SE_InstallBeforeInit(ptr ptr)
@@ -172,7 +172,8 @@
 @ stub SE_GetShimCount
 @ stub SE_LdrEntryRemoved
 @ stub SetPermLayers
-@ cdecl ShimDbgPrint(long str str)
-@ stub ShimDumpCache
-@ stub ShimFlushCache
+@ varargs ShimDbgPrint(long str str)
+@ stdcall ShimDumpCache(ptr ptr wstr long)
+@ stdcall ShimFlushCache(ptr ptr wstr long)
 @ stdcall SetPermLayerState(wstr wstr long long long)
+@ stdcall SdbRegisterDatabaseEx(wstr long ptr)

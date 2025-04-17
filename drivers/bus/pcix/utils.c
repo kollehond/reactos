@@ -177,7 +177,7 @@ PciOpenKey(IN PWCHAR KeyName,
     RtlInitUnicodeString(&KeyString, KeyName);
     InitializeObjectAttributes(&ObjectAttributes,
                                &KeyString,
-                               OBJ_CASE_INSENSITIVE,
+                               OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
                                RootKey,
                                NULL);
 
@@ -611,7 +611,7 @@ PciGetHackFlags(IN USHORT VendorId,
     ULONGLONG HackFlags;
     ULONG LastWeight, MatchWeight;
     ULONG EntryFlags;
-    
+
     /* ReactOS SetupLDR Hack */
     if (!PciHackTable) return 0;
 
@@ -1762,27 +1762,6 @@ PciQueryCapabilities(IN PPCI_PDO_EXTENSION PdoExtension,
     /* Dump the capabilities if it all worked, and return the status */
     if (NT_SUCCESS(Status)) PciDebugDumpQueryCapabilities(DeviceCapability);
     return Status;
-}
-
-PCM_PARTIAL_RESOURCE_DESCRIPTOR
-NTAPI
-PciNextPartialDescriptor(PCM_PARTIAL_RESOURCE_DESCRIPTOR CmDescriptor)
-{
-    PCM_PARTIAL_RESOURCE_DESCRIPTOR NextDescriptor;
-
-    /* Assume the descriptors are the fixed size ones */
-    NextDescriptor = CmDescriptor + 1;
-
-    /* But check if this is actually a variable-sized descriptor */
-    if (CmDescriptor->Type == CmResourceTypeDeviceSpecific)
-    {
-        /* Add the size of the variable section as well */
-        NextDescriptor = (PVOID)((ULONG_PTR)NextDescriptor +
-                                 CmDescriptor->u.DeviceSpecificData.DataSize);
-    }
-
-    /* Now the correct pointer has been computed, return it */
-    return NextDescriptor;
 }
 
 /* EOF */

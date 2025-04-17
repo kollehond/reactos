@@ -44,10 +44,9 @@
 //
 // SAC Parameter Checking Macros
 //
-#define CHECK_PARAMETER_WITH_STATUS(Parameter, Status)  \
+#define CHECK_PARAMETER_WITH_STATUS(Condition, Status)  \
 {                                                       \
-    ASSERT(((PVOID)(Parameter)) != NULL);               \
-    if (((PVOID)(Parameter)) == NULL)                   \
+    if (!NT_VERIFY(Condition))                          \
     {                                                   \
         return Status;                                  \
     }                                                   \
@@ -75,6 +74,7 @@
     {                                                                   \
         if (!VerifyEventWaitable(Attributes->x, &Object, &WaitObject))  \
         {                                                               \
+            Status = STATUS_INVALID_HANDLE;                             \
             goto FailChannel;                                           \
         }                                                               \
         Channel->x = Attributes->x;                                     \
@@ -1479,7 +1479,7 @@ typedef enum _VT_ANSI_ATTRIBUTES
 
 //
 // The following site is a good reference on VT100/ANSI escape codes
-// http://www.termsys.demon.co.uk/vtansi.htm
+// https://web.archive.org/web/20190503084310/http://www.termsys.demon.co.uk/vtansi.htm
 //
 #define VT_ANSI_ESCAPE              L'\x1B'
 #define VT_ANSI_COMMAND             L'['

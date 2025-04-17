@@ -18,9 +18,9 @@
 /* GLOBALS ********************************************************************/
 
 ULONG MmProcessColorSeed = 0x12345678;
-PMMWSL MmWorkingSetList;
 ULONG MmMaximumDeadKernelStacks = 5;
 SLIST_HEADER MmDeadStackSListHead;
+ULONG MmRotatingUniprocessorNumber = 0;
 
 /* PRIVATE FUNCTIONS **********************************************************/
 
@@ -36,9 +36,17 @@ MiCreatePebOrTeb(IN PEPROCESS Process,
     ULONG AlignedSize;
     LARGE_INTEGER CurrentTime;
 
+    Status = PsChargeProcessNonPagedPoolQuota(Process, sizeof(MMVAD_LONG));
+    if (!NT_SUCCESS(Status))
+        return Status;
+
     /* Allocate a VAD */
     Vad = ExAllocatePoolWithTag(NonPagedPool, sizeof(MMVAD_LONG), 'ldaV');
-    if (!Vad) return STATUS_NO_MEMORY;
+    if (!Vad)
+    {
+        Status = STATUS_NO_MEMORY;
+        goto FailPath;
+    }
 
     /* Setup the primary flags with the size, and make it commited, private, RW */
     Vad->u.LongFlags = 0;
@@ -95,11 +103,18 @@ MiCreatePebOrTeb(IN PEPROCESS Process,
     if (!NT_SUCCESS(Status))
     {
         ExFreePoolWithTag(Vad, 'ldaV');
-        return STATUS_NO_MEMORY;
+        Status = STATUS_NO_MEMORY;
+        goto FailPath;
     }
+
 
     /* Success */
     return STATUS_SUCCESS;
+
+FailPath:
+    PsReturnProcessNonPagedPoolQuota(Process, sizeof(MMVAD_LONG));
+
+    return Status;
 }
 
 VOID
@@ -155,6 +170,9 @@ MmDeleteTeb(IN PEPROCESS Process,
 
         /* Remove the VAD */
         ExFreePool(Vad);
+
+        /* Return the quota the VAD used */
+        PsReturnProcessNonPagedPoolQuota(Process, sizeof(MMVAD_LONG));
     }
 
     /* Release the address space lock */
@@ -405,7 +423,6 @@ MmGrowKernelStackEx(IN PVOID StackPointer,
         //
         // Sorry!
         //
-        DPRINT1("Thread wants too much stack\n");
         return STATUS_STACK_OVERFLOW;
     }
 
@@ -510,7 +527,6 @@ MmCreatePeb(IN PEPROCESS Process,
     PIMAGE_LOAD_CONFIG_DIRECTORY ImageConfigData;
     NTSTATUS Status;
     USHORT Characteristics;
-    KAFFINITY ProcessAffinityMask = 0;
     SectionOffset.QuadPart = (ULONGLONG)0;
     *BasePeb = NULL;
 
@@ -590,6 +606,7 @@ MmCreatePeb(IN PEPROCESS Process,
         // Heap and Debug Data
         //
         Peb->NumberOfProcessors = KeNumberProcessors;
+        Peb->ImageProcessAffinityMask = KeActiveProcessors;
         Peb->BeingDebugged = (BOOLEAN)(Process->DebugPort != NULL);
         Peb->NtGlobalFlag = NtGlobalFlag;
         Peb->HeapSegmentReserve = MmHeapSegmentReserve;
@@ -696,7 +713,7 @@ MmCreatePeb(IN PEPROCESS Process,
             if ((ImageConfigData) && (ImageConfigData->ProcessAffinityMask))
             {
                 /* Take the value from the image configuration directory */
-                ProcessAffinityMask = ImageConfigData->ProcessAffinityMask;
+                Peb->ImageProcessAffinityMask = ImageConfigData->ProcessAffinityMask;
             }
 
             //
@@ -704,17 +721,12 @@ MmCreatePeb(IN PEPROCESS Process,
             if (Characteristics & IMAGE_FILE_UP_SYSTEM_ONLY)
             {
                 //
-                // Force it to use CPU 0
+                // Set single processor rotating affinity.
+                // See https://www.microsoftpressstore.com/articles/article.aspx?p=2233328&seqNum=3
                 //
-                /* FIXME: this should use the MmRotatingUniprocessorNumber */
-                Peb->ImageProcessAffinityMask = 0;
-            }
-            else
-            {
-                //
-                // Whatever was configured
-                //
-                Peb->ImageProcessAffinityMask = ProcessAffinityMask;
+                Peb->ImageProcessAffinityMask = AFFINITY_MASK(MmRotatingUniprocessorNumber);
+                ASSERT(Peb->ImageProcessAffinityMask & KeActiveProcessors);
+                MmRotatingUniprocessorNumber = (MmRotatingUniprocessorNumber + 1) % KeNumberProcessors;
             }
         }
         _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
@@ -841,39 +853,79 @@ MmCreateTeb(IN PEPROCESS Process,
     return Status;
 }
 
-VOID
-NTAPI
-MiInitializeWorkingSetList(IN PEPROCESS CurrentProcess)
+#ifdef _M_AMD64
+static
+NTSTATUS
+MiInsertSharedUserPageVad(
+    _In_ PEPROCESS Process)
 {
-    PMMPFN Pfn1;
-    PMMPTE sysPte;
-    MMPTE tempPte;
+    PMMVAD_LONG Vad;
+    ULONG_PTR BaseAddress;
+    NTSTATUS Status;
 
-    /* Setup some bogus list data */
-    MmWorkingSetList->LastEntry = CurrentProcess->Vm.MinimumWorkingSetSize;
-    MmWorkingSetList->HashTable = NULL;
-    MmWorkingSetList->HashTableSize = 0;
-    MmWorkingSetList->NumberOfImageWaiters = 0;
-    MmWorkingSetList->Wsle = (PVOID)(ULONG_PTR)0xDEADBABEDEADBABEULL;
-    MmWorkingSetList->VadBitMapHint = 1;
-    MmWorkingSetList->HashTableStart = (PVOID)(ULONG_PTR)0xBADAB00BBADAB00BULL;
-    MmWorkingSetList->HighestPermittedHashAddress = (PVOID)(ULONG_PTR)0xCAFEBABECAFEBABEULL;
-    MmWorkingSetList->FirstFree = 1;
-    MmWorkingSetList->FirstDynamic = 2;
-    MmWorkingSetList->NextSlot = 3;
-    MmWorkingSetList->LastInitializedWsle = 4;
+    if (Process->QuotaBlock != NULL)
+    {
+        Status = PsChargeProcessNonPagedPoolQuota(Process, sizeof(MMVAD_LONG));
+        if (!NT_SUCCESS(Status))
+        {
+            DPRINT1("Ran out of quota.\n");
+            return Status;
+        }
+    }
 
-    /* The rule is that the owner process is always in the FLINK of the PDE's PFN entry */
-    Pfn1 = MiGetPfnEntry(CurrentProcess->Pcb.DirectoryTableBase[0] >> PAGE_SHIFT);
-    ASSERT(Pfn1->u4.PteFrame == MiGetPfnEntryIndex(Pfn1));
-    Pfn1->u1.Event = (PKEVENT)CurrentProcess;
+    /* Allocate a VAD */
+    Vad = ExAllocatePoolWithTag(NonPagedPool, sizeof(MMVAD_LONG), 'ldaV');
+    if (Vad == NULL)
+    {
+        DPRINT1("Failed to allocate VAD for shared user page\n");
+        Status = STATUS_INSUFFICIENT_RESOURCES;
+        goto FailPath;
+    }
 
-    /* Map the process working set in kernel space */
-    sysPte = MiReserveSystemPtes(1, SystemPteSpace);
-    MI_MAKE_HARDWARE_PTE_KERNEL(&tempPte, sysPte, MM_READWRITE, CurrentProcess->WorkingSetPage);
-    MI_WRITE_VALID_PTE(sysPte, tempPte);
-    CurrentProcess->Vm.VmWorkingSetList = MiPteToAddress(sysPte);
+    /* Setup the primary flags with the size, and make it private, RO */
+    Vad->u.LongFlags = 0;
+    Vad->u.VadFlags.CommitCharge = 0;
+    Vad->u.VadFlags.NoChange = TRUE;
+    Vad->u.VadFlags.VadType = VadNone;
+    Vad->u.VadFlags.MemCommit = FALSE;
+    Vad->u.VadFlags.Protection = MM_READONLY;
+    Vad->u.VadFlags.PrivateMemory = TRUE;
+    Vad->u1.Parent = NULL;
+
+    /* Setup the secondary flags to make it a secured, readonly, long VAD */
+    Vad->u2.LongFlags2 = 0;
+    Vad->u2.VadFlags2.OneSecured = TRUE;
+    Vad->u2.VadFlags2.LongVad = TRUE;
+    Vad->u2.VadFlags2.ReadOnly = FALSE;
+
+    Vad->ControlArea = NULL; // For Memory-Area hack
+    Vad->FirstPrototypePte = NULL;
+
+    /* Insert it into the process VAD table */
+    BaseAddress = MM_SHARED_USER_DATA_VA;
+    Status = MiInsertVadEx((PMMVAD)Vad,
+                            &BaseAddress,
+                            PAGE_SIZE,
+                            (ULONG_PTR)MM_HIGHEST_VAD_ADDRESS,
+                            PAGE_SIZE,
+                            MEM_TOP_DOWN);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("Failed to insert shared user VAD\n");
+        ExFreePoolWithTag(Vad, 'ldaV');
+        goto FailPath;
+    }
+
+    /* Success */
+    return STATUS_SUCCESS;
+
+FailPath:
+    if (Process->QuotaBlock != NULL)
+        PsReturnProcessNonPagedPoolQuota(Process, sizeof(MMVAD_LONG));
+
+    return Status;
 }
+#endif
 
 NTSTATUS
 NTAPI
@@ -886,16 +938,22 @@ MmInitializeProcessAddressSpace(IN PEPROCESS Process,
     NTSTATUS Status = STATUS_SUCCESS;
     SIZE_T ViewSize = 0;
     PVOID ImageBase = 0;
-    PROS_SECTION_OBJECT SectionObject = Section;
     PMMPTE PointerPte;
     KIRQL OldIrql;
     PMMPDE PointerPde;
+    PMMPFN Pfn;
     PFN_NUMBER PageFrameNumber;
     UNICODE_STRING FileName;
     PWCHAR Source;
     PCHAR Destination;
     USHORT Length = 0;
-    MMPTE TempPte;
+
+#if (_MI_PAGING_LEVELS >= 3)
+    PMMPPE PointerPpe;
+#endif
+#if (_MI_PAGING_LEVELS == 4)
+    PMMPXE PointerPxe;
+#endif
 
     /* We should have a PDE */
     ASSERT(Process->Pcb.DirectoryTableBase[0] != 0);
@@ -916,12 +974,17 @@ MmInitializeProcessAddressSpace(IN PEPROCESS Process,
     ASSERT(Process->VadRoot.NumberGenericTableElements == 0);
     Process->VadRoot.BalancedRoot.u1.Parent = &Process->VadRoot.BalancedRoot;
 
+    /* Lock our working set */
+    MiLockProcessWorkingSet(Process, PsGetCurrentThread());
+
     /* Lock PFN database */
     OldIrql = MiAcquirePfnLock();
 
     /* Setup the PFN for the PDE base of this process */
-#ifdef _M_AMD64
+#if (_MI_PAGING_LEVELS == 4)
     PointerPte = MiAddressToPte(PXE_BASE);
+#elif (_MI_PAGING_LEVELS == 3)
+    PointerPte = MiAddressToPte(PPE_BASE);
 #else
     PointerPte = MiAddressToPte(PDE_BASE);
 #endif
@@ -930,39 +993,71 @@ MmInitializeProcessAddressSpace(IN PEPROCESS Process,
     MiInitializePfn(PageFrameNumber, PointerPte, TRUE);
 
     /* Do the same for hyperspace */
-#ifdef _M_AMD64
-    PointerPde = MiAddressToPxe((PVOID)HYPER_SPACE);
-#else
     PointerPde = MiAddressToPde(HYPER_SPACE);
-#endif
     PageFrameNumber = PFN_FROM_PTE(PointerPde);
-    //ASSERT(Process->Pcb.DirectoryTableBase[0] == PageFrameNumber * PAGE_SIZE); // we're not lucky
     MiInitializePfn(PageFrameNumber, (PMMPTE)PointerPde, TRUE);
+#if (_MI_PAGING_LEVELS == 2)
+    ASSERT(Process->Pcb.DirectoryTableBase[1] == PageFrameNumber * PAGE_SIZE);
+#endif
 
-    /* Setup the PFN for the PTE for the working set */
-    PointerPte = MiAddressToPte(MI_WORKING_SET_LIST);
-    MI_MAKE_HARDWARE_PTE(&TempPte, PointerPte, MM_READWRITE, 0);
-    ASSERT(PointerPte->u.Long != 0);
+#if (_MI_PAGING_LEVELS >= 3)
+    PointerPpe = MiAddressToPpe((PVOID)HYPER_SPACE);
+    PageFrameNumber = PFN_FROM_PTE(PointerPpe);
+    MiInitializePfn(PageFrameNumber, PointerPpe, TRUE);
+#if (_MI_PAGING_LEVELS == 3)
+    ASSERT(Process->Pcb.DirectoryTableBase[1] == PageFrameNumber * PAGE_SIZE);
+#endif
+#endif
+#if (_MI_PAGING_LEVELS == 4)
+    PointerPxe = MiAddressToPxe((PVOID)HYPER_SPACE);
+    PageFrameNumber = PFN_FROM_PTE(PointerPxe);
+    MiInitializePfn(PageFrameNumber, PointerPxe, TRUE);
+    ASSERT(Process->Pcb.DirectoryTableBase[1] == PageFrameNumber * PAGE_SIZE);
+#endif
+
+    /* Do the same for the Working set list */
+    PointerPte = MiAddressToPte(MmWorkingSetList);
     PageFrameNumber = PFN_FROM_PTE(PointerPte);
-    MI_WRITE_INVALID_PTE(PointerPte, DemandZeroPte);
     MiInitializePfn(PageFrameNumber, PointerPte, TRUE);
-    TempPte.u.Hard.PageFrameNumber = PageFrameNumber;
-    MI_WRITE_VALID_PTE(PointerPte, TempPte);
+
+    /* All our pages are now active & valid. Release the lock. */
+    MiReleasePfnLock(OldIrql);
+
+    /* This should be in hyper space, but not in the mapping range */
+    Process->Vm.VmWorkingSetList = MmWorkingSetList;
+    ASSERT(((ULONG_PTR)MmWorkingSetList >= MI_MAPPING_RANGE_END) && ((ULONG_PTR)MmWorkingSetList <= HYPER_SPACE_END));
 
     /* Now initialize the working set list */
-    MiInitializeWorkingSetList(Process);
+    MiInitializeWorkingSetList(&Process->Vm);
+
+    /* The rule is that the owner process is always in the FLINK of the PDE's PFN entry */
+    Pfn = MiGetPfnEntry(Process->Pcb.DirectoryTableBase[0] >> PAGE_SHIFT);
+    ASSERT(Pfn->u4.PteFrame == MiGetPfnEntryIndex(Pfn));
+    ASSERT(Pfn->u1.WsIndex == 0);
+    Pfn->u1.Event = (PKEVENT)Process;
 
     /* Sanity check */
     ASSERT(Process->PhysicalVadRoot == NULL);
 
-    /* Release PFN lock */
-    MiReleasePfnLock(OldIrql);
+    /* Release the process working set */
+    MiUnlockProcessWorkingSet(Process, PsGetCurrentThread());
+
+#ifdef _M_AMD64
+    /* On x64 we need a VAD for the shared user page */
+    Status = MiInsertSharedUserPageVad(Process);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("MiCreateSharedUserPageVad() failed: 0x%lx\n", Status);
+        return Status;
+    }
+#endif
 
     /* Check if there's a Section Object */
-    if (SectionObject)
+    if (Section)
     {
         /* Determine the image file name and save it to EPROCESS */
-        FileName = SectionObject->FileObject->FileName;
+        PFILE_OBJECT FileObject = MmGetFileObjectForSection(Section);
+        FileName = FileObject->FileName;
         Source = (PWCHAR)((PCHAR)FileName.Buffer + FileName.Length);
         if (FileName.Buffer)
         {
@@ -994,9 +1089,7 @@ MmInitializeProcessAddressSpace(IN PEPROCESS Process,
         if (AuditName)
         {
             /* Setup the audit name */
-            Status = SeInitializeProcessAuditName(SectionObject->FileObject,
-                                                  FALSE,
-                                                  AuditName);
+            Status = SeInitializeProcessAuditName(FileObject, FALSE, AuditName);
             if (!NT_SUCCESS(Status))
             {
                 /* Fail */
@@ -1013,7 +1106,7 @@ MmInitializeProcessAddressSpace(IN PEPROCESS Process,
                                     0,
                                     NULL,
                                     &ViewSize,
-                                    0,
+                                    ViewUnmap,
                                     MEM_COMMIT,
                                     PAGE_READWRITE);
 
@@ -1028,9 +1121,9 @@ MmInitializeProcessAddressSpace(IN PEPROCESS Process,
     return Status;
 }
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 MmInitializeHandBuiltProcess(IN PEPROCESS Process,
                              IN PULONG_PTR DirectoryTableBase)
 {
@@ -1047,23 +1140,22 @@ MmInitializeHandBuiltProcess(IN PEPROCESS Process,
 
     /* Use idle process Working set */
     Process->Vm.VmWorkingSetList = PsGetCurrentProcess()->Vm.VmWorkingSetList;
+    Process->WorkingSetPage = PsGetCurrentProcess()->WorkingSetPage;
 
     /* Done */
     Process->HasAddressSpace = TRUE;//??
     return STATUS_SUCCESS;
 }
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 MmInitializeHandBuiltProcess2(IN PEPROCESS Process)
 {
     /* Lock the VAD, ARM3-owned ranges away */
     return STATUS_SUCCESS;
 }
 
-#ifdef _M_IX86
-/* FIXME: Evaluate ways to make this portable yet arch-specific */
 BOOLEAN
 NTAPI
 MmCreateProcessAddressSpace(IN ULONG MinWs,
@@ -1071,13 +1163,13 @@ MmCreateProcessAddressSpace(IN ULONG MinWs,
                             OUT PULONG_PTR DirectoryTableBase)
 {
     KIRQL OldIrql;
-    PFN_NUMBER PdeIndex, HyperIndex, WsListIndex;
-    PMMPTE PointerPte;
-    MMPTE TempPte, PdePte;
-    ULONG PdeOffset;
-    PMMPTE SystemTable, HyperTable;
+    PFN_NUMBER TableBaseIndex, HyperIndex, WsListIndex;
     ULONG Color;
-    PMMPFN Pfn1;
+
+    /* Make sure we don't already have a page directory setup */
+    ASSERT(Process->Pcb.DirectoryTableBase[0] == 0);
+    ASSERT(Process->Pcb.DirectoryTableBase[1] == 0);
+    ASSERT(Process->WorkingSetPage == 0);
 
     /* Choose a process color */
     Process->NextPageColor = (USHORT)RtlRandom(&MmProcessColorSeed);
@@ -1088,22 +1180,25 @@ MmCreateProcessAddressSpace(IN ULONG MinWs,
     /* Lock PFN database */
     OldIrql = MiAcquirePfnLock();
 
-    /* Get a zero page for the PDE, if possible */
+    /*
+     * Get a page for the table base, one for hyper space & one for the working set list.
+     * The PFNs for these pages will be initialized in MmInitializeProcessAddressSpace,
+     * when we are already attached to the process.
+     * The other pages (if any) are allocated in the arch-specific part.
+     */
     Color = MI_GET_NEXT_PROCESS_COLOR(Process);
     MI_SET_USAGE(MI_USAGE_PAGE_DIRECTORY);
-    PdeIndex = MiRemoveZeroPageSafe(Color);
-    if (!PdeIndex)
+    TableBaseIndex = MiRemoveZeroPageSafe(Color);
+    if (!TableBaseIndex)
     {
         /* No zero pages, grab a free one */
-        PdeIndex = MiRemoveAnyPage(Color);
+        TableBaseIndex = MiRemoveAnyPage(Color);
 
         /* Zero it outside the PFN lock */
         MiReleasePfnLock(OldIrql);
-        MiZeroPhysicalPage(PdeIndex);
+        MiZeroPhysicalPage(TableBaseIndex);
         OldIrql = MiAcquirePfnLock();
     }
-
-    /* Get a zero page for hyperspace, if possible */
     MI_SET_USAGE(MI_USAGE_PAGE_DIRECTORY);
     Color = MI_GET_NEXT_PROCESS_COLOR(Process);
     HyperIndex = MiRemoveZeroPageSafe(Color);
@@ -1117,8 +1212,6 @@ MmCreateProcessAddressSpace(IN ULONG MinWs,
         MiZeroPhysicalPage(HyperIndex);
         OldIrql = MiAcquirePfnLock();
     }
-
-    /* Get a zero page for the woring set list, if possible */
     MI_SET_USAGE(MI_USAGE_PAGE_TABLE);
     Color = MI_GET_NEXT_PROCESS_COLOR(Process);
     WsListIndex = MiRemoveZeroPageSafe(Color);
@@ -1137,99 +1230,33 @@ MmCreateProcessAddressSpace(IN ULONG MinWs,
         MiReleasePfnLock(OldIrql);
     }
 
+    /* Set the base directory pointers */
+    Process->WorkingSetPage = WsListIndex;
+    DirectoryTableBase[0] = TableBaseIndex << PAGE_SHIFT;
+    DirectoryTableBase[1] = HyperIndex << PAGE_SHIFT;
+
+    /* Perform the arch-specific parts */
+    if (!MiArchCreateProcessAddressSpace(Process, DirectoryTableBase))
+    {
+        OldIrql = MiAcquirePfnLock();
+        MiInsertPageInFreeList(WsListIndex);
+        MiInsertPageInFreeList(HyperIndex);
+        MiInsertPageInFreeList(TableBaseIndex);
+        MiReleasePfnLock(OldIrql);
+        Process->WorkingSetPage = 0;
+        DirectoryTableBase[0] = 0;
+        DirectoryTableBase[1] = 0;
+        return FALSE;
+    }
+
     /* Switch to phase 1 initialization */
     ASSERT(Process->AddressSpaceInitialized == 0);
     Process->AddressSpaceInitialized = 1;
-
-    /* Set the base directory pointers */
-    Process->WorkingSetPage = WsListIndex;
-    DirectoryTableBase[0] = PdeIndex << PAGE_SHIFT;
-    DirectoryTableBase[1] = HyperIndex << PAGE_SHIFT;
-
-    /* Make sure we don't already have a page directory setup */
-    ASSERT(Process->Pcb.DirectoryTableBase[0] == 0);
-
-    /* Get a PTE to map hyperspace */
-    PointerPte = MiReserveSystemPtes(1, SystemPteSpace);
-    ASSERT(PointerPte != NULL);
-
-    /* Build it */
-    MI_MAKE_HARDWARE_PTE_KERNEL(&PdePte,
-                                PointerPte,
-                                MM_READWRITE,
-                                HyperIndex);
-
-    /* Set it dirty and map it */
-    MI_MAKE_DIRTY_PAGE(&PdePte);
-    MI_WRITE_VALID_PTE(PointerPte, PdePte);
-
-    /* Now get hyperspace's page table */
-    HyperTable = MiPteToAddress(PointerPte);
-
-    /* Now write the PTE/PDE entry for the working set list index itself */
-    TempPte = ValidKernelPteLocal;
-    TempPte.u.Hard.PageFrameNumber = WsListIndex;
-    PdeOffset = MiAddressToPteOffset(MmWorkingSetList);
-    HyperTable[PdeOffset] = TempPte;
-
-    /* Let go of the system PTE */
-    MiReleaseSystemPtes(PointerPte, 1, SystemPteSpace);
-
-    /* Save the PTE address of the page directory itself */
-    Pfn1 = MiGetPfnEntry(PdeIndex);
-    Pfn1->PteAddress = (PMMPTE)PDE_BASE;
-
-    /* Insert us into the Mm process list */
-    OldIrql = MiAcquireExpansionLock();
-    InsertTailList(&MmProcessList, &Process->MmProcessLinks);
-    MiReleaseExpansionLock(OldIrql);
-
-    /* Get a PTE to map the page directory */
-    PointerPte = MiReserveSystemPtes(1, SystemPteSpace);
-    ASSERT(PointerPte != NULL);
-
-    /* Build it */
-    MI_MAKE_HARDWARE_PTE_KERNEL(&PdePte,
-                                PointerPte,
-                                MM_READWRITE,
-                                PdeIndex);
-
-    /* Set it dirty and map it */
-    MI_MAKE_DIRTY_PAGE(&PdePte);
-    MI_WRITE_VALID_PTE(PointerPte, PdePte);
-
-    /* Now get the page directory (which we'll double map, so call it a page table */
-    SystemTable = MiPteToAddress(PointerPte);
-
-    /* Copy all the kernel mappings */
-    PdeOffset = MiGetPdeOffset(MmSystemRangeStart);
-    RtlCopyMemory(&SystemTable[PdeOffset],
-                  MiAddressToPde(MmSystemRangeStart),
-                  PAGE_SIZE - PdeOffset * sizeof(MMPTE));
-
-    /* Now write the PTE/PDE entry for hyperspace itself */
-    TempPte = ValidKernelPteLocal;
-    TempPte.u.Hard.PageFrameNumber = HyperIndex;
-    PdeOffset = MiGetPdeOffset(HYPER_SPACE);
-    SystemTable[PdeOffset] = TempPte;
-
-    /* Sanity check */
-    PdeOffset++;
-    ASSERT(MiGetPdeOffset(MmHyperSpaceEnd) >= PdeOffset);
-
-    /* Now do the x86 trick of making the PDE a page table itself */
-    PdeOffset = MiGetPdeOffset(PTE_BASE);
-    TempPte.u.Hard.PageFrameNumber = PdeIndex;
-    SystemTable[PdeOffset] = TempPte;
-
-    /* Let go of the system PTE */
-    MiReleaseSystemPtes(PointerPte, 1, SystemPteSpace);
 
     /* Add the process to the session */
     MiSessionAddProcess(Process);
     return TRUE;
 }
-#endif
 
 VOID
 NTAPI
@@ -1239,11 +1266,16 @@ MmCleanProcessAddressSpace(IN PEPROCESS Process)
     PMM_AVL_TABLE VadTree;
     PETHREAD Thread = PsGetCurrentThread();
 
-    /* Only support this */
-    ASSERT(Process->AddressSpaceInitialized == 2);
-
     /* Remove from the session */
     MiSessionRemoveProcess();
+
+    /* Abort early, when the address space wasn't fully initialized */
+    if (Process->AddressSpaceInitialized < 2)
+    {
+        DPRINT1("Incomplete address space for Process %p. Might leak resources.\n",
+                Process);
+        return;
+    }
 
     /* Lock the process address space from changes */
     MmLockAddressSpace(&Process->Vm);
@@ -1305,6 +1337,9 @@ MmCleanProcessAddressSpace(IN PEPROCESS Process)
 
         /* Free the VAD memory */
         ExFreePool(Vad);
+
+        /* Return the quota the VAD used */
+        PsReturnProcessNonPagedPoolQuota(Process, sizeof(MMVAD_LONG));
     }
 
     /* Lock the working set */
@@ -1324,13 +1359,25 @@ MmCleanProcessAddressSpace(IN PEPROCESS Process)
 
 VOID
 NTAPI
-MmDeleteProcessAddressSpace2(IN PEPROCESS Process)
+MmDeleteProcessAddressSpace(IN PEPROCESS Process)
 {
     PMMPFN Pfn1, Pfn2;
     KIRQL OldIrql;
     PFN_NUMBER PageFrameIndex;
 
+#ifndef _M_AMD64
+    OldIrql = MiAcquireExpansionLock();
+    RemoveEntryList(&Process->MmProcessLinks);
+    MiReleaseExpansionLock(OldIrql);
+#endif
+
     //ASSERT(Process->CommitCharge == 0);
+
+    /* Remove us from the list */
+    OldIrql = MiAcquireExpansionLock();
+    if (Process->Vm.WorkingSetExpansionLinks.Flink != NULL)
+        RemoveEntryList(&Process->Vm.WorkingSetExpansionLinks);
+    MiReleaseExpansionLock(OldIrql);
 
     /* Acquire the PFN lock */
     OldIrql = MiAcquirePfnLock();
@@ -1347,7 +1394,6 @@ MmDeleteProcessAddressSpace2(IN PEPROCESS Process)
         MiDecrementShareCount(Pfn2, Pfn1->u4.PteFrame);
         MiDecrementShareCount(Pfn1, Process->WorkingSetPage);
         ASSERT((Pfn1->u3.e2.ReferenceCount == 0) || (Pfn1->u3.e1.WriteInProgress));
-        MiReleaseSystemPtes(MiAddressToPte(Process->Vm.VmWorkingSetList), 1, SystemPteSpace);
 
         /* Now map hyperspace and its page table */
         PageFrameIndex = Process->Pcb.DirectoryTableBase[1] >> PAGE_SHIFT;
@@ -1372,8 +1418,8 @@ MmDeleteProcessAddressSpace2(IN PEPROCESS Process)
     }
     else
     {
-        /* A partly-initialized process should never exit through here */
-        ASSERT(FALSE);
+        DPRINT1("Deleting partially initialized address space of Process %p. Might leak resources.\n",
+                Process);
     }
 
     /* Release the PFN lock */

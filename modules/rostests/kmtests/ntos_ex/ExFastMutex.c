@@ -253,7 +253,7 @@ TestFastMutexConcurrent(
     THREAD_DATA ThreadDataUnsafe;
     THREAD_DATA ThreadDataTry;
     LARGE_INTEGER Timeout;
-    Timeout.QuadPart = -10 * 1000 * 10; /* 10 ms */
+    Timeout.QuadPart = -50 * MILLISECOND;
 
     InitThreadData(&ThreadData, Mutex, ExAcquireFastMutex, NULL, ExReleaseFastMutex);
     InitThreadData(&ThreadData2, Mutex, ExAcquireFastMutex, NULL, ExReleaseFastMutex);
@@ -310,6 +310,14 @@ TestFastMutexConcurrent(
 
 START_TEST(ExFastMutex)
 {
+#if defined(_M_AMD64)
+    if (TRUE)
+    {
+        skip(FALSE, "ROSTESTS-367: Skipping kmtest:ExFastMutex because it hangs on Windows Server 2003 x64-Testbot.\n");
+        return;
+    }
+#endif
+
     FAST_MUTEX Mutex;
     KIRQL Irql;
 

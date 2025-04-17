@@ -115,7 +115,7 @@ typedef enum _CONSRV_API_NUMBER
 } CONSRV_API_NUMBER, *PCONSRV_API_NUMBER;
 
 //
-// See http://msdn.microsoft.com/en-us/library/windows/desktop/bb773359(v=vs.85).aspx
+// See https://learn.microsoft.com/en-us/windows/win32/api/shlobj_core/ns-shlobj_core-nt_console_props
 //
 typedef struct _CONSOLE_PROPERTIES
 {
@@ -220,8 +220,8 @@ typedef struct _CONSOLE_GETPROCESSLIST
 typedef struct _CONSOLE_GENERATECTRLEVENT
 {
     HANDLE ConsoleHandle;
-    DWORD  CtrlEvent;
-    DWORD  ProcessGroupId;
+    ULONG  CtrlEvent;
+    ULONG  ProcessGroupId;
 } CONSOLE_GENERATECTRLEVENT, *PCONSOLE_GENERATECTRLEVENT;
 
 typedef struct _CONSOLE_NOTIFYLASTCLOSE
@@ -292,7 +292,7 @@ typedef struct _CONSOLE_ATTACHCONSOLE
      * If ProcessId == ATTACH_PARENT_PROCESS == -1, then attach
      * the current process to its parent process console.
      */
-    DWORD ProcessId;
+    ULONG ProcessId;
 
     PCONSOLE_START_INFO ConsoleStartInfo;
 
@@ -345,7 +345,7 @@ typedef struct _CONSOLE_GETSETCURSORINFO
     HANDLE OutputHandle;
     CONSOLE_CURSOR_INFO Info;
 /*
-    DWORD   Size;
+    ULONG   Size;
     BOOLEAN Visible;
 */
 } CONSOLE_GETSETCURSORINFO, *PCONSOLE_GETSETCURSORINFO;
@@ -367,20 +367,20 @@ typedef struct _CONSOLE_GETSETCONSOLEMODE
 {
     HANDLE ConsoleHandle;
     HANDLE Handle;
-    DWORD  Mode;
+    ULONG  Mode;
 } CONSOLE_GETSETCONSOLEMODE, *PCONSOLE_GETSETCONSOLEMODE;
 
 typedef struct _CONSOLE_GETDISPLAYMODE
 {
     HANDLE ConsoleHandle;
-    DWORD  DisplayMode; // ModeFlags
+    ULONG  DisplayMode; // ModeFlags
 } CONSOLE_GETDISPLAYMODE, *PCONSOLE_GETDISPLAYMODE;
 
 typedef struct _CONSOLE_SETDISPLAYMODE
 {
     HANDLE ConsoleHandle;
     HANDLE OutputHandle;
-    DWORD  DisplayMode; // ModeFlags
+    ULONG  DisplayMode; // ModeFlags
     COORD  NewSBDim;
     HANDLE EventHandle;
 } CONSOLE_SETDISPLAYMODE, *PCONSOLE_SETDISPLAYMODE;
@@ -395,15 +395,15 @@ typedef struct _CONSOLE_GETSETHWSTATE
 {
     HANDLE ConsoleHandle;
     HANDLE OutputHandle;
-    DWORD  Flags;
-    DWORD  State;
+    ULONG  Flags;
+    ULONG  State;
 } CONSOLE_GETSETHWSTATE, *PCONSOLE_GETSETHWSTATE;
 
 
 typedef struct _CONSOLE_GETNUMFONTS
 {
     HANDLE ConsoleHandle;
-    DWORD  NumFonts;
+    ULONG  NumFonts;
 } CONSOLE_GETNUMFONTS, *PCONSOLE_GETNUMFONTS;
 
 typedef struct _CONSOLE_GETFONTINFO
@@ -412,14 +412,14 @@ typedef struct _CONSOLE_GETFONTINFO
     HANDLE  OutputHandle;
     BOOLEAN MaximumWindow;
     PCONSOLE_FONT_INFO FontInfo;
-    DWORD   NumFonts;
+    ULONG   NumFonts;
 } CONSOLE_GETFONTINFO, *PCONSOLE_GETFONTINFO;
 
 typedef struct _CONSOLE_GETFONTSIZE
 {
     HANDLE ConsoleHandle;
     HANDLE OutputHandle;
-    DWORD  FontIndex;
+    ULONG  FontIndex;
     COORD  FontSize;
 } CONSOLE_GETFONTSIZE, *PCONSOLE_GETFONTSIZE;
 
@@ -428,7 +428,7 @@ typedef struct _CONSOLE_GETCURRENTFONT
     HANDLE  ConsoleHandle;
     HANDLE  OutputHandle;
     BOOLEAN MaximumWindow;
-    DWORD   FontIndex;
+    ULONG   FontIndex;
     COORD   FontSize;
 } CONSOLE_GETCURRENTFONT, *PCONSOLE_GETCURRENTFONT;
 
@@ -436,7 +436,7 @@ typedef struct _CONSOLE_SETFONT
 {
     HANDLE ConsoleHandle;
     HANDLE OutputHandle;
-    DWORD  FontIndex;
+    ULONG  FontIndex;
 } CONSOLE_SETFONT, *PCONSOLE_SETFONT;
 
 
@@ -444,11 +444,11 @@ typedef struct _CONSOLE_SETFONT
 typedef struct _CONSOLE_CREATESCREENBUFFER
 {
     HANDLE ConsoleHandle;
-    DWORD  DesiredAccess;
+    ULONG  DesiredAccess; // ACCESS_MASK
     BOOL   InheritHandle;
-    DWORD  ShareMode;
+    ULONG  ShareMode;
     /* Type of the screen buffer: CONSOLE_TEXTMODE_BUFFER or CONSOLE_GRAPHICS_BUFFER */
-    DWORD  ScreenBufferType;
+    ULONG  ScreenBufferType;
     /*
      * This structure holds the initialization information
      * for graphics screen buffers.
@@ -638,9 +638,9 @@ typedef struct _CONSOLE_DUPLICATEHANDLE
 {
     HANDLE  ConsoleHandle;
     HANDLE  SourceHandle;
-    DWORD   DesiredAccess;
+    ULONG   DesiredAccess; // ACCESS_MASK
     BOOLEAN InheritHandle;
-    DWORD   Options;
+    ULONG   Options;
     HANDLE  TargetHandle;
 } CONSOLE_DUPLICATEHANDLE, *PCONSOLE_DUPLICATEHANDLE;
 
@@ -648,15 +648,15 @@ typedef struct _CONSOLE_GETHANDLEINFO
 {
     HANDLE ConsoleHandle;
     HANDLE Handle;
-    DWORD  Flags;
+    ULONG  Flags;
 } CONSOLE_GETHANDLEINFO, *PCONSOLE_GETHANDLEINFO;
 
 typedef struct _CONSOLE_SETHANDLEINFO
 {
     HANDLE ConsoleHandle;
     HANDLE Handle;
-    DWORD  Mask;
-    DWORD  Flags;
+    ULONG  Mask;
+    ULONG  Flags;
 } CONSOLE_SETHANDLEINFO, *PCONSOLE_SETHANDLEINFO;
 
 /*
@@ -672,9 +672,9 @@ typedef struct _CONSOLE_OPENCONSOLE
 {
     HANDLE ConsoleHandle;
     CONSOLE_HANDLE_TYPE HandleType;
-    DWORD  DesiredAccess;
+    ULONG  DesiredAccess; // ACCESS_MASK
     BOOL   InheritHandle;
-    DWORD  ShareMode;
+    ULONG  ShareMode;
     HANDLE Handle;
 } CONSOLE_OPENCONSOLE, *PCONSOLE_OPENCONSOLE;
 
@@ -691,8 +691,8 @@ typedef struct _CONSOLE_MENUCONTROL
 {
     HANDLE ConsoleHandle;
     HANDLE OutputHandle;
-    DWORD  CmdIdLow;
-    DWORD  CmdIdHigh;
+    ULONG  CmdIdLow;
+    ULONG  CmdIdHigh;
     HMENU  MenuHandle;
 } CONSOLE_MENUCONTROL, *PCONSOLE_MENUCONTROL;
 
@@ -810,7 +810,7 @@ typedef struct _CONSOLE_GETSETHISTORYINFO
 {
     UINT HistoryBufferSize;
     UINT NumberOfHistoryBuffers;
-    DWORD dwFlags;
+    ULONG dwFlags;
 } CONSOLE_GETSETHISTORYINFO, *PCONSOLE_GETSETHISTORYINFO;
 
 typedef struct _CONSOLE_SETHISTORYNUMBERCOMMANDS
@@ -859,6 +859,12 @@ typedef struct _CONSOLE_SETINPUTOUTPUTCP
     HANDLE EventHandle;
 } CONSOLE_SETINPUTOUTPUTCP, *PCONSOLE_SETINPUTOUTPUTCP;
 
+typedef struct _CONSOLE_GETLANGID
+{
+    HANDLE ConsoleHandle;
+    LANGID LangId;
+} CONSOLE_GETLANGID, *PCONSOLE_GETLANGID;
+
 typedef struct _CONSOLE_GETKBDLAYOUTNAME
 {
     HANDLE ConsoleHandle;
@@ -887,6 +893,22 @@ typedef struct _CONSOLE_REGISTERVDM
     COORD  VDMBufferSize;
     PVOID  VDMBuffer;
 } CONSOLE_REGISTERVDM, *PCONSOLE_REGISTERVDM;
+
+typedef struct _CONSOLE_REGISTERCONSOLEIME
+{
+    HANDLE ConsoleHandle;
+    HWND hWnd;
+    DWORD dwThreadId;
+    DWORD cbDesktop;
+    LPWSTR pDesktop;
+    DWORD dwAttachToThreadId;
+} CONSOLE_REGISTERCONSOLEIME, *PCONSOLE_REGISTERCONSOLEIME;
+
+typedef struct _CONSOLE_UNREGISTERCONSOLEIME
+{
+    HANDLE ConsoleHandle;
+    DWORD dwThreadId;
+} CONSOLE_UNREGISTERCONSOLEIME, *PCONSOLE_UNREGISTERCONSOLEIME;
 
 typedef struct _CONSOLE_API_MESSAGE
 {
@@ -991,10 +1013,15 @@ typedef struct _CONSOLE_API_MESSAGE
         /* Input and Output Code Pages; keyboard */
         CONSOLE_GETINPUTOUTPUTCP GetConsoleCPRequest;
         CONSOLE_SETINPUTOUTPUTCP SetConsoleCPRequest;
+        CONSOLE_GETLANGID LangIdRequest;
         CONSOLE_GETKBDLAYOUTNAME GetKbdLayoutNameRequest;
 
         /* Virtual DOS Machine */
         CONSOLE_REGISTERVDM RegisterVDMRequest;
+
+        /* Console IME */
+        CONSOLE_REGISTERCONSOLEIME RegisterConsoleIME;
+        CONSOLE_UNREGISTERCONSOLEIME UnregisterConsoleIME;
     } Data;
 } CONSOLE_API_MESSAGE, *PCONSOLE_API_MESSAGE;
 

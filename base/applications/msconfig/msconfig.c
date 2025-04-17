@@ -21,7 +21,8 @@ HINSTANCE hInst = 0;
 HWND hMainWnd;                   /* Main Window */
 HWND hTabWnd;                    /* Tab Control Window */
 UINT uXIcon = 0, uYIcon = 0;     /* Icon sizes */
-HICON hDialogIcon = NULL;
+HICON hDialogIconBig = NULL;
+HICON hDialogIconSmall = NULL;
 
 void MsConfig_OnTabWndSelChange(void);
 
@@ -30,7 +31,7 @@ void MsConfig_OnTabWndSelChange(void);
 // http://www.catch22.net/software/winspy
 // Copyright (c) 2002 by J Brown
 //
- 
+
 //
 //	Copied from uxtheme.h
 //  If you have this new header, then delete these and
@@ -41,7 +42,7 @@ void MsConfig_OnTabWndSelChange(void);
 #define ETDT_USETABTEXTURE  0x00000004
 #define ETDT_ENABLETAB      (ETDT_ENABLE  | ETDT_USETABTEXTURE)
 
-// 
+//
 typedef HRESULT (WINAPI * ETDTProc) (HWND, DWORD);
 
 //
@@ -56,7 +57,7 @@ BOOL EnableDialogTheme(HWND hwnd)
 
     if(hUXTheme)
     {
-        fnEnableThemeDialogTexture = 
+        fnEnableThemeDialogTexture =
             (ETDTProc)GetProcAddress(hUXTheme, "EnableThemeDialogTexture");
 
         if(fnEnableThemeDialogTexture)
@@ -203,18 +204,25 @@ static
 VOID
 SetDialogIcon(HWND hDlg)
 {
-    if (hDialogIcon) DestroyIcon(hDialogIcon);
+    if (hDialogIconBig) DestroyIcon(hDialogIconBig);
+    if (hDialogIconSmall) DestroyIcon(hDialogIconSmall);
 
-    hDialogIcon = LoadImage(GetModuleHandle(NULL),
-                            MAKEINTRESOURCE(IDI_APPICON),
-                            IMAGE_ICON,
-                            uXIcon,
-                            uYIcon,
-                            0);
+    hDialogIconBig = LoadIconW(GetModuleHandle(NULL),
+                               MAKEINTRESOURCE(IDI_APPICON));
+    hDialogIconSmall = LoadImage(GetModuleHandle(NULL),
+                                 MAKEINTRESOURCE(IDI_APPICON),
+                                 IMAGE_ICON,
+                                 uXIcon,
+                                 uYIcon,
+                                 0);
+    SendMessage(hDlg,
+                WM_SETICON,
+                ICON_BIG,
+                (LPARAM)hDialogIconBig);
     SendMessage(hDlg,
                 WM_SETICON,
                 ICON_SMALL,
-                (LPARAM)hDialogIcon);
+                (LPARAM)hDialogIconSmall);
 }
 
 
@@ -251,7 +259,7 @@ MsConfigWndProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 
         case WM_COMMAND:
 
-            if (LOWORD(wParam) == IDOK) 
+            if (LOWORD(wParam) == IDOK)
             {
                 //MsConfig_OnSaveChanges();
             }
@@ -292,8 +300,10 @@ MsConfigWndProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
                 DestroyWindow(hFreeLdrPage);
             if (hSystemPage)
                 DestroyWindow(hSystemPage);
-            if (hDialogIcon)
-                DestroyIcon(hDialogIcon);
+            if (hDialogIconBig)
+                DestroyIcon(hDialogIconBig);
+            if (hDialogIconSmall)
+                DestroyIcon(hDialogIconSmall);
             return DefWindowProc(hDlg, message, wParam, lParam);
     }
 
@@ -317,9 +327,9 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
     InitCommonControlsEx(&InitControls);
 
     hInst = hInstance;
- 
+
     DialogBox(hInst, (LPCTSTR)IDD_MSCONFIG_DIALOG, NULL,  MsConfigWndProc);
-  
+
     return 0;
 }
 

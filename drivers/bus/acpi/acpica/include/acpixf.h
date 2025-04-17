@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2017, Intel Corp.
+ * Copyright (C) 2000 - 2022, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
  * NO WARRANTY
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
  * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
@@ -46,7 +46,7 @@
 
 /* Current ACPICA subsystem version in YYYYMMDD format */
 
-#define ACPI_CA_VERSION                 0x20170728
+#define ACPI_CA_VERSION                 0x20221020
 
 #include "acconfig.h"
 #include "actypes.h"
@@ -193,18 +193,6 @@ ACPI_INIT_GLOBAL (UINT8,            AcpiGbl_CopyDsdtLocally, FALSE);
 ACPI_INIT_GLOBAL (UINT8,            AcpiGbl_DoNotUseXsdt, FALSE);
 
 /*
- * Optionally support group module level code.
- */
-ACPI_INIT_GLOBAL (UINT8,            AcpiGbl_GroupModuleLevelCode, FALSE);
-
-/*
- * Optionally support module level code by parsing the entire table as
- * a TermList. Default is FALSE, do not execute entire table until some
- * lock order issues are fixed.
- */
-ACPI_INIT_GLOBAL (UINT8,            AcpiGbl_ParseTableAsTermList, FALSE);
-
-/*
  * Optionally use 32-bit FADT addresses if and when there is a conflict
  * (address mismatch) between the 32-bit and 64-bit versions of the
  * address. Although ACPICA adheres to the ACPI specification which
@@ -262,11 +250,21 @@ ACPI_INIT_GLOBAL (UINT8,            AcpiGbl_OsiData, 0);
 ACPI_INIT_GLOBAL (BOOLEAN,          AcpiGbl_ReducedHardware, FALSE);
 
 /*
- * Maximum number of While() loop iterations before forced method abort.
+ * Maximum timeout for While() loop iterations before forced method abort.
  * This mechanism is intended to prevent infinite loops during interpreter
  * execution within a host kernel.
  */
-ACPI_INIT_GLOBAL (UINT32,           AcpiGbl_MaxLoopIterations, ACPI_MAX_LOOP_COUNT);
+ACPI_INIT_GLOBAL (UINT32,           AcpiGbl_MaxLoopIterations, ACPI_MAX_LOOP_TIMEOUT);
+
+/*
+ * Optionally ignore AE_NOT_FOUND errors from named reference package elements
+ * during DSDT/SSDT table loading. This reduces error "noise" in platforms
+ * whose firmware is carrying around a bunch of unused package objects that
+ * refer to non-existent named objects. However, If the AML actually tries to
+ * use such a package, the unresolved element(s) will be replaced with NULL
+ * elements.
+ */
+ACPI_INIT_GLOBAL (BOOLEAN,          AcpiGbl_IgnorePackageResolutionErrors, FALSE);
 
 /*
  * This mechanism is used to trace a specified AML method. The method is
@@ -340,6 +338,9 @@ ACPI_GLOBAL (BOOLEAN,               AcpiGbl_SystemAwakeAndRunning);
 #define ACPI_HW_DEPENDENT_RETURN_OK(Prototype) \
     ACPI_EXTERNAL_RETURN_OK(Prototype)
 
+#define ACPI_HW_DEPENDENT_RETURN_UINT32(prototype) \
+    ACPI_EXTERNAL_RETURN_UINT32(prototype)
+
 #define ACPI_HW_DEPENDENT_RETURN_VOID(Prototype) \
     ACPI_EXTERNAL_RETURN_VOID(Prototype)
 
@@ -349,6 +350,9 @@ ACPI_GLOBAL (BOOLEAN,               AcpiGbl_SystemAwakeAndRunning);
 
 #define ACPI_HW_DEPENDENT_RETURN_OK(Prototype) \
     static ACPI_INLINE Prototype {return(AE_OK);}
+
+#define ACPI_HW_DEPENDENT_RETURN_UINT32(prototype) \
+    static ACPI_INLINE prototype {return(0);}
 
 #define ACPI_HW_DEPENDENT_RETURN_VOID(Prototype) \
     static ACPI_INLINE Prototype {return;}
@@ -546,13 +550,23 @@ AcpiDecodePldBuffer (
 ACPI_EXTERNAL_RETURN_STATUS (
 ACPI_STATUS ACPI_INIT_FUNCTION
 AcpiInstallTable (
-    ACPI_PHYSICAL_ADDRESS   Address,
-    BOOLEAN                 Physical))
+    ACPI_TABLE_HEADER       *Table))
+
+ACPI_EXTERNAL_RETURN_STATUS (
+ACPI_STATUS ACPI_INIT_FUNCTION
+AcpiInstallPhysicalTable (
+    ACPI_PHYSICAL_ADDRESS   Address))
 
 ACPI_EXTERNAL_RETURN_STATUS (
 ACPI_STATUS
 AcpiLoadTable (
-    ACPI_TABLE_HEADER       *Table))
+    ACPI_TABLE_HEADER       *Table,
+    UINT32                  *TableIdx))
+
+ACPI_EXTERNAL_RETURN_STATUS (
+ACPI_STATUS
+AcpiUnloadTable (
+    UINT32                  TableIndex))
 
 ACPI_EXTERNAL_RETURN_STATUS (
 ACPI_STATUS
@@ -970,6 +984,12 @@ AcpiGetGpeStatus (
     UINT32                  GpeNumber,
     ACPI_EVENT_STATUS       *EventStatus))
 
+ACPI_HW_DEPENDENT_RETURN_UINT32 (
+UINT32
+AcpiDispatchGpe (
+    ACPI_HANDLE             GpeDevice,
+    UINT32                  GpeNumber))
+
 ACPI_HW_DEPENDENT_RETURN_STATUS (
 ACPI_STATUS
 AcpiDisableAllGpes (
@@ -983,6 +1003,10 @@ AcpiEnableAllRuntimeGpes (
 ACPI_HW_DEPENDENT_RETURN_STATUS (
 ACPI_STATUS
 AcpiEnableAllWakeupGpes (
+    void))
+
+ACPI_HW_DEPENDENT_RETURN_UINT32 (
+    UINT32                  AcpiAnyGpeStatusSet (
     void))
 
 ACPI_HW_DEPENDENT_RETURN_STATUS (
@@ -1220,6 +1244,16 @@ void ACPI_INTERNAL_VAR_XFACE
 AcpiBiosError (
     const char              *ModuleName,
     UINT32                  LineNumber,
+    const char              *Format,
+    ...))
+
+ACPI_MSG_DEPENDENT_RETURN_VOID (
+ACPI_PRINTF_LIKE(4)
+void  ACPI_INTERNAL_VAR_XFACE
+AcpiBiosException (
+    const char              *ModuleName,
+    UINT32                  LineNumber,
+    ACPI_STATUS             Status,
     const char              *Format,
     ...))
 

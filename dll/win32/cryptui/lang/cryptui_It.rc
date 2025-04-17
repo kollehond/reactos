@@ -18,8 +18,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "cryptuires.h"
-
 LANGUAGE LANG_ITALIAN, SUBLANG_DEFAULT
 
 STRINGTABLE
@@ -171,6 +169,11 @@ STRINGTABLE
     IDS_EXPORT_PASSWORD_MISMATCH "Le password non corrispondono."
     IDS_EXPORT_PRIVATE_KEY_UNAVAILABLE "Nota: impossibile aprire la chiave privata per questo certificato."
     IDS_EXPORT_PRIVATE_KEY_NON_EXPORTABLE "Nota: la chiave privata per questo certificato non è esportabile."
+    IDS_INTENDED_USE_COLUMN "Intended Use"
+    IDS_LOCATION_COLUMN "Location"
+    IDS_SELECT_CERT_TITLE "Select Certificate"
+    IDS_SELECT_CERT "Select a certificate"
+    IDS_NO_IMPL "Not yet implemented"
 }
 
 IDD_GENERAL DIALOGEX 0, 0, 255, 236
@@ -281,9 +284,7 @@ STYLE DS_SHELLFONT | WS_VISIBLE | DS_MODALFRAME
 FONT 8, "MS Shell Dlg"
 BEGIN
   LTEXT "Benvenuto alla Guida all'Importazione di Certificati", IDC_IMPORT_TITLE, 115,7,195,30
-  LTEXT "Questa guida ti aiuta a importare certificate, liste di revoca di certificati e liste di fiducia di certificati da un file in un deposito di certificati.\n\n\
-Un certificato può essere usato per identificare te o il computer da cui stai comunicando. Può essere anche usato per l'autenticazione e per firmare messaggi. I depositi di certificati sono collezioni di certificati, liste di revoca di certificati e liste di fiducia di certificati.\n\n\
-Per continuare, premere Avanti.",
+  LTEXT "Questa guida ti aiuta a importare certificate, liste di revoca di certificati e liste di fiducia di certificati da un file in un deposito di certificati.\n\nI computer possono utilizzare i certificati per l'identificazione e la firma.",
     -1, 115,40,195,120
 END
 
@@ -377,9 +378,7 @@ STYLE DS_SHELLFONT | WS_VISIBLE | DS_MODALFRAME
 FONT 8, "MS Shell Dlg"
 BEGIN
   LTEXT "Benvenuto alla Guida all'Esportazione del Certificato", IDC_EXPORT_TITLE, 115,7,195,30
-  LTEXT "Questa guida ti aiuta a esportare certificate, liste di revoca di certificati e liste di fiducia di certificati da un deposito di certificati in un file.\n\n\
-Un certificato può essere usato per identificare te o il computer da cui stai comunicando. Può essere anche usato per l'autenticazione e per firmare messaggi. I depositi di certificati sono collezioni di certificati, liste di revoca di certificati e liste di fiducia di certificati.\n\n\
-Per continuare, premere Avanti.",
+  LTEXT "Questa guida ti aiuta a esportare certificate, liste di revoca di certificati e liste di fiducia di certificati da un deposito di certificati in un file.\n\nI computer possono utilizzare i certificati per l'identificazione e la firma.",
     -1, 115,40,195,120
 END
 
@@ -456,4 +455,16 @@ BEGIN
   CONTROL "", IDC_EXPORT_SETTINGS, "SysListView32",
     LVS_REPORT|LVS_NOCOLUMNHEADER|LVS_SINGLESEL|WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_BORDER,
     115,67,174,100
+END
+
+IDD_SELECT_CERT DIALOG 0,0,278,157
+CAPTION "Select Certificate"
+FONT 8, "MS Shell Dlg"
+BEGIN
+  LTEXT "Select a certificate you want to use", IDC_SELECT_DISPLAY_STRING, 7,7,264,26
+  CONTROL "", IDC_SELECT_CERTS, "SysListView32",
+    LVS_REPORT|LVS_SINGLESEL|WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_BORDER, 7,40,264,89
+  PUSHBUTTON "OK", IDOK, 91,136,51,14, BS_DEFPUSHBUTTON
+  PUSHBUTTON "Cancel", IDCANCEL, 149,136,51,14
+  PUSHBUTTON "&View Certificate", IDC_SELECT_VIEW_CERT, 207,136,65,14, WS_DISABLED
 END

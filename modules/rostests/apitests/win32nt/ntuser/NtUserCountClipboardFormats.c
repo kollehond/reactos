@@ -5,11 +5,11 @@
  * PROGRAMMERS:
  */
 
-#include <win32nt.h>
+#include "../win32nt.h"
 
 
 START_TEST(NtUserCountClipboardFormats)
 {
-	RTEST(NtUserCountClipboardFormats() < 1000);
+    RTEST(NtUserCountClipboardFormats() < 1000);
 }
 

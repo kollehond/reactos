@@ -1,9 +1,8 @@
 
-add_definitions(-Dtzset=_tzset)
 include_directories(include)
 spec2def(dhcpcsvc.dll dhcpcsvc.spec ADD_IMPORTLIB)
 
-list(APPEND SOURCE 
+list(APPEND SOURCE
     dhcp/adapter.c
     dhcp/alloc.c
     dhcp/api.c
@@ -16,16 +15,19 @@ list(APPEND SOURCE
     dhcp/socket.c
     dhcp/tables.c
     dhcp/util.c
-    dhcpcsvc.c
-    include/rosdhcp.h)
+    dhcpcsvc.c)
 
-add_library(dhcpcsvc SHARED
+list(APPEND PCH_SKIP_SOURCE
+    ${CMAKE_CURRENT_BINARY_DIR}/dhcpcsvc_stubs.c)
+
+add_library(dhcpcsvc MODULE
     ${SOURCE}
+    ${PCH_SKIP_SOURCE}
     dhcpcsvc.rc
-    ${CMAKE_CURRENT_BINARY_DIR}/dhcpcsvc_stubs.c
     ${CMAKE_CURRENT_BINARY_DIR}/dhcpcsvc.def)
 
+target_link_libraries(dhcpcsvc oldnames)
 set_module_type(dhcpcsvc win32dll)
 add_importlibs(dhcpcsvc ws2_32 iphlpapi advapi32 msvcrt kernel32 ntdll)
-add_pch(dhcpcsvc include/rosdhcp.h SOURCE)
+add_pch(dhcpcsvc include/rosdhcp.h "${PCH_SKIP_SOURCE}")
 add_cd_file(TARGET dhcpcsvc DESTINATION reactos/system32 FOR all)

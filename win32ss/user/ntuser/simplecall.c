@@ -3,7 +3,8 @@
  * PROJECT:          ReactOS kernel
  * PURPOSE:          NtUserCallXxx call stubs
  * FILE:             win32ss/user/ntuser/simplecall.c
- * PROGRAMER:        Ge van Geldorp (ge@gse.nl)
+ * PROGRAMERS:       Ge van Geldorp (ge@gse.nl)
+ *                   Katayama Hirofumi MZ (katayama.hirofumi.mz@gmail.com)
  */
 
 #include <win32k.h>
@@ -113,13 +114,21 @@ NtUserCallNoParam(DWORD Routine)
             break;
         }
 
+        case NOPARAM_ROUTINE_GETIMESHOWSTATUS:
+            Result = !!gfIMEShowStatus;
+            break;
+
         /* this is a ReactOS only case and is needed for gui-on-demand */
         case NOPARAM_ROUTINE_ISCONSOLEMODE:
             Result = (ScreenDeviceContext == NULL);
             break;
 
         case NOPARAM_ROUTINE_UPDATEPERUSERIMMENABLING:
-            gpsi->dwSRVIFlags |= SRVINFO_IMM32; // Always set.
+            if (UserIsIMMEnabled())
+                gpsi->dwSRVIFlags |= SRVINFO_IMM32;
+            else
+                gpsi->dwSRVIFlags &= ~SRVINFO_IMM32;
+
             Result = TRUE; // Always return TRUE.
             break;
 
@@ -341,7 +350,7 @@ NtUserCallOneParam(
         case ONEPARAM_ROUTINE_SETPROCDEFLAYOUT:
         {
             PPROCESSINFO ppi;
-            if (Param & LAYOUT_ORIENTATIONMASK)
+            if (Param & LAYOUT_ORIENTATIONMASK || Param == LAYOUT_LTR)
             {
                 ppi = PsGetCurrentProcessWin32Process();
                 ppi->dwLayout = Param;
@@ -391,7 +400,7 @@ NtUserCallOneParam(
            break;
 
         case ONEPARAM_ROUTINE_CREATESYSTEMTHREADS:
-            Result = CreateSystemThreads(Param);
+            Result = UserSystemThreadProc(Param);
             break;
 
         case ONEPARAM_ROUTINE_LOCKFOREGNDWINDOW:
@@ -505,9 +514,37 @@ NtUserCallTwoParam(
         }
 
         case TWOPARAM_ROUTINE_SWITCHTOTHISWINDOW:
-            STUB
+        {
+            HWND hwnd = (HWND)Param1;
+            BOOL fAltTab = (BOOL)Param2;
             Ret = 0;
+            Window = UserGetWindowObject(hwnd);
+            if (!Window)
+                break;
+
+            if (gpqForeground && !fAltTab)
+            {
+                PWND pwndActive = gpqForeground->spwndActive;
+                if (pwndActive && !(pwndActive->ExStyle & WS_EX_TOPMOST))
+                {
+                    co_WinPosSetWindowPos(pwndActive, HWND_BOTTOM, 0, 0, 0, 0,
+                                          SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
+                                          SWP_ASYNCWINDOWPOS);
+                }
+
+                UserSetActiveWindow(Window);
+                break;
+            }
+
+            co_IntSetForegroundWindowMouse(Window);
+
+            if (fAltTab && (Window->style & WS_MINIMIZE))
+            {
+                MSG msg = { UserHMGetHandle(Window), WM_SYSCOMMAND, SC_RESTORE, 0 };
+                MsqPostMessage(Window->head.pti, &msg, FALSE, QS_POSTMESSAGE, 0, 0);
+            }
             break;
+        }
 
         case TWOPARAM_ROUTINE_SETCARETPOS:
             Ret = (DWORD_PTR)co_IntSetCaretPos((int)Param1, (int)Param2);
@@ -631,6 +668,10 @@ NtUserCallHwndLock(
             co_IntUpdateWindows(Window, RDW_ALLCHILDREN, FALSE);
             Ret = TRUE;
             break;
+
+        case HWNDLOCK_ROUTINE_CHECKIMESHOWSTATUSINTHRD:
+            IntCheckImeShowStatusInThread(Window);
+            break;
     }
 
     UserDerefObjectCo(Window);
@@ -665,7 +706,7 @@ NtUserCallHwndOpt(
     return hWnd;
 }
 
-DWORD
+DWORD_PTR
 APIENTRY
 NtUserCallHwnd(
     HWND hWnd,
@@ -686,7 +727,7 @@ NtUserCallHwnd(
                 return 0;
             }
 
-            HelpId = (DWORD)(DWORD_PTR)UserGetProp(Window, gpsi->atomContextHelpIdProp, TRUE);
+            HelpId = HandleToUlong(UserGetProp(Window, gpsi->atomContextHelpIdProp, TRUE));
 
             UserLeave();
             return HelpId;
@@ -714,6 +755,17 @@ NtUserCallHwnd(
             UserLeave();
             return FALSE;
         }
+
+        case HWND_ROUTINE_DWP_GETENABLEDPOPUP:
+        {
+            PWND pWnd;
+            UserEnterShared();
+            pWnd = UserGetWindowObject(hWnd);
+            if (pWnd)
+                pWnd = DWP_GetEnabledPopup(pWnd);
+            UserLeave();
+            return (DWORD_PTR)pWnd;
+        }
     }
 
     STUB;
@@ -732,7 +784,14 @@ NtUserCallHwndParam(
     switch (Routine)
     {
         case HWNDPARAM_ROUTINE_KILLSYSTEMTIMER:
-            return IntKillTimer(UserGetWindowObject(hWnd), (UINT_PTR)Param, TRUE);
+        {
+            DWORD ret;
+
+            UserEnterExclusive();
+            ret = IntKillTimer(UserGetWindowObject(hWnd), (UINT_PTR)Param, TRUE);
+            UserLeave();
+            return ret;
+        }
 
         case HWNDPARAM_ROUTINE_SETWNDCONTEXTHLPID:
         {
@@ -769,9 +828,10 @@ NtUserCallHwndParam(
             UserRefObjectCo(pWnd, &Ref);
 
             if (pWnd->head.pti->ppi == PsGetCurrentProcessWin32Process() &&
-                pWnd->cbwndExtra == DLGWINDOWEXTRA &&
+                pWnd->cbwndExtra >= DLGWINDOWEXTRA &&
                 !(pWnd->state & WNDS_SERVERSIDEWINDOWPROC))
             {
+                pWnd->DialogPointer = (PVOID)Param;
                 if (Param)
                 {
                     if (!pWnd->fnid) pWnd->fnid = FNID_DIALOG;
@@ -854,6 +914,10 @@ NtUserCallHwndParamLock(
 
     switch (Routine)
     {
+        case TWOPARAM_ROUTINE_IMESHOWSTATUSCHANGE:
+            Ret = IntBroadcastImeShowStatusChange(Window, !!Param);
+            break;
+
         case TWOPARAM_ROUTINE_VALIDATERGN:
         {
             PREGION Rgn = REGION_LockRgn((HRGN)Param);

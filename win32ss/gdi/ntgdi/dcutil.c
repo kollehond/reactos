@@ -158,6 +158,11 @@ IntGdiSetTextAlign(HDC  hDC,
     pdcattr = dc->pdcattr;
     prevAlign = pdcattr->lTextAlign;
     pdcattr->lTextAlign = Mode;
+    if (pdcattr->dwLayout & LAYOUT_RTL)
+    {
+        if ((Mode & TA_CENTER) != TA_CENTER) Mode ^= TA_RIGHT;
+    }
+    pdcattr->flTextAlign = Mode & TA_MASK;
     DC_UnlockDc(dc);
     return  prevAlign;
 }
@@ -323,7 +328,7 @@ DCU_SetDcUndeletable(HDC  hDC)
         return;
     }
 
-    dc->fs |= DC_FLAG_PERMANENT;
+    dc->fs |= DC_PERMANANT;
     DC_UnlockDc(dc);
     return;
 }
@@ -396,11 +401,10 @@ IntSetDefaultRegion(PDC pdc)
         pdc->erclWindow = rclWnd;
         pdc->erclClip = rclClip;
         /* Might be an InitDC or DCE... */
-        pdc->ptlFillOrigin.x = pdc->dcattr.ptlBrushOrigin.x;
-        pdc->ptlFillOrigin.y = pdc->dcattr.ptlBrushOrigin.y;
+        pdc->ptlFillOrigin = pdc->dcattr.ptlBrushOrigin;
         return TRUE;
     }
-
+    // No Vis use the Default System Region.
     pdc->prgnVis = prgnDefault;
     return FALSE;
 }
@@ -426,7 +430,7 @@ IntGdiSetHookFlags(HDC hDC, WORD Flags)
         return 0;
     }
 
-    wRet = dc->fs & DC_FLAG_DIRTY_RAO; // FIXME: Wrong flag!
+    wRet = dc->fs & DC_DIRTY_RAO; // FIXME: Wrong flag!
 
     /* Info in "Undocumented Windows" is slightly confusing. */
     DPRINT("DC %p, Flags %04x\n", hDC, Flags);
@@ -434,11 +438,11 @@ IntGdiSetHookFlags(HDC hDC, WORD Flags)
     if (Flags & DCHF_INVALIDATEVISRGN)
     {
         /* hVisRgn has to be updated */
-        dc->fs |= DC_FLAG_DIRTY_RAO;
+        dc->fs |= DC_DIRTY_RAO;
     }
     else if (Flags & DCHF_VALIDATEVISRGN || 0 == Flags)
     {
-        //dc->fs &= ~DC_FLAG_DIRTY_RAO;
+        //dc->fs &= ~DC_DIRTY_RAO;
     }
 
     DC_UnlockDc(dc);
@@ -488,7 +492,7 @@ NtGdiGetDCDword(
             SafeResult = pdcattr->lBreakExtra;
             break;
 
-        case GdiGerCharBreak:
+        case GdiGetCharBreak:
             SafeResult = pdcattr->cBreak;
             break;
 
@@ -581,6 +585,11 @@ NtGdiGetAndSetDCDword(
 
     switch (u)
     {
+        case GdiGetSetEPSPrintingEscape:
+            SafeResult = pdc->fs & DC_EPSPRINTINGESCAPE;
+            pdc->fs &= ~DC_EPSPRINTINGESCAPE;
+            break;
+
         case GdiGetSetCopyCount:
             SafeResult = pdc->ulCopyCount;
             pdc->ulCopyCount = dwIn;
@@ -720,7 +729,7 @@ NtGdiGetBoundsRect(
        else
        {
           RECTL rcRgn;
-          if (pdc->fs & DC_FLAG_DIRTY_RAO) CLIPPING_UpdateGCRegion(pdc);
+          if (pdc->fs & DC_DIRTY_RAO) CLIPPING_UpdateGCRegion(pdc);
           if(!REGION_GetRgnBox(pdc->prgnRao, &rcRgn))
           {
              REGION_GetRgnBox(pdc->prgnVis, &rcRgn);
@@ -734,7 +743,7 @@ NtGdiGetBoundsRect(
           DPRINT("    r %d b %d\n",rc.right,rc.bottom);
           ret = DCB_SET;
        }
-       IntDPtoLP( pdc, &rc, 2 );
+       IntDPtoLP(pdc, (PPOINTL)&rc, 2);
        DPRINT("rc1 l %d t %d\n",rc.left,rc.top);
        DPRINT("    r %d b %d\n",rc.right,rc.bottom);
     }
@@ -829,7 +838,7 @@ NtGdiSetBoundsRect(
         RECTL_vMakeWellOrdered(&rcl);
 
         if (!(flags & DCB_WINDOWMGR))
-        {           
+        {
            IntLPtoDP( pdc, (POINT *)&rcl, 2 );
            RECTL_bUnionRect(&pdc->erclBoundsApp, &pdc->erclBoundsApp, &rcl);
         }

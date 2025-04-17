@@ -202,11 +202,20 @@ static BOOL	MIDIMAP_LoadSettingsScheme(MIDIMAPDATA* mom, const WCHAR* scheme)
 
 static BOOL	MIDIMAP_LoadSettings(MIDIMAPDATA* mom)
 {
-    HKEY 	hKey;
+    HKEY 	hUserKey, hKey;
+    DWORD   err;
     BOOL	ret;
 
-    if (RegOpenKeyA(HKEY_CURRENT_USER,
-		    "Software\\Microsoft\\Windows\\CurrentVersion\\Multimedia\\MIDIMap", &hKey))
+    err = RegOpenCurrentUser(KEY_READ, &hUserKey);
+    if (err == ERROR_SUCCESS)
+    {
+        err = RegOpenKeyW(hUserKey,
+                          L"Software\\Microsoft\\Windows\\CurrentVersion\\Multimedia\\MIDIMap",
+                          &hKey);
+        RegCloseKey(hUserKey);
+    }
+
+    if (err != ERROR_SUCCESS)
     {
 	ret = MIDIMAP_LoadSettingsDefault(mom, NULL);
     }
@@ -237,6 +246,11 @@ static BOOL	MIDIMAP_LoadSettings(MIDIMAPDATA* mom)
 	    size = sizeof(buffer);
 	    if (!RegQueryValueExW(hKey, ci, 0, &type, (void*)buffer, &size) && *buffer)
 	    {
+		ret = MIDIMAP_LoadSettingsDefault(mom, buffer);
+	    }
+	    else if (!RegQueryValueExW(hKey, L"szPname", 0, &type, (void*)buffer, &size) && *buffer)
+	    {
+		/* Windows XP and higher setting */
 		ret = MIDIMAP_LoadSettingsDefault(mom, buffer);
 	    }
 	    else
@@ -387,7 +401,7 @@ static	DWORD	modData(MIDIMAPDATA* mom, DWORD_PTR dwParam)
 	}
 	break;
     default:
-	FIXME("ooch %lu\n", dwParam);
+	FIXME("ooch %lx\n", dwParam);
     }
 
     return ret;
@@ -466,7 +480,7 @@ DWORD WINAPI MIDIMAP_modMessage(UINT wDevID, UINT wMsg, DWORD_PTR dwUser,
 	/* FIXME: Pretend this is supported */
 	return 0;
 
-    case MODM_OPEN:	 	return modOpen		((LPDWORD)dwUser,      (LPMIDIOPENDESC)dwParam1,dwParam2);
+    case MODM_OPEN: return modOpen((DWORD_PTR *)dwUser, (LPMIDIOPENDESC)dwParam1, dwParam2);
     case MODM_CLOSE:	 	return modClose		((MIDIMAPDATA*)dwUser);
 
     case MODM_DATA:		return modData		((MIDIMAPDATA*)dwUser, dwParam1);

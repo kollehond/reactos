@@ -4,9 +4,10 @@
 #define IDI_KEYBOARD_ICO  202
 #define IDI_MARKER_ICO    205
 #define IDI_MIC_ICO       203
-#define IDI_KEY_SHORT_ICO 200
 #define IDI_INFO_ICO      207
 #define IDI_CPLSYSTEM     1502
+#define IDI_KEYBOARD      1503
+#define IDI_DOT           1504
 
 /* IDD */
 #define IDD_PROPPAGESETTINGS         500
@@ -18,7 +19,7 @@
 
 /* IDC */
 #define IDC_KEYLAYOUT_LIST       1000
-#define IDC_SET_DEFAULT          1001
+#define IDC_DEFAULT_LANGUAGE     1001
 #define IDC_ADD_BUTTON           1002
 #define IDC_REMOVE_BUTTON        1003
 #define IDC_PROP_BUTTON          1004
@@ -38,6 +39,7 @@
 #define IDC_CTRL_LAYOUT          1018
 #define IDC_LEFT_ALT_LANG        1019
 #define IDC_LEFT_ALT_LAYOUT      1020
+#define IDC_LANGUAGE_BAR         1021
 
 /* IDS */
 #define IDS_CPLSYSTEMNAME        1
@@ -96,7 +98,7 @@
 #define IDS_HUNGARIAN_101_KEY_LAYOUT                   5034
 #define IDS_POLISH_LAYOUT                              5035
 #define IDS_POLISH_214_LAYOUT                          5036
-#define IDS_ROMANIAN_LAYOUT                            5037
+#define IDS_ROMANIAN_LEGACY_LAYOUT                     5037
 #define IDS_SERBIAN_LATIN_LAYOUT                       5038
 #define IDS_SLOVAK_LAYOUT                              5039
 #define IDS_SLOVAK_QWERTY_LAYOUT                       5040
@@ -149,7 +151,7 @@
 #define IDS_BELGIAN_COMMA_LAYOUT                       5089
 #define IDS_CHINESE_TRADITIONAL_NEWPHONETIC_LAYOUT     5090
 #define IDS_CHINESE_SIMPLIFIED_MSPINYINIME30_LAYOUT    5091
-#define IDS_UNITED_STATES_DVIRAK_LAYOUT                5092
+#define IDS_UNITED_STATES_DVORAK_LAYOUT                5092
 #define IDS_CHINESE_TRADITIONAL_NEWCHANGJIE_LAYOUT     5093
 #define IDS_ASSAMESE_LAYOUT                            5094
 #define IDS_BENGALI_LAYOUT                             5095
@@ -199,3 +201,4 @@
 #define IDS_BURMESE_LAYOUT                             5140
 #define IDS_UKRAINIAN_STUDENT_LAYOUT                   5141
 #define IDS_ESPERANTO_LAYOUT                           5142
+#define IDS_ROMANIAN_STANDARD_LAYOUT                   5175

@@ -53,7 +53,7 @@ static BOOL get_install_root(LPWSTR install_dir)
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, dotnet_key, 0, KEY_READ, &key))
         return FALSE;
 
-    len = MAX_PATH;
+    len = MAX_PATH * sizeof(WCHAR);
     if (RegQueryValueExW(key, install_root, 0, NULL, (LPBYTE)install_dir, &len))
     {
         RegCloseKey(key);
@@ -197,8 +197,10 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 
     switch (fdwReason)
     {
+#ifndef __REACTOS__
     case DLL_WINE_PREATTACH:
         return FALSE;  /* prefer native version */
+#endif
     case DLL_PROCESS_ATTACH:
         runtimehost_init();
         DisableThreadLibraryCalls(hinstDLL);

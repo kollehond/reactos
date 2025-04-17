@@ -33,9 +33,7 @@ IntLastInputTick(BOOL bUpdate)
 {
     if (bUpdate)
     {
-        LARGE_INTEGER TickCount;
-        KeQueryTickCount(&TickCount);
-        LastInputTick = MsqCalculateMessageTime(&TickCount);
+        LastInputTick = EngGetTickCount32();
         if (gpsi) gpsi->dwLastRITEventTickCount = LastInputTick;
     }
     return LastInputTick;
@@ -44,18 +42,16 @@ IntLastInputTick(BOOL bUpdate)
 /*
  * DoTheScreenSaver
  *
- * Check if scrensaver should be started and sends message to SAS window
+ * Check if screensaver should be started and sends message to SAS window
  */
 VOID FASTCALL
 DoTheScreenSaver(VOID)
 {
-    LARGE_INTEGER TickCount;
     DWORD Test, TO;
 
     if (gspv.iScrSaverTimeout > 0) // Zero means Off.
     {
-        KeQueryTickCount(&TickCount);
-        Test = MsqCalculateMessageTime(&TickCount);
+        Test = EngGetTickCount32();
         Test = Test - LastInputTick;
         TO = 1000 * gspv.iScrSaverTimeout;
         if (Test > TO)
@@ -138,6 +134,7 @@ RawInputThreadMain(VOID)
     MOUSE_INPUT_DATA MouseInput;
     KEYBOARD_INPUT_DATA KeyInput;
     PVOID ShutdownEvent;
+    HWINSTA hWinSta;
 
     ByteOffset.QuadPart = (LONGLONG)0;
     //WaitTimeout.QuadPart = (LONGLONG)(-10000000);
@@ -150,6 +147,23 @@ RawInputThreadMain(VOID)
 
     KeSetPriorityThread(&PsGetCurrentThread()->Tcb,
                         LOW_REALTIME_PRIORITY + 3);
+
+    Status = ObOpenObjectByPointer(InputWindowStation,
+                                   0,
+                                   NULL,
+                                   MAXIMUM_ALLOWED,
+                                   ExWindowStationObjectType,
+                                   UserMode,
+                                   (PHANDLE)&hWinSta);
+    if (NT_SUCCESS(Status))
+    {
+        UserSetProcessWindowStation(hWinSta);
+    }
+    else
+    {
+        ASSERT(FALSE);
+        /* Failed to open the interactive winsta! What now? */
+    }
 
     UserEnterExclusive();
     StartTheTimers();
@@ -184,6 +198,11 @@ RawInputThreadMain(VOID)
                 UserEnterExclusive();
                 // Register the Window hotkey.
                 UserRegisterHotKey(PWND_BOTTOM, IDHK_WINKEY, MOD_WIN, 0);
+                // Register the Window Snap hotkey.
+                UserRegisterHotKey(PWND_BOTTOM, IDHK_SNAP_LEFT, MOD_WIN, VK_LEFT);
+                UserRegisterHotKey(PWND_BOTTOM, IDHK_SNAP_RIGHT, MOD_WIN, VK_RIGHT);
+                UserRegisterHotKey(PWND_BOTTOM, IDHK_SNAP_UP, MOD_WIN, VK_UP);
+                UserRegisterHotKey(PWND_BOTTOM, IDHK_SNAP_DOWN, MOD_WIN, VK_DOWN);
                 // Register the debug hotkeys.
                 StartDebugHotKeys();
                 UserLeave();
@@ -331,34 +350,11 @@ RawInputThreadMain(VOID)
 }
 
 /*
- * CreateSystemThreads
- *
- * Called form dedicated thread in CSRSS. RIT is started in context of this
- * thread because it needs valid Win32 process with TEB initialized.
- */
-DWORD NTAPI
-CreateSystemThreads(UINT Type)
-{
-    UserLeave();
-
-    switch (Type)
-    {
-        case 0: RawInputThreadMain(); break;
-        case 1: DesktopThreadMain(); break;
-        default: ERR("Wrong type: %x\n", Type);
-    }
-
-    UserEnterShared();
-
-    return 0;
-}
-
-/*
  * InitInputImpl
  *
  * Inits input implementation
  */
-INIT_FUNCTION
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
 InitInputImpl(VOID)
@@ -479,6 +475,7 @@ IsRemoveAttachThread(PTHREADINFO pti)
     return Ret;
 }
 
+// Win: zzzAttachThreadInput
 NTSTATUS FASTCALL
 UserAttachThreadInput(PTHREADINFO ptiFrom, PTHREADINFO ptiTo, BOOL fAttach)
 {
@@ -767,7 +764,7 @@ NtUserSendInput(
                     uRet++;
                 break;
             case INPUT_HARDWARE:
-                FIXME("INPUT_HARDWARE not supported!");
+                FIXME("INPUT_HARDWARE not supported!\n");
                 break;
             default:
                 ERR("SendInput(): Invalid input type: 0x%x\n", SafeInput.type);

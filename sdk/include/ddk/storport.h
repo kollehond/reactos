@@ -20,12 +20,54 @@
  *
  */
 
+#ifdef _NTSCSI_
+  #error STORPORT.H must be included instead of SCSI.H
+#endif
+
+#ifdef _NTSRB_
+  #error STORPORT.H must be included instead of SRB.H
+#endif
+
 #ifndef _NTSTORPORT_
 #define _NTSTORPORT_
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+//
+// Common definitions with SRB.H
+//
+
+/* NOTE: the current SCSI_MAXIMUM_TARGETS_PER_BUS is applicable
+ * only on scsiport miniports. For storport miniports, the max
+ * target supported is 255. */
+#if (NTDDI_VERSION >= NTDDI_WIN8)
+#define SCSI_MAXIMUM_BUSES_PER_ADAPTER    255
+#endif
+#define SCSI_MAXIMUM_TARGETS_PER_BUS      128
+#define SCSI_MAXIMUM_LUNS_PER_TARGET      255
+#define SCSI_MINIMUM_PHYSICAL_BREAKS      16
+#define SCSI_MAXIMUM_PHYSICAL_BREAKS      255
+
+/* These constants are for backward compatibility.
+ * They used to be the maximum supported. */
+#define SCSI_MAXIMUM_BUSES                8
+#define SCSI_MAXIMUM_TARGETS              8
+#define SCSI_MAXIMUM_LOGICAL_UNITS        8
+
+/* PORT_CONFIGURATION_INFORMATION.Dma64BitAddresses constants */
+#define SCSI_DMA64_MINIPORT_SUPPORTED            0x01
+#define SCSI_DMA64_SYSTEM_SUPPORTED              0x80
+#if (NTDDI_VERSION > NTDDI_WS03SP1)
+#define SCSI_DMA64_MINIPORT_FULL64BIT_SUPPORTED  0x02
+#endif
+
+#define SP_UNINITIALIZED_VALUE            ((ULONG) ~0)
+#define SP_UNTAGGED                       ((UCHAR) ~0)
+
+// End of common definitions with SRB.H
+
 
 #if defined(_STORPORT_)
 #define STORPORT_API
@@ -293,6 +335,7 @@ extern "C" {
 #define SP_RETURN_ERROR                     2
 #define SP_RETURN_BAD_CONFIG                3
 
+/* SCSI_REQUEST_BLOCK.Function constants */
 #define SRB_FUNCTION_EXECUTE_SCSI           0x00
 #define SRB_FUNCTION_CLAIM_DEVICE           0x01
 #define SRB_FUNCTION_IO_CONTROL             0x02
@@ -320,6 +363,7 @@ extern "C" {
 #define SRB_FUNCTION_PNP                    0x25
 #define SRB_FUNCTION_DUMP_POINTERS          0x26
 
+/* SCSI_REQUEST_BLOCK.SrbStatus constants */
 #define SRB_STATUS_PENDING                  0x00
 #define SRB_STATUS_SUCCESS                  0x01
 #define SRB_STATUS_ABORTED                  0x02
@@ -353,6 +397,7 @@ extern "C" {
 #define SRB_STATUS_AUTOSENSE_VALID          0x80
 #define SRB_STATUS(Status)                  (Status & ~(SRB_STATUS_AUTOSENSE_VALID | SRB_STATUS_QUEUE_FROZEN))
 
+/* SCSI_REQUEST_BLOCK.SrbFlags constants */
 #define SRB_FLAGS_QUEUE_ACTION_ENABLE       0x00000002
 #define SRB_FLAGS_DISABLE_DISCONNECT        0x00000004
 #define SRB_FLAGS_DISABLE_SYNCH_TRANSFER    0x00000008
@@ -403,6 +448,23 @@ extern "C" {
 #define VPD_EXTENDED_INQUIRY_DATA           0x86
 #define VPD_MODE_PAGE_POLICY                0x87
 #define VPD_SCSI_PORTS                      0x88
+
+#define SCSI_SENSE_NO_SENSE                 0x00
+#define SCSI_SENSE_RECOVERED_ERROR          0x01
+#define SCSI_SENSE_NOT_READY                0x02
+#define SCSI_SENSE_MEDIUM_ERROR             0x03
+#define SCSI_SENSE_HARDWARE_ERROR           0x04
+#define SCSI_SENSE_ILLEGAL_REQUEST          0x05
+#define SCSI_SENSE_UNIT_ATTENTION           0x06
+#define SCSI_SENSE_DATA_PROTECT             0x07
+#define SCSI_SENSE_BLANK_CHECK              0x08
+#define SCSI_SENSE_UNIQUE                   0x09
+#define SCSI_SENSE_COPY_ABORTED             0x0A
+#define SCSI_SENSE_ABORTED_COMMAND          0x0B
+#define SCSI_SENSE_EQUAL                    0x0C
+#define SCSI_SENSE_VOL_OVERFLOW             0x0D
+#define SCSI_SENSE_MISCOMPARE               0x0E
+#define SCSI_SENSE_RESERVED                 0x0F
 
 typedef enum _STOR_SYNCHRONIZATION_MODEL
 {
@@ -798,7 +860,7 @@ typedef union _CDB
         UCHAR Reserved2;
         UCHAR Control;
     } CDB12, *PCDB12;
-    struct _CDB16 
+    struct _CDB16
     {
         UCHAR OperationCode;
         UCHAR Reserved1:3;
@@ -1931,6 +1993,26 @@ typedef struct _LUN_LIST
     UCHAR Lun[0][8];
 #endif
 } LUN_LIST, *PLUN_LIST;
+
+typedef struct _SENSE_DATA
+{
+    UCHAR ErrorCode:7;
+    UCHAR Valid:1;
+    UCHAR SegmentNumber;
+    UCHAR SenseKey:4;
+    UCHAR Reserved:1;
+    UCHAR IncorrectLength:1;
+    UCHAR EndOfMedia:1;
+    UCHAR FileMark:1;
+    UCHAR Information[4];
+    UCHAR AdditionalSenseLength;
+    UCHAR CommandSpecificInformation[4];
+    UCHAR AdditionalSenseCode;
+    UCHAR AdditionalSenseCodeQualifier;
+    UCHAR FieldReplaceableUnitCode;
+    UCHAR SenseKeySpecific[3];
+} SENSE_DATA, *PSENSE_DATA;
+
 #include <poppack.h>
 
 typedef PHYSICAL_ADDRESS STOR_PHYSICAL_ADDRESS;
@@ -2080,7 +2162,8 @@ typedef struct _PERF_CONFIGURATION_DATA
     ULONG Size;
     ULONG Flags;
     ULONG ConcurrentChannels;
-    ULONG FirstRedirectionMessageNumber, LastRedirectionMessageNumber;
+    ULONG FirstRedirectionMessageNumber;
+    ULONG LastRedirectionMessageNumber;
     ULONG DeviceNode;
     ULONG Reserved;
     PGROUP_AFFINITY MessageTargets;

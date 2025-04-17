@@ -26,7 +26,7 @@ STRINGTABLE
 \n\
 Syntax:\n\
 XCOPY kilde [mål] [/I] [/S] [/Q] [/F] [/L] [/W] [/T] [/N] [/U]\n\
-\t     [/R] [/H] [/C] [/P] [/A] [/M] [/E] [/D] [/Y] [/-Y]\n\
+\t     [/R] [/H] [/C] [/P] [/A] [/M] [/E] [/D] [/Y] [/-Y] [/K]\n\
 \n\
 Where:\n\
 \n\
@@ -49,6 +49,7 @@ Where:\n\
 [/C]  Fortsett selv om det oppstår feil under kopieringen\n\
 [/A]  Ikke kopier filer som er markert som arkiv\n\
 [/M]  Bare kopier filer som er markert som akriv; fjerner denne merkingen\n\
+[/K]  Copy file attributes, without this attributes are not preserved.\n\
 [/D | /D:m-d-å] Kopier nye filer eller de som er endret etter\n\
 \t\tden oppgitte datoen.\n\
 \t\tHvis ingen dato oppgis kopieres bare de filene som er\n\

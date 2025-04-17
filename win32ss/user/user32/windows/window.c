@@ -81,20 +81,7 @@ BringWindowToTop(HWND hWnd)
 VOID WINAPI
 SwitchToThisWindow(HWND hwnd, BOOL fAltTab)
 {
-    HWND hwndFG;
-    if (fAltTab)
-    {
-        if (IsIconic(hwnd))
-            ShowWindowAsync(hwnd, SW_RESTORE);
-        SetForegroundWindow(hwnd);
-    }
-    else
-    {
-        hwndFG = GetForegroundWindow();
-        ShowWindow(hwnd, SW_RESTORE | SW_SHOWNA);
-        SetWindowPos(hwnd, hwndFG, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        SetWindowPos(hwndFG, hwnd, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-    }
+    NtUserxSwitchToThisWindow(hwnd, fAltTab);
 }
 
 
@@ -127,9 +114,9 @@ ChildWindowFromPointEx(HWND hwndParent,
 BOOL WINAPI
 CloseWindow(HWND hWnd)
 {
-    SendMessageA(hWnd, WM_SYSCOMMAND, SC_CLOSE, 0);
-
-    return HandleToUlong(hWnd);
+    /* NOTE: CloseWindow does minimizes, and doesn't close. */
+    SetActiveWindow(hWnd);
+    return ShowWindow(hWnd, SW_SHOWMINIMIZED);
 }
 
 FORCEINLINE
@@ -190,10 +177,14 @@ User32CreateWindowEx(DWORD dwExStyle,
     LPCWSTR lpszClsVersion;
     LPCWSTR lpLibFileName = NULL;
     HANDLE pCtx = NULL;
+    DWORD dwFlagsVer;
 
 #if 0
     DbgPrint("[window] User32CreateWindowEx style %d, exstyle %d, parent %d\n", dwStyle, dwExStyle, hWndParent);
 #endif
+
+    dwFlagsVer = RtlGetExpWinVer( hInstance ? hInstance : GetModuleHandleW(NULL) );
+    TRACE("Module Version %x\n",dwFlagsVer);
 
     if (!RegisterDefaultClasses)
     {
@@ -312,8 +303,8 @@ User32CreateWindowEx(DWORD dwExStyle,
                                       hMenu,
                                       hInstance,
                                       lpParam,
-                                      dwFlags,
-                                      NULL);
+                                      dwFlagsVer,
+                                      pCtx );
         if (Handle) break;
         if (!lpLibFileName) break;
         if (!ClassFound)
@@ -394,7 +385,7 @@ CreateWindowExA(DWORD dwExStyle,
         if (pWndParent->fnid != FNID_MDICLIENT) // wine uses WIN_ISMDICLIENT
         {
            WARN("WS_EX_MDICHILD, but parent %p is not MDIClient\n", hWndParent);
-           return NULL;
+           goto skip_mdi;
         }
 
         /* lpParams of WM_[NC]CREATE is different for MDI children.
@@ -460,6 +451,7 @@ CreateWindowExA(DWORD dwExStyle,
         }
     }
 
+skip_mdi:
     hwnd = User32CreateWindowEx(dwExStyle,
                                 lpClassName,
                                 lpWindowName,
@@ -519,7 +511,7 @@ CreateWindowExW(DWORD dwExStyle,
         if (pWndParent->fnid != FNID_MDICLIENT)
         {
            WARN("WS_EX_MDICHILD, but parent %p is not MDIClient\n", hWndParent);
-           return NULL;
+           goto skip_mdi;
         }
 
         /* lpParams of WM_[NC]CREATE is different for MDI children.
@@ -585,6 +577,7 @@ CreateWindowExW(DWORD dwExStyle,
         }
     }
 
+skip_mdi:
     hwnd = User32CreateWindowEx(dwExStyle,
                                 (LPCSTR)lpClassName,
                                 (LPCSTR)lpWindowName,
@@ -624,7 +617,7 @@ DeferWindowPos(HDWP hWinPosInfo,
 BOOL WINAPI
 EndDeferWindowPos(HDWP hWinPosInfo)
 {
-    return NtUserEndDeferWindowPosEx(hWinPosInfo, 0);
+    return NtUserEndDeferWindowPosEx(hWinPosInfo, FALSE);
 }
 
 
@@ -680,7 +673,7 @@ User32EnumWindows(HDESK hDesktop,
                                  hWndparent,
                                  bChildren,
                                  dwThreadId,
-                                 lParam,
+                                 dwCount,
                                  NULL,
                                  &dwCount);
     if (!NT_SUCCESS(Status))
@@ -708,7 +701,7 @@ User32EnumWindows(HDESK hDesktop,
                                  hWndparent,
                                  bChildren,
                                  dwThreadId,
-                                 lParam,
+                                 dwCount,
                                  pHwnd,
                                  &dwCount);
     if (!NT_SUCCESS(Status))
@@ -1148,9 +1141,19 @@ GetWindow(HWND hWnd,
                     FoundWnd = DesktopPtrToUser(FoundWnd->spwndNext);
                 break;
 
-            default:
-                Wnd = NULL;
+            case GW_ENABLEDPOPUP:
+            {
+                PWND pwndPopup = (PWND)NtUserCallHwnd(hWnd, HWND_ROUTINE_DWP_GETENABLEDPOPUP);
+                if (pwndPopup)
+                    FoundWnd = DesktopPtrToUser(pwndPopup);
                 break;
+            }
+
+            default:
+            {
+                UserSetLastError(ERROR_INVALID_GW_COMMAND);
+                break;
+            }
         }
 
         if (FoundWnd != NULL)
@@ -1528,9 +1531,8 @@ IsWindow(HWND hWnd)
     PWND Wnd = ValidateHwndNoErr(hWnd);
     if (Wnd != NULL)
     {
-        if (Wnd->state & WNDS_DESTROYED ||
-            Wnd->state2 & WNDS2_INDESTROY)
-           return FALSE;
+        if (Wnd->state & WNDS_DESTROYED)
+            return FALSE;
         return TRUE;
     }
 
@@ -1854,7 +1856,7 @@ InternalGetWindowText(HWND hWnd, LPWSTR lpString, int nMaxCount)
 BOOL WINAPI
 IsHungAppWindow(HWND hwnd)
 {
-    return (NtUserQueryWindow(hwnd, QUERY_WINDOW_ISHUNG) != 0);
+    return !!NtUserQueryWindow(hwnd, QUERY_WINDOW_ISHUNG);
 }
 
 /*
@@ -1954,7 +1956,7 @@ ScrollWindowEx(HWND hWnd,
 {
     if (flags & SW_SMOOTHSCROLL)
     {
-       FIXME("SW_SMOOTHSCROLL not supported.");
+       FIXME("SW_SMOOTHSCROLL not supported.\n");
        // Fall through....
     }
     return NtUserScrollWindowEx(hWnd,

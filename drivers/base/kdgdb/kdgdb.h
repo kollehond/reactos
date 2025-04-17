@@ -57,7 +57,7 @@ InitManipulateFromStateChange(
 }
 
 /* Callbacks to simulate a KdReceive <-> KdSend loop without GDB being aware of it */
-typedef VOID (*KDP_SEND_HANDLER)(
+typedef BOOLEAN (*KDP_SEND_HANDLER)(
     _In_ ULONG PacketType,
     _In_ PSTRING MessageHeader,
     _In_ PSTRING MessageData
@@ -96,6 +96,7 @@ extern const char hex_chars[];
 KDSTATUS NTAPI KdpPollBreakIn(VOID);
 VOID NTAPI KdpSendByte(_In_ UCHAR Byte);
 KDSTATUS NTAPI KdpReceiveByte(_Out_ PUCHAR OutByte);
+KDSTATUS NTAPI KdpPollByte(OUT PUCHAR OutByte);
 
 /* kdpacket.c */
 extern DBGKD_ANY_WAIT_STATE_CHANGE CurrentStateChange;
@@ -127,6 +128,17 @@ extern KDSTATUS gdb_send_registers(void);
     ((Context)->Eip)
 #  define KdpSetContextPc(Context, ProgramCounter) \
     ((Context)->Eip = (ProgramCounter))
+#  define KD_BREAKPOINT_TYPE        UCHAR
+#  define KD_BREAKPOINT_SIZE        sizeof(UCHAR)
+#  define KD_BREAKPOINT_VALUE       0xCC
+/* Single step mode */
+#  define KdpSetSingleStep(Context) \
+    ((Context)->EFlags |= EFLAGS_TF)
+#elif defined(_M_AMD64)
+#  define KdpGetContextPc(Context) \
+    ((Context)->Rip)
+#  define KdpSetContextPc(Context, ProgramCounter) \
+    ((Context)->Rip = (ProgramCounter))
 #  define KD_BREAKPOINT_TYPE        UCHAR
 #  define KD_BREAKPOINT_SIZE        sizeof(UCHAR)
 #  define KD_BREAKPOINT_VALUE       0xCC

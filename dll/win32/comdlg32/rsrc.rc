@@ -42,7 +42,8 @@
  * get localized bitmaps for example.
  */
 
-#pragma code_page(65001) // UTF-8
+/* UTF-8 */
+#pragma code_page(65001)
 
 #ifdef LANGUAGE_BG_BG
     #include "lang/cdlg_Bg.rc"
@@ -83,8 +84,14 @@
 #ifdef LANGUAGE_HE_IL
     #include "lang/cdlg_He.rc"
 #endif
+#ifdef LANGUAGE_HI_IN
+    #include "lang/cdlg_Hi.rc"
+#endif
 #ifdef LANGUAGE_HU_HU
     #include "lang/cdlg_Hu.rc"
+#endif
+#ifdef LANGUAGE_ID_ID
+    #include "lang/cdlg_Id.rc"
 #endif
 #ifdef LANGUAGE_IT_IT
     #include "lang/cdlg_It.rc"
@@ -139,9 +146,6 @@
 #endif
 #ifdef LANGUAGE_UK_UA
     #include "lang/cdlg_Uk.rc"
-#endif
-#ifdef LANGUAGE_ZH_TW
-    #include "lang/cdlg_Tw.rc"
 #endif
 #ifdef LANGUAGE_ZH_CN
     #include "lang/cdlg_Zh.rc"

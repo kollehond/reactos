@@ -6,12 +6,15 @@
  * PROGRAMMERS:     Aleksey Bragin (aleksey@reactos.org)
  */
 
-/* INCLUDES ***************************************************************/
+/* INCLUDES ******************************************************************/
 
 #include <freeldr.h>
-
 #include <ndk/asm.h>
+#include <internal/i386/intrin_i.h>
+#include "../../winldr.h"
+
 #include <debug.h>
+DBG_DEFAULT_CHANNEL(WINDOWS);
 
 // This is needed because headers define wrong one for ReactOS
 #undef KIP0PCRADDRESS
@@ -21,16 +24,73 @@
 
 // This is needed only for SetProcessorContext routine
 #pragma pack(2)
-    typedef struct
-    {
-        USHORT Limit;
-        ULONG Base;
-    } GDTIDT;
+typedef struct
+{
+    USHORT Limit;
+    ULONG Base;
+} GDTIDT;
 #pragma pack(4)
 
-DBG_DEFAULT_CHANNEL(WINDOWS);
+/*
+ * Consider adding these definitions into
+ * ntoskrnl/include/internal/i386/intrin_i.h and/or the NDK.
+ */
 
-/* GLOBALS ***************************************************************/
+#define DPL_SYSTEM  0
+#define DPL_USER    3
+
+#define TYPE_TSS16A 0x01    // 16-bit Task State Segment (Available)
+#define TYPE_LDT    0x02    // Local Descriptor Table
+#define TYPE_TSS16B 0x03    // 16-bit Task State Segment (Busy)
+#define TYPE_CALL16 0x04    // 16-bit Call Gate
+#define TYPE_TASK   0x05    // Task Gate (I386_TASK_GATE)
+#define TYPE_INT16  0x06    // 16-bit Interrupt Gate
+#define TYPE_TRAP16 0x07    // 16-bit Trap Gate
+// #define TYPE_RESERVED_1 0x08
+#define TYPE_TSS32A 0x09    // 32-bit Task State Segment (Available) (I386_TSS)
+// #define TYPE_RESERVED_2 0x0A
+#define TYPE_TSS32B 0x0B    // 32-bit Task State Segment (Busy) (I386_ACTIVE_TSS)
+#define TYPE_CALL32 0x0C    // 32-bit Call Gate (I386_CALL_GATE)
+// #define TYPE_RESERVED_3 0x0D
+#define TYPE_INT32  0x0E    // 32-bit Interrupt Gate (I386_INTERRUPT_GATE)
+#define TYPE_TRAP32 0x0F    // 32-bit Trap Gate (I386_TRAP_GATE)
+
+#define DESCRIPTOR_ACCESSED     0x1
+#define DESCRIPTOR_READ_WRITE   0x2
+#define DESCRIPTOR_EXECUTE_READ 0x2
+#define DESCRIPTOR_EXPAND_DOWN  0x4
+#define DESCRIPTOR_CONFORMING   0x4
+#define DESCRIPTOR_CODE         0x8
+
+#define TYPE_CODE   (0x10 | DESCRIPTOR_CODE | DESCRIPTOR_EXECUTE_READ)
+#define TYPE_DATA   (0x10 | DESCRIPTOR_READ_WRITE)
+
+#if 0
+VOID
+DumpGDTEntry(ULONG_PTR Base, ULONG Selector)
+{
+    PKGDTENTRY pGdt = (PKGDTENTRY)((ULONG_PTR)Base + Selector);
+
+    TRACE("\n"
+          "Selector 0x%04x\n"
+          "===============\n"
+          "LimitLow               = 0x%04x\n"
+          "BaseLow                = 0x%04x\n"
+          "HighWord.Bytes.BaseMid = 0x%02x\n"
+          "HighWord.Bytes.Flags1  = 0x%02x\n"
+          "HighWord.Bytes.Flags2  = 0x%02x\n"
+          "HighWord.Bytes.BaseHi  = 0x%02x\n"
+          "\n",
+          Selector,
+          pGdt->LimitLow, pGdt->BaseLow,
+          pGdt->HighWord.Bytes.BaseMid,
+          pGdt->HighWord.Bytes.Flags1,
+          pGdt->HighWord.Bytes.Flags2,
+          pGdt->HighWord.Bytes.BaseHi);
+}
+#endif
+
+/* GLOBALS *******************************************************************/
 
 PHARDWARE_PTE PDE;
 PHARDWARE_PTE HalPageTable;
@@ -44,7 +104,7 @@ ULONG PcrBasePage;
 ULONG TssBasePage;
 PVOID GdtIdt;
 
-/* FUNCTIONS **************************************************************/
+/* FUNCTIONS *****************************************************************/
 
 static
 BOOLEAN
@@ -57,7 +117,7 @@ MempAllocatePageTables(VOID)
     // Max number of entries = MaxPageNum >> 10
     // FIXME: This is a number to describe ALL physical memory
     // and windows doesn't expect ALL memory mapped...
-    NumPageTables = TotalPagesInLookupTable >> 10;
+    NumPageTables = MmGetTotalPagesInLookupTable() >> 10;
 
     TRACE("NumPageTables = %d\n", NumPageTables);
 
@@ -78,7 +138,7 @@ MempAllocatePageTables(VOID)
     if (Buffer + (TotalSize - NumPageTables*MM_PAGE_SIZE) !=
         PhysicalPageTablesBuffer)
     {
-        TRACE("There was a problem allocating two adjacent blocks of memory!");
+        TRACE("There was a problem allocating two adjacent blocks of memory!\n");
     }
 
     if (Buffer == NULL || PhysicalPageTablesBuffer == NULL)
@@ -120,7 +180,7 @@ static
 VOID
 MempAllocatePTE(ULONG Entry, PHARDWARE_PTE *PhysicalPT, PHARDWARE_PTE *KernelPT)
 {
-    //Print(L"Creating PDE Entry %X\n", Entry);
+    //TRACE("Creating PDE Entry %X\n", Entry);
 
     // Identity mapping
     *PhysicalPT = (PHARDWARE_PTE)&PhysicalPageTablesBuffer[PhysicalPageTables*MM_PAGE_SIZE];
@@ -160,10 +220,10 @@ MempSetupPaging(IN PFN_NUMBER StartPage,
     if (StartPage+NumberOfPages >= 0x80000)
     {
         //
-        // We can't map this as it requires more than 1 PDE
+        // We cannot map this as it requires more than 1 PDE
         // and in fact it's not possible at all ;)
         //
-        //Print(L"skipping...\n");
+        //TRACE("skipping...\n");
         return TRUE;
     }
 
@@ -185,12 +245,12 @@ MempSetupPaging(IN PFN_NUMBER StartPage,
         }
 
         PhysicalPT[Page & 0x3ff].PageFrameNumber = Page;
-        PhysicalPT[Page & 0x3ff].Valid = (Page != 0);
+        PhysicalPT[Page & 0x3ff].Valid = 1;
         PhysicalPT[Page & 0x3ff].Write = (Page != 0);
 
         if (KernelMapping)
         {
-             if (KernelPT[Page & 0x3ff].Valid) WARN("xxx already mapped \n");
+            if (KernelPT[Page & 0x3ff].Valid) WARN("KernelPT already mapped\n");
             KernelPT[Page & 0x3ff].PageFrameNumber = Page;
             KernelPT[Page & 0x3ff].Valid = (Page != 0);
             KernelPT[Page & 0x3ff].Write = (Page != 0);
@@ -259,12 +319,12 @@ static
 BOOLEAN
 WinLdrMapSpecialPages(void)
 {
-
-    //VideoDisplayString(L"Hello from VGA, going into the kernel\n");
     TRACE("HalPageTable: 0x%X\n", HalPageTable);
 
-    // Page Tables have been setup, make special handling for PCR and TSS
-    // (which is done in BlSetupFotNt in usual ntldr)
+    /*
+     * The Page Tables have been setup, make special handling
+     * for the boot processor PCR and KI_USER_SHARED_DATA.
+     */
     HalPageTable[(KI_USER_SHARED_DATA - 0xFFC00000) >> MM_PAGE_SHIFT].PageFrameNumber = PcrBasePage+1;
     HalPageTable[(KI_USER_SHARED_DATA - 0xFFC00000) >> MM_PAGE_SHIFT].Valid = 1;
     HalPageTable[(KI_USER_SHARED_DATA - 0xFFC00000) >> MM_PAGE_SHIFT].Write = 1;
@@ -273,10 +333,10 @@ WinLdrMapSpecialPages(void)
     HalPageTable[(KIP0PCRADDRESS - 0xFFC00000) >> MM_PAGE_SHIFT].Valid = 1;
     HalPageTable[(KIP0PCRADDRESS - 0xFFC00000) >> MM_PAGE_SHIFT].Write = 1;
 
-    // Map APIC
+    /* Map APIC */
     WinLdrpMapApic();
 
-    // Map VGA memory
+    /* Map VGA memory */
     //VideoMemoryBase = MmMapIoSpace(0xb8000, 4000, MmNonCached);
     //TRACE("VideoMemoryBase: 0x%X\n", VideoMemoryBase);
 
@@ -287,69 +347,24 @@ WinLdrMapSpecialPages(void)
 #define ExtendedBIOSDataSize ((PULONG)0x744)
 #define RomFontPointers ((PULONG)0x700)
 
-enum
-{
-    INT1FhFont = 0x00,
-    INT43hFont = 0x01,
-    ROM_8x14CharacterFont = 0x02,
-    ROM_8x8DoubleDotFontLo = 0x03,
-    ROM_8x8DoubleDotFontHi = 0x04,
-    ROM_AlphaAlternate = 0x05,
-    ROM_8x16Font = 0x06,
-    ROM_Alternate9x16Font = 0x07,
-    UltraVision_8x20Font = 0x11,
-    UltraVision_8x10Font = 0x12,
-};
-
 static
 void WinLdrSetupSpecialDataPointers(VOID)
 {
-    REGS BiosRegs;
-
-    /* Get the address of the bios rom fonts. Win 2003 videoprt reads these
+    /* Get the address of the BIOS ROM fonts. Win 2003 videoprt reads these
        values from address 0x700 .. 0x718 and store them in the registry
-       in HKLM\System\CurrentControlSet\Control\Wow\RomFontPointers
-       Int 10h, AX=1130h, BH = pointer specifier
-       returns: es:bp = address */
-    BiosRegs.d.eax = 0x1130;
-    BiosRegs.b.bh = ROM_8x14CharacterFont;
-    Int386(0x10, &BiosRegs, &BiosRegs);
-    RomFontPointers[0] = BiosRegs.w.es << 4 | BiosRegs.w.bp;
+       in HKLM\System\CurrentControlSet\Control\Wow\RomFontPointers */
+    MachVideoGetFontsFromFirmware(RomFontPointers);
 
-    BiosRegs.b.bh = ROM_8x8DoubleDotFontLo;
-    Int386(0x10, &BiosRegs, &BiosRegs);
-    RomFontPointers[1] = BiosRegs.w.es << 16 | BiosRegs.w.bp;
+    /* Store address of the extended BIOS data area in 0x740 */
+    MachGetExtendedBIOSData(ExtendedBIOSDataArea, ExtendedBIOSDataSize);
 
-    BiosRegs.b.bh = ROM_8x8DoubleDotFontHi;
-    Int386(0x10, &BiosRegs, &BiosRegs);
-    RomFontPointers[2] = BiosRegs.w.es << 16 | BiosRegs.w.bp;
-
-    BiosRegs.b.bh = ROM_AlphaAlternate;
-    Int386(0x10, &BiosRegs, &BiosRegs);
-    RomFontPointers[3] = BiosRegs.w.es << 16 | BiosRegs.w.bp;
-
-    BiosRegs.b.bh = ROM_8x16Font;
-    Int386(0x10, &BiosRegs, &BiosRegs);
-    RomFontPointers[4] = BiosRegs.w.es << 16 | BiosRegs.w.bp;
-
-    BiosRegs.b.bh = ROM_Alternate9x16Font;
-    Int386(0x10, &BiosRegs, &BiosRegs);
-    RomFontPointers[5] = BiosRegs.w.es << 16 | BiosRegs.w.bp;
-
-    /* Store address of the extended bios data area in 0x740 */
-    BiosRegs.d.eax = 0xC100;
-    Int386(0x15, &BiosRegs, &BiosRegs);
-    if (INT386_SUCCESS(BiosRegs))
+    if (*ExtendedBIOSDataArea == 0 && *ExtendedBIOSDataSize == 0)
     {
-        *ExtendedBIOSDataArea = BiosRegs.w.es << 4;
-        *ExtendedBIOSDataSize = 1024;
-        TRACE("*ExtendedBIOSDataArea = 0x%lx\n", *ExtendedBIOSDataArea);
+        WARN("Couldn't get address of extended BIOS data area\n");
     }
     else
     {
-        WARN("Couldn't get address of extended BIOS data area\n");
-        *ExtendedBIOSDataArea = 0;
-        *ExtendedBIOSDataSize = 0;
+        TRACE("*ExtendedBIOSDataArea = 0x%lx\n", *ExtendedBIOSDataArea);
     }
 }
 
@@ -364,13 +379,12 @@ void WinLdrSetupMachineDependent(PLOADER_PARAMETER_BLOCK LoaderBlock)
     LoaderBlock->u.I386.CommonDataArea = NULL; // Force No ABIOS support
     LoaderBlock->u.I386.MachineType = MACHINE_TYPE_ISA;
 
-    /* Allocate 2 pages for PCR */
+    /* Allocate 2 pages for PCR: one for the boot processor PCR and one for KI_USER_SHARED_DATA */
     Pcr = (ULONG_PTR)MmAllocateMemoryWithType(2 * MM_PAGE_SIZE, LoaderStartupPcrPage);
     PcrBasePage = Pcr >> MM_PAGE_SHIFT;
-
     if (Pcr == 0)
     {
-        UiMessageBox("Can't allocate PCR.");
+        UiMessageBox("Could not allocate PCR.");
         return;
     }
 
@@ -379,17 +393,20 @@ void WinLdrSetupMachineDependent(PLOADER_PARAMETER_BLOCK LoaderBlock)
     //TssPages = TssSize / MM_PAGE_SIZE;
 
     Tss = (ULONG_PTR)MmAllocateMemoryWithType(TssSize, LoaderMemoryData);
-
     TssBasePage = Tss >> MM_PAGE_SHIFT;
+    if (Tss == 0)
+    {
+        UiMessageBox("Could not allocate TSS.");
+        return;
+    }
 
     /* Allocate space for new GDT + IDT */
     BlockSize = NUM_GDT*sizeof(KGDTENTRY) + NUM_IDT*sizeof(KIDTENTRY);//FIXME: Use GDT/IDT limits here?
     NumPages = (BlockSize + MM_PAGE_SIZE - 1) >> MM_PAGE_SHIFT;
     GdtIdt = (PKGDTENTRY)MmAllocateMemoryWithType(NumPages * MM_PAGE_SIZE, LoaderMemoryData);
-
     if (GdtIdt == NULL)
     {
-        UiMessageBox("Can't allocate pages for GDT+IDT!");
+        UiMessageBox("Could not allocate pages for GDT+IDT!");
         return;
     }
 
@@ -412,7 +429,8 @@ void WinLdrSetupMachineDependent(PLOADER_PARAMETER_BLOCK LoaderBlock)
 
 
 VOID
-WinLdrSetProcessorContext(void)
+WinLdrSetProcessorContext(
+    _In_ USHORT OperatingSystemVersion)
 {
     GDTIDT GdtDesc, IdtDesc, OldIdt;
     PKGDTENTRY    pGdt;
@@ -425,37 +443,36 @@ WinLdrSetProcessorContext(void)
     Pcr = KIP0PCRADDRESS;
     Tss = KSEG0_BASE | (TssBasePage << MM_PAGE_SHIFT);
 
-    TRACE("GDtIdt %p, Pcr %p, Tss 0x%08X\n",
-        GdtIdt, Pcr, Tss);
+    TRACE("GdtIdt %p, Pcr %p, Tss 0x%08x\n",
+          GdtIdt, Pcr, Tss);
 
-    // Enable paging
+    /* Enable paging */
     //BS->ExitBootServices(ImageHandle,MapKey);
 
-    // Disable Interrupts
+    /* Disable Interrupts */
     _disable();
 
-    // Re-initialize EFLAGS
+    /* Re-initialize EFLAGS */
     __writeeflags(0);
 
-    // Set the PDBR
+    /* Set the PDBR */
     __writecr3((ULONG_PTR)PDE);
 
-    // Enable paging by modifying CR0
+    /* Enable paging by modifying CR0 */
     __writecr0(__readcr0() | CR0_PG);
 
-    // Kernel expects the PCR to be zero-filled on startup
-    // FIXME: Why zero it here when we can zero it right after allocation?
-    RtlZeroMemory((PVOID)Pcr, MM_PAGE_SIZE); //FIXME: Why zero only 1 page when we allocate 2?
+    /* The Kernel expects the boot processor PCR to be zero-filled on startup */
+    RtlZeroMemory((PVOID)Pcr, MM_PAGE_SIZE);
 
-    // Get old values of GDT and IDT
+    /* Get old values of GDT and IDT */
     Ke386GetGlobalDescriptorTable(&GdtDesc);
     __sidt(&IdtDesc);
 
-    // Save old IDT
-    OldIdt.Base = IdtDesc.Base;
+    /* Save old IDT */
+    OldIdt.Base  = IdtDesc.Base;
     OldIdt.Limit = IdtDesc.Limit;
 
-    // Prepare new IDT+GDT
+    /* Prepare new IDT+GDT */
     GdtDesc.Base  = KSEG0_BASE | (ULONG_PTR)GdtIdt;
     GdtDesc.Limit = NUM_GDT * sizeof(KGDTENTRY) - 1;
     IdtDesc.Base  = (ULONG)((PUCHAR)GdtDesc.Base + GdtDesc.Limit + 1);
@@ -468,170 +485,133 @@ WinLdrSetProcessorContext(void)
     pGdt = (PKGDTENTRY)GdtDesc.Base;
     pIdt = (PKIDTENTRY)IdtDesc.Base;
 
-    //
-    // Code selector (0x8)
-    // Flat 4Gb
-    //
-    pGdt[1].LimitLow                = 0xFFFF;
-    pGdt[1].BaseLow                    = 0;
-    pGdt[1].HighWord.Bytes.BaseMid    = 0;
-    pGdt[1].HighWord.Bytes.Flags1    = 0x9A;
-    pGdt[1].HighWord.Bytes.Flags2    = 0xCF;
-    pGdt[1].HighWord.Bytes.BaseHi    = 0;
+    /* KGDT_NULL (0x00) Null Selector - Unused */
+    KiSetGdtEntry(KiGetGdtEntry(pGdt, KGDT_NULL), 0x0000, 0, 0, DPL_SYSTEM, 0);
+    // DumpGDTEntry(GdtDesc.Base, KGDT_NULL);
 
-    //
-    // Data selector (0x10)
-    // Flat 4Gb
-    //
-    pGdt[2].LimitLow                = 0xFFFF;
-    pGdt[2].BaseLow                    = 0;
-    pGdt[2].HighWord.Bytes.BaseMid    = 0;
-    pGdt[2].HighWord.Bytes.Flags1    = 0x92;
-    pGdt[2].HighWord.Bytes.Flags2    = 0xCF;
-    pGdt[2].HighWord.Bytes.BaseHi    = 0;
+    /* KGDT_R0_CODE (0x08) Ring 0 Code selector - Flat 4Gb */
+    KiSetGdtEntry(KiGetGdtEntry(pGdt, KGDT_R0_CODE), 0x0000, 0xFFFFFFFF,
+                  TYPE_CODE, DPL_SYSTEM, 2);
+    // DumpGDTEntry(GdtDesc.Base, KGDT_R0_CODE);
 
-    //
-    // Selector (0x18)
-    // Flat 2Gb
-    //
-    pGdt[3].LimitLow                = 0xFFFF;
-    pGdt[3].BaseLow                    = 0;
-    pGdt[3].HighWord.Bytes.BaseMid    = 0;
-    pGdt[3].HighWord.Bytes.Flags1    = 0xFA;
-    pGdt[3].HighWord.Bytes.Flags2    = 0xCF;
-    pGdt[3].HighWord.Bytes.BaseHi    = 0;
+    /* KGDT_R0_DATA (0x10) Ring 0 Data selector - Flat 4Gb */
+    KiSetGdtEntry(KiGetGdtEntry(pGdt, KGDT_R0_DATA), 0x0000, 0xFFFFFFFF,
+                  TYPE_DATA, DPL_SYSTEM, 2);
+    // DumpGDTEntry(GdtDesc.Base, KGDT_R0_DATA);
 
-    //
-    // Selector (0x20)
-    // Flat 2Gb
-    //
-    pGdt[4].LimitLow                = 0xFFFF;
-    pGdt[4].BaseLow                    = 0;
-    pGdt[4].HighWord.Bytes.BaseMid    = 0;
-    pGdt[4].HighWord.Bytes.Flags1    = 0xF2;
-    pGdt[4].HighWord.Bytes.Flags2    = 0xCF;
-    pGdt[4].HighWord.Bytes.BaseHi    = 0;
+    /* KGDT_R3_CODE (0x18) Ring 3 Code Selector - Flat 2Gb */
+    KiSetGdtEntry(KiGetGdtEntry(pGdt, KGDT_R3_CODE), 0x0000, 0xFFFFFFFF,
+                  TYPE_CODE, DPL_USER, 2);
+    // DumpGDTEntry(GdtDesc.Base, KGDT_R3_CODE);
 
-    //
-    // TSS Selector (0x28)
-    //
-    pGdt[5].LimitLow                = 0x78-1; //FIXME: Check this
-    pGdt[5].BaseLow = (USHORT)(Tss & 0xffff);
-    pGdt[5].HighWord.Bytes.BaseMid = (UCHAR)((Tss >> 16) & 0xff);
-    pGdt[5].HighWord.Bytes.Flags1    = 0x89;
-    pGdt[5].HighWord.Bytes.Flags2    = 0x00;
-    pGdt[5].HighWord.Bytes.BaseHi  = (UCHAR)((Tss >> 24) & 0xff);
+    /* KGDT_R3_DATA (0x20) Ring 3 Data Selector - Flat 2Gb */
+    KiSetGdtEntry(KiGetGdtEntry(pGdt, KGDT_R3_DATA), 0x0000, 0xFFFFFFFF,
+                  TYPE_DATA, DPL_USER, 2);
+    // DumpGDTEntry(GdtDesc.Base, KGDT_R3_DATA);
 
-    //
-    // PCR Selector (0x30)
-    //
-    pGdt[6].LimitLow                = 0x01;
-    pGdt[6].BaseLow  = (USHORT)(Pcr & 0xffff);
-    pGdt[6].HighWord.Bytes.BaseMid = (UCHAR)((Pcr >> 16) & 0xff);
-    pGdt[6].HighWord.Bytes.Flags1    = 0x92;
-    pGdt[6].HighWord.Bytes.Flags2    = 0xC0;
-    pGdt[6].HighWord.Bytes.BaseHi  = (UCHAR)((Pcr >> 24) & 0xff);
+    /* KGDT_TSS (0x28) TSS Selector (Ring 0) */
+    KiSetGdtEntry(KiGetGdtEntry(pGdt, KGDT_TSS), (ULONG32)Tss,
+                  0x78-1 /* FIXME: Check this; would be sizeof(KTSS)-1 */,
+                  TYPE_TSS32A, DPL_SYSTEM, 0);
+    // DumpGDTEntry(GdtDesc.Base, KGDT_TSS);
 
-    //
-    // Selector (0x38)
-    //
-    pGdt[7].LimitLow                = 0xFFFF;
-    pGdt[7].BaseLow                    = 0;
-    pGdt[7].HighWord.Bytes.BaseMid    = 0;
-    pGdt[7].HighWord.Bytes.Flags1    = 0xF3;
-    pGdt[7].HighWord.Bytes.Flags2    = 0x40;
-    pGdt[7].HighWord.Bytes.BaseHi    = 0;
+    /*
+     * KGDT_R0_PCR (0x30) PCR Selector (Ring 0)
+     *
+     * IMPORTANT COMPATIBILITY NOTE:
+     * Windows <= Server 2003 sets a Base == KIP0PCRADDRESS (0xffdff000 on x86)
+     * with a Limit of 1 page (LimitLow == 1, Granularity == 1, that is interpreted
+     * as a "Limit" == 0x1fff but is incorrect, of course).
+     * On Windows Longhorn/Vista+ however, the Base is not hardcoded to KIP0PCRADDRESS
+     * and the limit is set in bytes (Granularity == 0):
+     * Longhorn/Vista reports LimitLow == 0x0fff == MM_PAGE_SIZE - 1, whereas
+     * Windows 7+ uses larger sizes there (not aligned on a page boundary).
+     */
+    if (OperatingSystemVersion < _WIN32_WINNT_VISTA)
+    {
+        /* Server 2003 way */
+        KiSetGdtEntryEx(KiGetGdtEntry(pGdt, KGDT_R0_PCR), (ULONG32)Pcr, 0x1,
+                        TYPE_DATA, DPL_SYSTEM, TRUE, 2);
+    }
+    else
+    {
+        /* Vista+ way */
+        KiSetGdtEntry(KiGetGdtEntry(pGdt, KGDT_R0_PCR), (ULONG32)Pcr, MM_PAGE_SIZE - 1,
+                      TYPE_DATA, DPL_SYSTEM, 2);
+    }
 
-    //
-    // Some BIOS stuff (0x40)
-    //
-    pGdt[8].LimitLow                = 0xFFFF;
-    pGdt[8].BaseLow                    = 0x400;
-    pGdt[8].HighWord.Bytes.BaseMid    = 0;
-    pGdt[8].HighWord.Bytes.Flags1    = 0xF2;
-    pGdt[8].HighWord.Bytes.Flags2    = 0x0;
-    pGdt[8].HighWord.Bytes.BaseHi    = 0;
+    // DumpGDTEntry(GdtDesc.Base, KGDT_R0_PCR);
 
-    //
-    // Selector (0x48)
-    //
-    pGdt[9].LimitLow                = 0;
-    pGdt[9].BaseLow                    = 0;
-    pGdt[9].HighWord.Bytes.BaseMid    = 0;
-    pGdt[9].HighWord.Bytes.Flags1    = 0;
-    pGdt[9].HighWord.Bytes.Flags2    = 0;
-    pGdt[9].HighWord.Bytes.BaseHi    = 0;
+    /* KGDT_R3_TEB (0x38) Thread Environment Block Selector (Ring 3) */
+    KiSetGdtEntry(KiGetGdtEntry(pGdt, KGDT_R3_TEB), 0x0000, 0x0FFF,
+                  TYPE_DATA | DESCRIPTOR_ACCESSED, DPL_USER, 2);
+    // DumpGDTEntry(GdtDesc.Base, KGDT_R3_TEB);
 
-    //
-    // Selector (0x50)
-    //
-    pGdt[10].LimitLow                = 0xFFFF; //FIXME: Not correct!
-    pGdt[10].BaseLow                = 0;
-    pGdt[10].HighWord.Bytes.BaseMid    = 0x2;
-    pGdt[10].HighWord.Bytes.Flags1    = 0x89;
-    pGdt[10].HighWord.Bytes.Flags2    = 0;
-    pGdt[10].HighWord.Bytes.BaseHi    = 0;
+    /* KGDT_VDM_TILE (0x40) VDM BIOS Data Area Selector (Ring 3) */
+    KiSetGdtEntry(KiGetGdtEntry(pGdt, KGDT_VDM_TILE), 0x0400, 0xFFFF,
+                  TYPE_DATA, DPL_USER, 0);
+    // DumpGDTEntry(GdtDesc.Base, KGDT_VDM_TILE);
 
-    //
-    // Selector (0x58)
-    //
-    pGdt[11].LimitLow                = 0xFFFF;
-    pGdt[11].BaseLow                = 0;
-    pGdt[11].HighWord.Bytes.BaseMid    = 0x2;
-    pGdt[11].HighWord.Bytes.Flags1    = 0x9A;
-    pGdt[11].HighWord.Bytes.Flags2    = 0;
-    pGdt[11].HighWord.Bytes.BaseHi    = 0;
+    /* KGDT_LDT (0x48) LDT Selector (Reserved) */
+    KiSetGdtEntry(KiGetGdtEntry(pGdt, KGDT_LDT), 0x0000, 0, 0, DPL_SYSTEM, 0);
+    // DumpGDTEntry(GdtDesc.Base, KGDT_LDT);
 
-    //
-    // Selector (0x60)
-    //
-    pGdt[12].LimitLow                = 0xFFFF;
-    pGdt[12].BaseLow                = 0; //FIXME: Maybe not correct, but noone cares
-    pGdt[12].HighWord.Bytes.BaseMid    = 0x2;
-    pGdt[12].HighWord.Bytes.Flags1    = 0x92;
-    pGdt[12].HighWord.Bytes.Flags2    = 0;
-    pGdt[12].HighWord.Bytes.BaseHi    = 0;
+    /* KGDT_DF_TSS (0x50) Double-Fault Task Switch Selector (Ring 0) */
+    KiSetGdtEntry(KiGetGdtEntry(pGdt, KGDT_DF_TSS), 0x20000 /* FIXME: Not correct! */,
+                  0xFFFF /* FIXME: Not correct! */,
+                  TYPE_TSS32A, DPL_SYSTEM, 0);
+    // DumpGDTEntry(GdtDesc.Base, KGDT_DF_TSS);
 
-    //
-    // Video buffer Selector (0x68)
-    //
-    pGdt[13].LimitLow                = 0x3FFF;
-    pGdt[13].BaseLow                = 0x8000;
-    pGdt[13].HighWord.Bytes.BaseMid    = 0x0B;
-    pGdt[13].HighWord.Bytes.Flags1    = 0x92;
-    pGdt[13].HighWord.Bytes.Flags2    = 0;
-    pGdt[13].HighWord.Bytes.BaseHi    = 0;
+    /* KGDT_NMI_TSS (0x58) NMI Task Switch Selector (Ring 0) */
+    KiSetGdtEntry(KiGetGdtEntry(pGdt, KGDT_NMI_TSS), 0x20000, 0xFFFF,
+                  TYPE_CODE, DPL_SYSTEM, 0);
+    // DumpGDTEntry(GdtDesc.Base, KGDT_NMI_TSS);
 
-    //
-    // Points to GDT (0x70)
-    //
-    pGdt[14].LimitLow                = NUM_GDT*sizeof(KGDTENTRY) - 1;
-    pGdt[14].BaseLow                = 0x7000;
-    pGdt[14].HighWord.Bytes.BaseMid    = 0xFF;
-    pGdt[14].HighWord.Bytes.Flags1    = 0x92;
-    pGdt[14].HighWord.Bytes.Flags2    = 0;
-    pGdt[14].HighWord.Bytes.BaseHi    = 0xFF;
+    /* Selector (0x60) - Unused (Reserved) on Windows Longhorn/Vista+ */
+    KiSetGdtEntry(KiGetGdtEntry(pGdt, 0x60), 0x20000 /* FIXME: Maybe not correct, but noone cares */,
+                  0xFFFF, TYPE_DATA, DPL_SYSTEM, 0);
+    // DumpGDTEntry(GdtDesc.Base, 0x60);
 
-    //
-    // Some unused descriptors should go here
-    //
+    /* Video Display Buffer Selector (0x68) - Unused (Reserved) on Windows Longhorn/Vista+ */
+    KiSetGdtEntry(KiGetGdtEntry(pGdt, 0x68), 0xB8000, 0x3FFF,
+                  TYPE_DATA, DPL_SYSTEM, 0);
+    // DumpGDTEntry(GdtDesc.Base, 0x68);
 
-    // Copy the old IDT
+    /*
+     * GDT Alias Selector (points to GDT) (0x70)
+     *
+     * IMPORTANT COMPATIBILITY NOTE:
+     * The Base is not fixed to 0xFFFF7000 on Windows Longhorn/Vista+.
+     */
+    KiSetGdtEntry(KiGetGdtEntry(pGdt, 0x70), 0xFFFF7000 /* GdtDesc.Base ?? */, GdtDesc.Limit,
+                  TYPE_DATA, DPL_SYSTEM, 0);
+    // DumpGDTEntry(GdtDesc.Base, 0x70);
+
+    /*
+     * Windows <= Server 2003 defines three additional unused but valid
+     * descriptors there, possibly for debugging purposes only.
+     * They are not present on Windows Longhorn/Vista+.
+     */
+    // KiSetGdtEntry(KiGetGdtEntry(pGdt, 0x78), 0x80400000, 0xffff, TYPE_CODE, DPL_SYSTEM, 0);
+    // KiSetGdtEntry(KiGetGdtEntry(pGdt, 0x80), 0x80400000, 0xffff, TYPE_DATA, DPL_SYSTEM, 0);
+    // KiSetGdtEntry(KiGetGdtEntry(pGdt, 0x88), 0x0000, 0, TYPE_DATA, DPL_SYSTEM, 0);
+
+    /* Copy the old IDT */
     RtlCopyMemory(pIdt, (PVOID)OldIdt.Base, OldIdt.Limit + 1);
 
-    // Mask interrupts
+    /* Mask interrupts */
     //asm("cli\n"); // they are already masked before enabling paged mode
 
-    // Load GDT+IDT
+    /* Load GDT+IDT */
     Ke386SetGlobalDescriptorTable(&GdtDesc);
     __lidt(&IdtDesc);
 
-    // Jump to proper CS and clear prefetch queue
-#if defined(__GNUC__)
+    /* Jump to proper CS and clear prefetch queue */
+#if defined(__GNUC__) || defined(__clang__)
     asm("ljmp    $0x08, $1f\n"
         "1:\n");
 #elif defined(_MSC_VER)
-    /* We can't express the above in MASM so we use this far return instead */
+    /* We cannot express the above in MASM so we use this far return instead */
     __asm
     {
         push 8
@@ -643,41 +623,41 @@ WinLdrSetProcessorContext(void)
 #error
 #endif
 
-    // Set SS selector
-    Ke386SetSs(0x10); // DataSelector=0x10
+    /* Set SS selector */
+    Ke386SetSs(KGDT_R0_DATA);
 
-    // Set DS and ES selectors
-    Ke386SetDs(0x10);
-    Ke386SetEs(0x10); // this is vital for rep stosd
+    /* Set DS and ES selectors */
+    Ke386SetDs(KGDT_R0_DATA);
+    Ke386SetEs(KGDT_R0_DATA); // This is vital for rep stosd
 
-    // LDT = not used ever, thus set to 0
+    /* LDT = not used ever, thus set to 0 */
     Ke386SetLocalDescriptorTable(Ldt);
 
-    // Load TSR
+    /* Load TSR */
     Ke386SetTr(KGDT_TSS);
 
-    // Clear GS
+    /* Clear GS */
     Ke386SetGs(0);
 
-    // Set FS to PCR
-    Ke386SetFs(0x30);
+    /* Set FS to PCR */
+    Ke386SetFs(KGDT_R0_PCR);
 
-        // Real end of the function, just for information
-        /* do not uncomment!
-        pop edi;
-        pop esi;
-        pop ebx;
-        mov esp, ebp;
-        pop ebp;
-        ret
-        */
+    // Real end of the function, just for information
+    /* do not uncomment!
+    pop edi;
+    pop esi;
+    pop ebx;
+    mov esp, ebp;
+    pop ebp;
+    ret
+    */
 }
 
 #if DBG
 VOID
 MempDump(VOID)
 {
-    ULONG *PDE_Addr=(ULONG *)PDE;//0xC0300000;
+    PULONG PDE_Addr=(PULONG)PDE;//0xC0300000;
     int i, j;
 
     TRACE("\nPDE\n");

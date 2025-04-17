@@ -23,6 +23,8 @@ IDI_APPUPD ICON "res/appupd.ico"
 IDI_CATEGORY ICON "res/cat.ico"
 IDI_UPDATE_DB ICON "res/updatedb.ico"
 IDI_CHECK_ALL ICON "res/select.ico"
+IDI_SELECTEDFORINST ICON "res/select.ico"
+IDI_BROKEN_IMAGE ICON "res/brokenimg.ico"
 
 /* Categories */
 IDI_CAT_AUDIO ICON "res/cats/audio.ico"
@@ -40,7 +42,7 @@ IDI_CAT_OTHER ICON "res/cats/other.ico"
 IDI_CAT_SCIENCE ICON "res/cats/science.ico"
 IDI_CAT_TOOLS ICON "res/cats/tools.ico"
 IDI_CAT_VIDEO ICON "res/cats/video.ico"
-IDI_SELECTEDFORINST ICON "res/select.ico"
+IDI_CAT_THEMES ICON "res/cats/themes.ico"
 
 /* Accelerators -- key bindings */
 HOTKEYS ACCELERATORS
@@ -75,11 +77,20 @@ HOTKEYS ACCELERATORS
 #ifdef LANGUAGE_ES_ES
     #include "lang/es-ES.rc"
 #endif
+#ifdef LANGUAGE_ET_EE
+    #include "lang/et-EE.rc"
+#endif
 #ifdef LANGUAGE_FR_FR
     #include "lang/fr-FR.rc"
 #endif
 #ifdef LANGUAGE_HE_IL
     #include "lang/he-IL.rc"
+#endif
+#ifdef LANGUAGE_HU_HU
+    #include "lang/hu-HU.rc"
+#endif
+#ifdef LANGUAGE_ID_ID
+    #include "lang/id-ID.rc"
 #endif
 #ifdef LANGUAGE_IT_IT
     #include "lang/it-IT.rc"
@@ -95,6 +106,9 @@ HOTKEYS ACCELERATORS
 #endif
 #ifdef LANGUAGE_PT_BR
     #include "lang/pt-BR.rc"
+#endif
+#ifdef LANGUAGE_PT_PT
+    #include "lang/pt-PT.rc"
 #endif
 #ifdef LANGUAGE_RO_RO
     #include "lang/ro-RO.rc"
@@ -119,6 +133,9 @@ HOTKEYS ACCELERATORS
 #endif
 #ifdef LANGUAGE_ZH_CN
     #include "lang/zh-CN.rc"
+#endif
+#ifdef LANGUAGE_ZH_HK
+    #include "lang/zh-HK.rc"
 #endif
 #ifdef LANGUAGE_ZH_TW
     #include "lang/zh-TW.rc"

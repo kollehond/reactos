@@ -5,7 +5,8 @@ include_directories(
 
 add_definitions(
     -D_DLL -D__USE_CRTIMP
-    -DADNS_JGAA_WIN32)
+    -DADNS_JGAA_WIN32
+    -D_CRT_NO_POSIX_ERROR_CODES)
 
 list(APPEND SOURCE
     adns_win32/adns_unix_calls.c
@@ -23,8 +24,8 @@ list(APPEND SOURCE
 
 add_library(adns ${SOURCE})
 
-if(NOT MSVC)
-    add_target_compile_flags(adns "-Wno-unused-but-set-variable")
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(adns PRIVATE -Wno-unused-but-set-variable)
 endif()
 
 add_dependencies(adns psdk)

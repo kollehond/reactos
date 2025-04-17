@@ -53,7 +53,7 @@ VgaQueryAvailableModes(
     PHW_DEVICE_EXTENSION HwDeviceExtension,
     PVIDEO_MODE_INFORMATION ModeInformation,
     ULONG ModeInformationSize,
-    PULONG OutputSize
+    PULONG_PTR OutputSize
     );
 
 VP_STATUS
@@ -62,7 +62,7 @@ VgaQueryNumberOfAvailableModes(
     PHW_DEVICE_EXTENSION HwDeviceExtension,
     PVIDEO_NUM_MODES NumModes,
     ULONG NumModesSize,
-    PULONG OutputSize
+    PULONG_PTR OutputSize
     );
 
 VP_STATUS
@@ -71,7 +71,7 @@ VgaQueryCurrentMode(
     PHW_DEVICE_EXTENSION HwDeviceExtension,
     PVIDEO_MODE_INFORMATION ModeInformation,
     ULONG ModeInformationSize,
-    PULONG OutputSize
+    PULONG_PTR OutputSize
     );
 
 VP_STATUS
@@ -749,10 +749,10 @@ Return Value:
 // eVb: 1.13 [END]
 
         //
-        // Always return succcess since settings the text mode will fail on
+        // Always return success since settings the text mode will fail on
         // non-x86.
         //
-        // Also, failiure to set the text mode is not fatal in any way, since
+        // Also, failure to set the text mode is not fatal in any way, since
         // this operation must be followed by another set mode operation.
         //
 

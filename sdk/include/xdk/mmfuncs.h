@@ -321,12 +321,11 @@ PVOID
 NTAPI
 MmMapLockedPagesSpecifyCache(
   _Inout_ PMDL MemoryDescriptorList,
-  _In_ __drv_strictType(KPROCESSOR_MODE/enum _MODE,__drv_typeConst)
-    KPROCESSOR_MODE AccessMode,
+  _In_ __drv_strictType(KPROCESSOR_MODE/enum _MODE,__drv_typeConst) KPROCESSOR_MODE AccessMode,
   _In_ __drv_strictTypeMatch(__drv_typeCond) MEMORY_CACHING_TYPE CacheType,
-  _In_opt_ PVOID BaseAddress,
+  _In_opt_ PVOID RequestedAddress,
   _In_ ULONG BugCheckOnFailure,
-  _In_ MM_PAGE_PRIORITY Priority);
+  _In_ ULONG Priority);
 
 _IRQL_requires_max_(APC_LEVEL)
 NTKERNELAPI
@@ -634,7 +633,7 @@ MmAdvanceMdl(
 
 _Must_inspect_result_
 _IRQL_requires_max_(APC_LEVEL)
-_When_ (return != NULL, _Out_writes_bytes_opt_ (NumberOfBytes))
+_Ret_maybenull_
 NTKERNELAPI
 PVOID
 NTAPI
@@ -647,7 +646,7 @@ NTKERNELAPI
 VOID
 NTAPI
 MmFreeMappingAddress(
-  _In_ PVOID BaseAddress,
+  _In_ __drv_freesMem(Mem) _Post_invalid_ PVOID BaseAddress,
   _In_ ULONG PoolTag);
 
 _IRQL_requires_max_ (APC_LEVEL)

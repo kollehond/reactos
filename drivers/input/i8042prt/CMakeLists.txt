@@ -15,7 +15,7 @@ list(APPEND SOURCE
     registry.c
     i8042prt.h)
 
-add_library(i8042prt SHARED
+add_library(i8042prt MODULE
     ${SOURCE}
     guid.c
     i8042prt.rc)
@@ -25,3 +25,4 @@ target_link_libraries(i8042prt dmilib)
 add_importlibs(i8042prt ntoskrnl hal)
 add_pch(i8042prt i8042prt.h SOURCE)
 add_cd_file(TARGET i8042prt DESTINATION reactos/system32/drivers NO_CAB FOR all)
+add_registry_inf(i8042prt_reg.inf)

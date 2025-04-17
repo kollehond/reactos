@@ -32,29 +32,6 @@
 #define NDEBUG
 #include <debug.h>
 
-NTSTATUS
-NTAPI
-DriverEntry(
-    PDRIVER_OBJECT DriverObject,
-    PUNICODE_STRING RegistryPath
-);
-
-VOID
-MupInitializeData(
-    VOID
-);
-
-VOID
-MupInitializeVcb(
-    PMUP_VCB Vcb
-);
-
-#if defined(ALLOC_PRAGMA)
-#pragma alloc_text(INIT, DriverEntry)
-#pragma alloc_text(INIT, MupInitializeData)
-#pragma alloc_text(INIT, MupInitializeVcb)
-#endif
-
 ERESOURCE MupGlobalLock;
 ERESOURCE MupPrefixTableLock;
 ERESOURCE MupCcbListLock;
@@ -76,7 +53,7 @@ NTSTATUS MupOrderedErrorList[] = { STATUS_UNSUCCESSFUL,
 
 /* FUNCTIONS ****************************************************************/
 
-INIT_SECTION
+CODE_SEG("INIT")
 VOID
 MupInitializeData(VOID)
 {
@@ -102,7 +79,7 @@ MupUninitializeData()
   ExDeleteResourceLite(&MupVcbLock);
 }
 
-INIT_SECTION
+CODE_SEG("INIT")
 VOID
 MupInitializeVcb(PMUP_VCB Vcb)
 {
@@ -1245,7 +1222,7 @@ RegisterUncProvider(PDEVICE_OBJECT DeviceObject,
     }
     _SEH2_FINALLY
     {
-        if (_abnormal_termination())
+        if (_SEH2_AbnormalTermination())
         {
             Status = STATUS_INVALID_USER_BUFFER;
         }
@@ -1329,7 +1306,7 @@ MupRerouteOpen(PFILE_OBJECT FileObject,
     PWSTR FullPath;
     ULONG TotalLength;
 
-    DPRINT1("Rerouting %wZ with %wZ\n", &FileObject->FileName, &UncProvider->DeviceName);
+    DPRINT("Rerouting %wZ with %wZ\n", &FileObject->FileName, &UncProvider->DeviceName);
 
     /* Get the full path name (device name first, and requested file name appended) */
     TotalLength = UncProvider->DeviceName.Length + FileObject->FileName.Length;
@@ -1801,7 +1778,7 @@ QueryPathCompletionRoutine(PDEVICE_OBJECT DeviceObject,
                 Prefix->ExternalAlloc = TRUE;
 
                 /* Insert the accepted prefix in the table of known prefixes */
-                DPRINT1("%wZ accepted %wZ\n", &Prefix->UncProvider->DeviceName, &Prefix->AcceptedPrefix);
+                DPRINT("%wZ accepted %wZ\n", &Prefix->UncProvider->DeviceName, &Prefix->AcceptedPrefix);
                 ExAcquireResourceExclusiveLite(&MupPrefixTableLock, TRUE);
                 if (RtlInsertUnicodePrefix(&MupPrefixTable, &Prefix->AcceptedPrefix, &Prefix->PrefixTableEntry))
                 {
@@ -1920,7 +1897,7 @@ CreateRedirectedFile(PIRP Irp,
         return STATUS_INVALID_DEVICE_REQUEST;
     }
 
-    DPRINT1("Request for opening: %wZ\n", &FileObject->FileName);
+    DPRINT("Request for opening: %wZ\n", &FileObject->FileName);
 
     Referenced = FALSE;
     BreakOnFirst = TRUE;
@@ -2127,7 +2104,7 @@ CreateRedirectedFile(PIRP Irp,
                     ExReleaseResourceLite(&MasterQueryContext->QueryPathListLock);
 
                     /* Query the provider !*/
-                    DPRINT1("Requesting UNC provider: %wZ\n", &UncProvider->DeviceName);
+                    DPRINT("Requesting UNC provider: %wZ\n", &UncProvider->DeviceName);
                     DPRINT("Calling: %wZ\n", &UncProvider->DeviceObject->DriverObject->DriverName);
                     Status = IoCallDriver(UncProvider->DeviceObject, QueryIrp);
                 }
@@ -2150,7 +2127,7 @@ CreateRedirectedFile(PIRP Irp,
         }
         _SEH2_FINALLY
         {
-            if (_abnormal_termination())
+            if (_SEH2_AbnormalTermination())
             {
                 MasterQueryContext->LatestStatus = STATUS_INSUFFICIENT_RESOURCES;
             }
@@ -2507,7 +2484,7 @@ MupUnload(PDRIVER_OBJECT DriverObject)
  *           RegistryPath = path to our configuration entries
  * RETURNS: Success or failure
  */
-INIT_SECTION
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
 DriverEntry(PDRIVER_OBJECT DriverObject,

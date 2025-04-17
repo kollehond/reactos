@@ -1,4 +1,5 @@
-@ stub CryptCATVerifyMember
+1 stdcall CryptCATVerifyMember(ptr ptr ptr) wintrust.CryptCATVerifyMember
+@ stdcall CatalogCompactHashDatabase() wintrust.CatalogCompactHashDatabase
 @ stdcall CryptCATAdminAcquireContext(long ptr long) wintrust.CryptCATAdminAcquireContext
 @ stdcall CryptCATAdminAddCatalog(long wstr wstr long) wintrust.CryptCATAdminAddCatalog
 @ stdcall CryptCATAdminCalcHashFromFileHandle(long ptr ptr long) wintrust.CryptCATAdminCalcHashFromFileHandle
@@ -6,11 +7,12 @@
 @ stdcall CryptCATAdminReleaseCatalogContext(long long long) wintrust.CryptCATAdminReleaseCatalogContext
 @ stdcall CryptCATAdminReleaseContext(long long) wintrust.CryptCATAdminReleaseContext
 @ stdcall CryptCATCDFClose(ptr) wintrust.CryptCATCDFClose
-@ stub CryptCATCDFEnumAttributes
+@ stdcall CryptCATCDFEnumAttributes(ptr ptr ptr ptr) wintrust.CryptCATCDFEnumAttributes
 @ stdcall CryptCATCDFEnumAttributesWithCDFTag(ptr wstr ptr ptr ptr) wintrust.CryptCATCDFEnumAttributesWithCDFTag
 @ stdcall CryptCATCDFEnumCatAttributes(ptr ptr ptr) wintrust.CryptCATCDFEnumCatAttributes
-@ stub CryptCATCDFEnumMembers
+@ stdcall CryptCATCDFEnumMembers(ptr ptr ptr) wintrust.CryptCATCDFEnumMembers
 @ stdcall CryptCATCDFEnumMembersByCDFTag(ptr wstr ptr ptr long) wintrust.CryptCATCDFEnumMembersByCDFTag
+@ stdcall CryptCATCDFEnumMembersByCDFTagEx(ptr wstr ptr ptr long ptr) wintrust.CryptCATCDFEnumMembersByCDFTagEx
 @ stdcall CryptCATCDFOpen(wstr ptr) wintrust.CryptCATCDFOpen
 @ stdcall CryptCATCatalogInfoFromContext(ptr ptr long) wintrust.CryptCATCatalogInfoFromContext
 @ stdcall CryptCATClose(long) wintrust.CryptCATClose
@@ -30,5 +32,5 @@
 @ stdcall -private DllRegisterServer() wintrust.mscat32DllRegisterServer
 @ stdcall -private DllUnregisterServer() wintrust.mscat32DllUnregisterServer
 @ stdcall IsCatalogFile(ptr wstr) wintrust.IsCatalogFile
-@ stub MsCatConstructHashTag
-@ stub MsCatFreeHashTag
+@ stdcall MsCatConstructHashTag(long ptr ptr) wintrust.MsCatConstructHashTag
+@ stdcall MsCatFreeHashTag(ptr) wintrust.MsCatFreeHashTag

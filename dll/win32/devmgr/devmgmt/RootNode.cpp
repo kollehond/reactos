@@ -41,7 +41,7 @@ CRootNode::SetupNode()
     DeleteObject(hRootImage);
 
 
-    // Get the root instance 
+    // Get the root instance
     CONFIGRET cr;
     cr = CM_Locate_DevNodeW(&m_DevInst,
                             NULL,
@@ -51,8 +51,8 @@ CRootNode::SetupNode()
         return false;
     }
 
-    // The root name is the computer name 
-    DWORD Size = DISPLAY_NAME_LEN;
+    // The root name is the computer name
+    DWORD Size = _countof(m_DisplayName);
     GetComputerNameW(m_DisplayName, &Size);
 
     return true;

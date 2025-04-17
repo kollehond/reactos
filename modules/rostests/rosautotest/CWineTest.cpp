@@ -2,12 +2,17 @@
  * PROJECT:     ReactOS Automatic Testing Utility
  * LICENSE:     GPL-2.0+ (https://spdx.org/licenses/GPL-2.0+)
  * PURPOSE:     Class implementing functions for handling Wine tests
- * COPYRIGHT:   Copyright 2009-2015 Colin Finck (colin@reactos.org)
+ * COPYRIGHT:   Copyright 2009-2019 Colin Finck (colin@reactos.org)
  */
 
 #include "precomp.h"
 
 static const DWORD ListTimeout = 10000;
+
+// This value needs to be lower than the <timeout> configured in sysreg.xml! (usually 180000)
+// Otherwise, sysreg2 kills the VM before we can kill the process.
+static const DWORD ProcessActivityTimeout = 170000;
+
 
 /**
  * Constructs a CWineTest object.
@@ -27,7 +32,7 @@ CWineTest::CWineTest()
     else
     {
         if (!GetWindowsDirectoryW(wszDirectory, MAX_PATH))
-            FATAL("GetWindowsDirectoryW failed");
+            FATAL("GetWindowsDirectoryW failed\n");
 
         m_TestPath = wszDirectory;
         m_TestPath += L"\\bin\\";
@@ -59,11 +64,27 @@ CWineTest::GetNextFile()
     WIN32_FIND_DATAW fd;
 
     /* Did we already begin searching for files? */
-    if(m_hFind)
+    if (m_hFind)
     {
         /* Then get the next file (if any) */
-        if(FindNextFileW(m_hFind, &fd))
-            FoundFile = true;
+        if (FindNextFileW(m_hFind, &fd))
+        {
+            // printf("cFileName is '%S'.\n", fd.cFileName);
+            /* If it was NOT rosautotest.exe then proceed as normal */
+            if (_wcsicmp(fd.cFileName, TestName) != 0)
+            {
+                FoundFile = true;
+            }
+            else
+            {
+                /* It was rosautotest.exe so get the next file (if any) */
+                if (FindNextFileW(m_hFind, &fd))
+                {
+                    FoundFile = true;
+                }
+                // printf("cFileName is '%S'.\n", fd.cFileName);
+            }
+        }
     }
     else
     {
@@ -86,8 +107,25 @@ CWineTest::GetNextFile()
         /* Search for the first file and check whether we got one */
         m_hFind = FindFirstFileW(FindPath.c_str(), &fd);
 
-        if(m_hFind != INVALID_HANDLE_VALUE)
-            FoundFile = true;
+        /* If we returned a good handle */
+        if (m_hFind != INVALID_HANDLE_VALUE)
+        {
+            // printf("cFileName is '%S'.\n", fd.cFileName);
+            /* If it was NOT rosautotest.exe then proceed as normal */
+            if (_wcsicmp(fd.cFileName, TestName) != 0)
+            {
+                FoundFile = true;
+            }
+            else
+            {
+                /* It was rosautotest.exe so get the next file (if any) */
+                if (FindNextFileW(m_hFind, &fd))
+                {
+                    FoundFile = true;
+                }
+                // printf("cFileName is '%S'.\n", fd.cFileName);
+            }
+        }
     }
 
     if(FoundFile)
@@ -140,7 +178,7 @@ CWineTest::DoListCommand()
     /* Read the data */
     m_ListBuffer = new char[BytesAvailable];
 
-    if(!Pipe.Read(m_ListBuffer, BytesAvailable, &Temp))
+    if(Pipe.Read(m_ListBuffer, BytesAvailable, &Temp, INFINITE) != ERROR_SUCCESS)
         TESTEXCEPTION("CPipe::Read failed\n");
 
     return BytesAvailable;
@@ -208,6 +246,16 @@ CWineTest::GetNextTestInfo()
 {
     while(!m_CurrentFile.empty() || GetNextFile())
     {
+        /* The user asked for a list of all modules */
+        if (Configuration.ListModulesOnly())
+        {
+            std::stringstream ss;
+            ss << "Module: " << UnicodeToAscii(m_CurrentFile) << endl;
+            m_CurrentFile.clear();
+            StringOut(ss.str());
+            continue;
+        }
+
         try
         {
             while(GetNextTest())
@@ -283,6 +331,8 @@ CWineTest::RunTest(CTestInfo* TestInfo)
     ss << "Running Wine Test, Module: " << TestInfo->Module << ", Test: " << TestInfo->Test << endl;
     StringOut(ss.str());
 
+    SetCurrentDirectoryW(m_TestPath.c_str());
+
     StartTime = GetTickCount();
 
     try
@@ -291,17 +341,34 @@ CWineTest::RunTest(CTestInfo* TestInfo)
         CPipedProcess Process(TestInfo->CommandLine, Pipe);
 
         /* Receive all the data from the pipe */
-        while(Pipe.Read(Buffer, sizeof(Buffer) - 1, &BytesAvailable) && BytesAvailable)
+        for (;;)
         {
-            /* Output text through StringOut, even while the test is still running */
-            Buffer[BytesAvailable] = 0;
-            tailString = StringOut(tailString.append(string(Buffer)), false);
+            DWORD dwReadResult = Pipe.Read(Buffer, sizeof(Buffer) - 1, &BytesAvailable, ProcessActivityTimeout);
+            if (dwReadResult == ERROR_SUCCESS)
+            {
+                /* Output text through StringOut, even while the test is still running */
+                Buffer[BytesAvailable] = 0;
+                tailString = StringOut(tailString.append(string(Buffer)), false);
 
-            if(Configuration.DoSubmit())
-                TestInfo->Log += Buffer;
+                if (Configuration.DoSubmit())
+                    TestInfo->Log += Buffer;
+            }
+            else if (dwReadResult == ERROR_BROKEN_PIPE)
+            {
+                // The process finished and has been terminated.
+                break;
+            }
+            else if (dwReadResult == WAIT_TIMEOUT)
+            {
+                // The process activity timeout above has elapsed without any new data.
+                TESTEXCEPTION("Timeout while waiting for the test process\n");
+            }
+            else
+            {
+                // An unexpected error.
+                TESTEXCEPTION("CPipe::Read failed for the test run\n");
+            }
         }
-        if(GetLastError() != ERROR_BROKEN_PIPE)
-            TESTEXCEPTION("CPipe::Read failed for the test run\n");
     }
     catch(CTestException& e)
     {

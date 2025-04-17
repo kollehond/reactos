@@ -21,6 +21,9 @@
 
 #include "hhctrl.h"
 #include "stream.h"
+#ifdef __REACTOS__
+#include "resource.h"
+#endif
 
 #include "winreg.h"
 #include "shlwapi.h"
@@ -228,11 +231,11 @@ static WCHAR *FindHTMLHelpSetting(HHInfo *info, const WCHAR *extW)
     WCHAR *filename;
     HRESULT hr;
 
-    filename = heap_alloc( (strlenW(info->pCHMInfo->compiledFile)
-                            + strlenW(periodW) + strlenW(extW) + 1) * sizeof(WCHAR) );
-    strcpyW(filename, info->pCHMInfo->compiledFile);
-    strcatW(filename, periodW);
-    strcatW(filename, extW);
+    filename = heap_alloc( (lstrlenW(info->pCHMInfo->compiledFile)
+                            + lstrlenW(periodW) + lstrlenW(extW) + 1) * sizeof(WCHAR) );
+    lstrcpyW(filename, info->pCHMInfo->compiledFile);
+    lstrcatW(filename, periodW);
+    lstrcatW(filename, extW);
     hr = IStorage_OpenStream(pStorage, filename, NULL, STGM_READ, 0, &pStream);
     if (FAILED(hr))
     {
@@ -459,7 +462,11 @@ BOOL LoadWinTypeFromCHM(HHInfo *info)
     /* merge the new data with any pre-existing HH_WINTYPE structure */
     MergeChmProperties(&wintype, info, FALSE);
     if (!info->WinType.pszCaption)
+#ifdef __REACTOS__
+        info->WinType.pszCaption = info->stringsW.pszCaption = (info->pCHMInfo->defTitle ? strdupW(info->pCHMInfo->defTitle) : HH_LoadString(IDS_DEFTITLE));
+#else
         info->WinType.pszCaption = info->stringsW.pszCaption = strdupW(info->pCHMInfo->defTitle ? info->pCHMInfo->defTitle : empty);
+#endif
     if (!info->WinType.pszFile)
         info->WinType.pszFile    = info->stringsW.pszFile    = strdupW(info->pCHMInfo->defTopic ? info->pCHMInfo->defTopic : empty);
     if (!info->WinType.pszToc)
@@ -483,12 +490,12 @@ LPCWSTR skip_schema(LPCWSTR url)
     static const WCHAR msits_schema[] = {'m','s','-','i','t','s',':'};
     static const WCHAR mk_schema[] = {'m','k',':','@','M','S','I','T','S','t','o','r','e',':'};
 
-    if(!strncmpiW(its_schema, url, sizeof(its_schema)/sizeof(WCHAR)))
-        return url+sizeof(its_schema)/sizeof(WCHAR);
-    if(!strncmpiW(msits_schema, url, sizeof(msits_schema)/sizeof(WCHAR)))
-        return url+sizeof(msits_schema)/sizeof(WCHAR);
-    if(!strncmpiW(mk_schema, url, sizeof(mk_schema)/sizeof(WCHAR)))
-        return url+sizeof(mk_schema)/sizeof(WCHAR);
+    if(!_wcsnicmp(its_schema, url, ARRAY_SIZE(its_schema)))
+        return url + ARRAY_SIZE(its_schema);
+    if(!_wcsnicmp(msits_schema, url, ARRAY_SIZE(msits_schema)))
+        return url + ARRAY_SIZE(msits_schema);
+    if(!_wcsnicmp(mk_schema, url, ARRAY_SIZE(mk_schema)))
+        return url + ARRAY_SIZE(mk_schema);
 
     return url;
 }
@@ -500,15 +507,15 @@ void SetChmPath(ChmPath *file, LPCWSTR base_file, LPCWSTR path)
 
     path = skip_schema(path);
 
-    ptr = strstrW(path, separatorW);
+    ptr = wcsstr(path, separatorW);
     if(ptr) {
         WCHAR chm_file[MAX_PATH];
         WCHAR rel_path[MAX_PATH];
         WCHAR base_path[MAX_PATH];
         LPWSTR p;
 
-        strcpyW(base_path, base_file);
-        p = strrchrW(base_path, '\\');
+        lstrcpyW(base_path, base_file);
+        p = wcsrchr(base_path, '\\');
         if(p)
             *p = 0;
 
@@ -595,7 +602,7 @@ WCHAR *GetDocumentTitle(CHMInfo *info, LPCWSTR document)
 
         TRACE("%s\n", node.buf);
 
-        if(!strcasecmp(node_name.buf, "title")) {
+        if(!_strnicmp(node_name.buf, "title", -1)) {
             if(next_content(&stream, &content) && content.len > 1)
             {
                 document_title = strdupnAtoW(&content.buf[1], content.len-1);

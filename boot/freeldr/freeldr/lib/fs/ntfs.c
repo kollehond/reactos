@@ -1,7 +1,7 @@
 /*
  *  FreeLoader NTFS support
  *  Copyright (C) 2004  Filip Navara  <xnavara@volny.cz>
- *  Copyright (C) 2009-2010  Hervé Poussineau
+ *  Copyright (C) 2009-2010  HervÃ© Poussineau
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -26,7 +26,9 @@
 
 #ifndef _M_ARM
 #include <freeldr.h>
+
 #include <debug.h>
+DBG_DEFAULT_CHANNEL(FILESYSTEM);
 
 #define TAG_NTFS_CONTEXT 'CftN'
 #define TAG_NTFS_LIST 'LftN'
@@ -36,8 +38,6 @@
 #define TAG_NTFS_FILE 'FftN'
 #define TAG_NTFS_VOLUME 'VftN'
 #define TAG_NTFS_DATA 'DftN'
-
-DBG_DEFAULT_CHANNEL(FILESYSTEM);
 
 typedef struct _NTFS_VOLUME_INFO
 {
@@ -505,7 +505,7 @@ VOID NtfsPrintFile(PNTFS_INDEX_ENTRY IndexEntry)
         AnsiFileName[i] = (CHAR)FileName[i];
     AnsiFileName[i] = 0;
 
-    TRACE("- %s (%x)\n", AnsiFileName, IndexEntry->Data.Directory.IndexedFile);
+    TRACE("- %s (%x)\n", AnsiFileName, (IndexEntry->Data.Directory.IndexedFile & NTFS_MFT_MASK));
 }
 #endif
 
@@ -596,7 +596,7 @@ static BOOLEAN NtfsFindMftRecord(PNTFS_VOLUME_INFO Volume, ULONGLONG MFTIndex, P
         {
             if (NtfsCompareFileName(FileName, IndexEntry))
             {
-                *OutMFTIndex = IndexEntry->Data.Directory.IndexedFile;
+                *OutMFTIndex = (IndexEntry->Data.Directory.IndexedFile & NTFS_MFT_MASK);
                 FrLdrTempFree(IndexRecord, TAG_NTFS_INDEX_REC);
                 FrLdrTempFree(MftRecord, TAG_NTFS_MFT);
                 return TRUE;
@@ -680,7 +680,7 @@ static BOOLEAN NtfsFindMftRecord(PNTFS_VOLUME_INFO Volume, ULONGLONG MFTIndex, P
                     if (NtfsCompareFileName(FileName, IndexEntry))
                     {
                         TRACE("File found\n");
-                        *OutMFTIndex = IndexEntry->Data.Directory.IndexedFile;
+                        *OutMFTIndex = (IndexEntry->Data.Directory.IndexedFile & NTFS_MFT_MASK);
                         FrLdrTempFree(BitmapData, TAG_NTFS_BITMAP);
                         FrLdrTempFree(IndexRecord, TAG_NTFS_INDEX_REC);
                         FrLdrTempFree(MftRecord, TAG_NTFS_MFT);
@@ -718,6 +718,11 @@ static BOOLEAN NtfsLookupFile(PNTFS_VOLUME_INFO Volume, PCSTR FileName, PNTFS_MF
     TRACE("NtfsLookupFile() FileName = %s\n", FileName);
 
     CurrentMFTIndex = NTFS_FILE_ROOT;
+
+    /* Skip leading path separator, if any */
+    if (*FileName == '\\' || *FileName == '/')
+        ++FileName;
+
     NumberOfPathParts = FsGetNumPathParts(FileName);
     for (i = 0; i < NumberOfPathParts; i++)
     {
@@ -766,14 +771,12 @@ ARC_STATUS NtfsGetFileInformation(ULONG FileId, FILEINFORMATION* Information)
 {
     PNTFS_FILE_HANDLE FileHandle = FsGetDeviceSpecific(FileId);
 
-    RtlZeroMemory(Information, sizeof(FILEINFORMATION));
+    RtlZeroMemory(Information, sizeof(*Information));
     Information->EndingAddress.QuadPart = NtfsGetAttributeSize(&FileHandle->DataContext->Record);
     Information->CurrentAddress.QuadPart = FileHandle->Offset;
 
-    TRACE("NtfsGetFileInformation() FileSize = %d\n",
-        Information->EndingAddress.LowPart);
-    TRACE("NtfsGetFileInformation() FilePointer = %d\n",
-        Information->CurrentAddress.LowPart);
+    TRACE("NtfsGetFileInformation(%lu) -> FileSize = %llu, FilePointer = 0x%llx\n",
+          FileId, Information->EndingAddress.QuadPart, Information->CurrentAddress.QuadPart);
 
     return ESUCCESS;
 }
@@ -834,6 +837,7 @@ ARC_STATUS NtfsRead(ULONG FileId, VOID* Buffer, ULONG N, ULONG* Count)
     // Read file
     //
     BytesRead64 = NtfsReadAttribute(FileHandle->Volume, FileHandle->DataContext, FileHandle->Offset, Buffer, N);
+    FileHandle->Offset += BytesRead64;
     *Count = (ULONG)BytesRead64;
 
     //
@@ -848,17 +852,24 @@ ARC_STATUS NtfsRead(ULONG FileId, VOID* Buffer, ULONG N, ULONG* Count)
 ARC_STATUS NtfsSeek(ULONG FileId, LARGE_INTEGER* Position, SEEKMODE SeekMode)
 {
     PNTFS_FILE_HANDLE FileHandle = FsGetDeviceSpecific(FileId);
+    LARGE_INTEGER NewPosition = *Position;
 
-    TRACE("NtfsSeek() NewFilePointer = %lu\n", Position->LowPart);
+    switch (SeekMode)
+    {
+        case SeekAbsolute:
+            break;
+        case SeekRelative:
+            NewPosition.QuadPart += FileHandle->Offset;
+            break;
+        default:
+            ASSERT(FALSE);
+            return EINVAL;
+    }
 
-    if (SeekMode != SeekAbsolute)
-        return EINVAL;
-    if (Position->HighPart != 0)
-        return EINVAL;
-    if (Position->LowPart >= (ULONG)NtfsGetAttributeSize(&FileHandle->DataContext->Record))
+    if (NewPosition.QuadPart >= NtfsGetAttributeSize(&FileHandle->DataContext->Record))
         return EINVAL;
 
-    FileHandle->Offset = Position->LowPart;
+    FileHandle->Offset = NewPosition.QuadPart;
     return ESUCCESS;
 }
 
@@ -879,6 +890,8 @@ const DEVVTBL* NtfsMount(ULONG DeviceId)
     ULONG Count;
     ARC_STATUS Status;
 
+    TRACE("Enter NtfsMount(%lu)\n", DeviceId);
+
     //
     // Allocate data for volume information
     //
@@ -890,8 +903,7 @@ const DEVVTBL* NtfsMount(ULONG DeviceId)
     //
     // Read the BootSector
     //
-    Position.HighPart = 0;
-    Position.LowPart = 0;
+    Position.QuadPart = 0;
     Status = ArcSeek(DeviceId, &Position, SeekAbsolute);
     if (Status != ESUCCESS)
     {
@@ -999,6 +1011,7 @@ const DEVVTBL* NtfsMount(ULONG DeviceId)
     //
     // Return success
     //
+    TRACE("NtfsMount(%lu) success\n", DeviceId);
     return &NtfsFuncTable;
 }
 

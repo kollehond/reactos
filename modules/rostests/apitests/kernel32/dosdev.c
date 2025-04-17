@@ -27,10 +27,10 @@
 #define SUBST_DRIVE_SEARCH "M:\\*"
 #define SUBST_DRIVE_LOWERCASE "m:"
 #define SUBST_DRIVE_LOWERCASE_SEARCH "m:\\*"
-#define SUBST_DRIVE2_LETTER 'R'
-#define SUBST_DRIVE2 "R:"
-#define SUBST_DRIVE2_WITH_TRAILING_PATH_SEPERATOR "R:\\"
-#define SUBST_DRIVE2_SEARCH "R:\\*"
+#define SUBST_DRIVE2_LETTER 'N'
+#define SUBST_DRIVE2 "N:"
+#define SUBST_DRIVE2_WITH_TRAILING_PATH_SEPERATOR "N:\\"
+#define SUBST_DRIVE2_SEARCH "N:\\*"
 
 static void test_DefineDosDeviceA(void)
 {
@@ -360,7 +360,7 @@ static void test_QueryDosDeviceA(void)
     Result = QueryDosDeviceA(SUBST_DRIVE, Buffer, MAX_PATH);
     ok(Result, "failed to get target path\n");
     ok(_strnicmp(Buffer, "\\??\\", 4) == 0, "The target returned does have correct prefix set\n");
-    ok(stricmp(&Buffer[4], Target) == 0, "The target returned does not match the one set\n");
+    ok(_stricmp(&Buffer[4], Target) == 0, "The target returned does not match the one set\n");
     Result = DefineDosDeviceA(DDD_REMOVE_DEFINITION | DDD_EXACT_MATCH_ON_REMOVE, SUBST_DRIVE, Target);
     ok(Result, "Failed to remove subst drive using lowercase drive letter\n");
     Result = QueryDosDeviceA(SUBST_DRIVE, Buffer, MAX_PATH);

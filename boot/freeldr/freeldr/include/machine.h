@@ -46,6 +46,7 @@ typedef struct tagMACHVTBL
     VIDEODISPLAYMODE (*VideoSetDisplayMode)(char *DisplayMode, BOOLEAN Init);
     VOID (*VideoGetDisplaySize)(PULONG Width, PULONG Height, PULONG Depth);
     ULONG (*VideoGetBufferSize)(VOID);
+    VOID (*VideoGetFontsFromFirmware)(PULONG RomFontPointers);
     VOID (*VideoSetTextCursorPosition)(UCHAR X, UCHAR Y);
     VOID (*VideoHideShowTextCursor)(BOOLEAN Show);
     VOID (*VideoPutChar)(int Ch, UCHAR Attr, unsigned X, unsigned Y);
@@ -55,13 +56,14 @@ typedef struct tagMACHVTBL
     VOID (*VideoGetPaletteColor)(UCHAR Color, UCHAR* Red, UCHAR* Green, UCHAR* Blue);
     VOID (*VideoSync)(VOID);
     VOID (*Beep)(VOID);
-    VOID (*PrepareForReactOS)(IN BOOLEAN Setup);
+    VOID (*PrepareForReactOS)(VOID);
 
     // NOTE: Not in the machine.c ...
     FREELDR_MEMORY_DESCRIPTOR* (*GetMemoryDescriptor)(FREELDR_MEMORY_DESCRIPTOR* Current);
     PFREELDR_MEMORY_DESCRIPTOR (*GetMemoryMap)(PULONG MaxMemoryMapSize);
+    VOID (*GetExtendedBIOSData)(PULONG ExtendedBIOSDataArea, PULONG ExtendedBIOSDataSize);
 
-    BOOLEAN (*DiskGetBootPath)(PCHAR BootPath, ULONG Size);
+    UCHAR (*GetFloppyCount)(VOID);
     BOOLEAN (*DiskReadLogicalSectors)(UCHAR DriveNumber, ULONGLONG SectorNumber, ULONG SectorCount, PVOID Buffer);
     BOOLEAN (*DiskGetDriveGeometry)(UCHAR DriveNumber, PGEOMETRY DriveGeometry);
     ULONG (*DiskGetCacheableBlockCount)(UCHAR DriveNumber);
@@ -72,7 +74,7 @@ typedef struct tagMACHVTBL
 
     // NOTE: Not in the machine.c ...
     BOOLEAN (*InitializeBootDevices)(VOID);
-    PCONFIGURATION_COMPONENT_DATA (*HwDetect)(VOID);
+    PCONFIGURATION_COMPONENT_DATA (*HwDetect)(_In_opt_ PCSTR Options);
     VOID (*HwIdle)(VOID);
 } MACHVTBL, *PMACHVTBL;
 
@@ -113,10 +115,8 @@ VOID MachInit(const char *CmdLine);
     MachVtbl.VideoSync()
 #define MachBeep()  \
     MachVtbl.Beep()
-#define MachPrepareForReactOS(Setup)    \
-    MachVtbl.PrepareForReactOS(Setup)
-#define MachDiskGetBootPath(Path, Size) \
-    MachVtbl.DiskGetBootPath((Path), (Size))
+#define MachGetFloppyCount() \
+    MachVtbl.GetFloppyCount()
 #define MachDiskReadLogicalSectors(Drive, Start, Count, Buf)    \
     MachVtbl.DiskReadLogicalSectors((Drive), (Start), (Count), (Buf))
 #define MachDiskGetDriveGeometry(Drive, Geom)   \
@@ -127,12 +127,19 @@ VOID MachInit(const char *CmdLine);
 #define MachInitializeBootDevices() \
     MachVtbl.InitializeBootDevices()
 
-#define MachHwDetect()  MachVtbl.HwDetect()
-#define MachHwIdle()    MachVtbl.HwIdle()
+#define MachHwIdle() \
+    MachVtbl.HwIdle()
+
 
 /* ARC FUNCTIONS **************************************************************/
 
 TIMEINFO* ArcGetTime(VOID);
 ULONG ArcGetRelativeTime(VOID);
+
+PCONFIGURATION_COMPONENT_DATA MachHwDetect(_In_opt_ PCSTR Options);
+VOID MachPrepareForReactOS(VOID);
+VOID MachGetExtendedBIOSData(PULONG ExtendedBIOSDataArea, PULONG ExtendedBIOSDataSize);
+VOID MachVideoGetFontsFromFirmware(PULONG RomFontPointers);
+ULONG MachGetBootSectorLoadAddress(IN UCHAR DriveNumber);
 
 /* EOF */

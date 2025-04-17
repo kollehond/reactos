@@ -3,8 +3,8 @@ include_directories(BEFORE ${REACTOS_SOURCE_DIR}/sdk/include/reactos/wine)
 
 add_executable(ws2_32_winetest protocol.c sock.c testlist.c)
 
-if(USE_CLANG_CL OR (NOT MSVC))
-    add_target_compile_flags(ws2_32_winetest "-Wno-format")
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(ws2_32_winetest PRIVATE "-Wno-format")
 endif()
 
 set_module_type(ws2_32_winetest win32cui)

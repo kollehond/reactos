@@ -29,9 +29,20 @@ typedef struct _LDRP_TLS_DATA
     IMAGE_TLS_DIRECTORY TlsDirectory;
 } LDRP_TLS_DATA, *PLDRP_TLS_DATA;
 
+typedef
+NTSTATUS
+(NTAPI* PLDR_APP_COMPAT_DLL_REDIRECTION_CALLBACK_FUNCTION)(
+    _In_ ULONG Flags,
+    _In_ PCWSTR DllName,
+    _In_ PCWSTR DllPath OPTIONAL,
+    _Inout_opt_ PULONG DllCharacteristics,
+    _In_ PVOID CallbackData,
+    _Outptr_ PWSTR* EffectiveDllPath);
+
 /* Global data */
 extern RTL_CRITICAL_SECTION LdrpLoaderLock;
 extern BOOLEAN LdrpInLdrInit;
+extern PVOID LdrpHeap;
 extern LIST_ENTRY LdrpHashTable[LDR_HASH_TABLE_ENTRIES];
 extern BOOLEAN ShowSnaps;
 extern UNICODE_STRING LdrpDefaultPath;
@@ -85,14 +96,27 @@ NTSTATUS NTAPI
 LdrpWalkImportDescriptor(IN LPWSTR DllPath OPTIONAL,
                          IN PLDR_DATA_TABLE_ENTRY LdrEntry);
 
+/* libsupp.c */
+NTSYSAPI
+NTSTATUS
+NTAPI
+LdrpApplyFileNameRedirection(
+    _In_ PUNICODE_STRING OriginalName,
+    _In_ PUNICODE_STRING Extension,
+    _Inout_opt_ PUNICODE_STRING StaticString,
+    _Inout_opt_ PUNICODE_STRING DynamicString,
+    _Inout_ PUNICODE_STRING *NewName,
+    _Inout_ PBOOLEAN RedirectedDll);
 
 /* ldrutils.c */
-NTSTATUS NTAPI
-LdrpGetProcedureAddress(IN PVOID BaseAddress,
-                        IN PANSI_STRING Name,
-                        IN ULONG Ordinal,
-                        OUT PVOID *ProcedureAddress,
-                        IN BOOLEAN ExecuteInit);
+NTSTATUS
+NTAPI
+LdrpGetProcedureAddress(
+    _In_ PVOID BaseAddress,
+    _In_opt_ _When_(Ordinal == 0, _Notnull_) PANSI_STRING Name,
+    _In_opt_ _When_(Name == NULL, _In_range_(>, 0)) ULONG Ordinal,
+    _Out_ PVOID *ProcedureAddress,
+    _In_ BOOLEAN ExecuteInit);
 
 PLDR_DATA_TABLE_ENTRY NTAPI
 LdrpAllocateDataTableEntry(IN PVOID BaseAddress);
@@ -148,6 +172,9 @@ VOID NTAPI
 LdrpFreeUnicodeString(PUNICODE_STRING String);
 
 VOID NTAPI
+LdrpRecordUnloadEvent(_In_ PLDR_DATA_TABLE_ENTRY LdrEntry);
+
+VOID NTAPI
 LdrpGetShimEngineInterface(VOID);
 
 VOID
@@ -197,9 +224,41 @@ LdrpLoadImportModule(IN PWSTR DllPath OPTIONAL,
                      IN LPSTR ImportName,
                      OUT PLDR_DATA_TABLE_ENTRY *DataTableEntry,
                      OUT PBOOLEAN Existing);
-                     
+
 VOID
 NTAPI
 LdrpFinalizeAndDeallocateDataTableEntry(IN PLDR_DATA_TABLE_ENTRY Entry);
+
+#if (_WIN32_WINNT >= _WIN32_WINNT_VISTA) || (DLL_EXPORT_VERSION >= _WIN32_WINNT_VISTA)
+
+VOID
+NTAPI
+LdrpSendDllNotifications(
+    _In_ PLDR_DATA_TABLE_ENTRY DllEntry,
+    _In_ ULONG NotificationReason);
+
+#endif /* (_WIN32_WINNT >= _WIN32_WINNT_VISTA) || (DLL_EXPORT_VERSION >= _WIN32_WINNT_VISTA) */
+
+/* path.c */
+BOOLEAN
+NTAPI
+RtlDoesFileExists_UStr(
+    IN PUNICODE_STRING FileName
+);
+
+VOID
+NTAPI
+RtlpInitializeKeyedEvent(
+    VOID);
+
+VOID
+NTAPI
+RtlpCloseKeyedEvent(
+    VOID);
+
+VOID
+NTAPI
+RtlpInitializeThreadPooling(
+    VOID);
 
 /* EOF */

@@ -115,7 +115,9 @@ ASSERT_LOCK_ORDER(
            (objt) == GDIObjType_BRUSH_TYPE)
 #define ASSERT_EXCLUSIVE_OBJECT_TYPE(objt) \
     ASSERT((objt) == GDIObjType_DC_TYPE || \
-           (objt) == GDIObjType_RGN_TYPE)
+           (objt) == GDIObjType_RGN_TYPE || \
+           (objt) == GDIObjType_UMPD_TYPE || \
+           (objt) == GDIObjType_META_TYPE)
 #define ASSERT_TRYLOCK_OBJECT_TYPE(objt) \
     ASSERT((objt) == GDIObjType_DRVOBJ_TYPE)
 #else
@@ -177,7 +179,7 @@ apfnCleanup[] =
     NULL,              /* 12 GDIObjType_UNUSED4_TYPE */
     NULL,              /* 13 GDIObjType_SPACE_TYPE, unused */
     NULL,              /* 14 GDIObjType_UNUSED5_TYPE */
-    NULL,              /* 15 GDIObjType_META_TYPE, unused */
+    GDIOBJ_vCleanup,   /* 15 GDIObjType_META_TYPE */
     NULL,              /* 16 GDIObjType_EFSTATE_TYPE, unused */
     NULL,              /* 17 GDIObjType_BMFD_TYPE, unused */
     NULL,              /* 18 GDIObjType_VTFD_TYPE, unused */
@@ -251,7 +253,7 @@ InitLookasideList(UCHAR objt, ULONG cjSize)
                                    0);
 }
 
-INIT_FUNCTION
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
 InitGdiHandleTable(void)
@@ -341,7 +343,7 @@ DecrementCurrentProcessGdiHandleCount(void)
     if (ppi) InterlockedDecrement((LONG*)&ppi->GDIHandleCount);
 }
 
-FORCEINLINE
+static inline
 VOID
 IncrementGdiHandleCount(ULONG ulProcessId)
 {
@@ -358,7 +360,7 @@ IncrementGdiHandleCount(ULONG ulProcessId)
     if (NT_SUCCESS(Status)) ObDereferenceObject(pep);
 }
 
-FORCEINLINE
+static inline
 VOID
 DecrementGdiHandleCount(ULONG ulProcessId)
 {
@@ -524,7 +526,10 @@ ENTRY_ReferenceEntryByHandle(HGDIOBJ hobj, FLONG fl)
 
     /* Integrity checks */
     ASSERT((pentry->FullUnique & 0x1f) == pentry->Objt);
-    ASSERT(pentry->einfo.pobj && pentry->einfo.pobj->hHmgr == hobj);
+    ASSERT(pentry->einfo.pobj != NULL);
+
+    /* Check if lower 32 bits match, the upper 32 bits are ignored */
+    ASSERT(pentry->einfo.pobj->hHmgr == UlongToPtr(PtrToUlong(hobj)));
 
     return pentry;
 }
@@ -1188,6 +1193,12 @@ GreGetObjectOwner(HGDIOBJ hobj)
 {
     ULONG ulIndex, ulOwner;
 
+    if (hobj == NULL)
+    {
+        DPRINT("GreGetObjectOwner: invalid NULL handle\n");
+        return GDI_OBJ_HMGR_RESTRICTED;
+    }
+
     /* Get the handle index */
     ulIndex = GDI_HANDLE_GET_INDEX(hobj);
 
@@ -1259,7 +1270,7 @@ NTAPI
 GreGetObject(
     IN HGDIOBJ hobj,
     IN INT cbCount,
-    IN PVOID pvBuffer)
+    OUT PVOID pvBuffer)
 {
     PVOID pvObj;
     UCHAR objt;
@@ -1469,6 +1480,40 @@ GDIOBJ_ConvertToStockObj(HGDIOBJ *phObj)
 
     /* Calculate the new handle */
     pobj->hHmgr = (HGDIOBJ)((ULONG_PTR)pobj->hHmgr | GDI_HANDLE_STOCK_MASK);
+
+    /* Return the new handle */
+    *phObj = pobj->hHmgr;
+
+    /* Dereference the handle */
+    GDIOBJ_vDereferenceObject(pobj);
+
+    return TRUE;
+}
+
+BOOL
+NTAPI
+GDIOBJ_ConvertFromStockObj(HGDIOBJ *phObj)
+{
+    PENTRY pentry;
+    POBJ pobj;
+
+    /* Reference the handle entry */
+    pentry = ENTRY_ReferenceEntryByHandle(*phObj, 0);
+    if (!pentry)
+    {
+        DPRINT1("GDIOBJ: Requested handle 0x%p is not valid.\n", *phObj);
+        return FALSE;
+    }
+
+    /* Update the entry */
+    pentry->FullUnique &= ~GDI_ENTRY_STOCK_MASK;
+    pentry->ObjectOwner.ulObj = PtrToUlong(PsGetCurrentProcessId());
+
+    /* Get the pointer to the BASEOBJECT */
+    pobj = pentry->einfo.pobj;
+
+    /* Calculate the new handle */
+    pobj->hHmgr = (HGDIOBJ)((ULONG_PTR)pobj->hHmgr & ~GDI_HANDLE_STOCK_MASK);
 
     /* Return the new handle */
     *phObj = pobj->hHmgr;

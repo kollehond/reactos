@@ -61,7 +61,6 @@ class CShellMenuCallback :
     public IShellMenuCallback
 {
 private:
-
     HWND m_hwndTray;
     CComPtr<IShellMenu> m_pShellMenu;
     CComPtr<IBandSite> m_pBandSite;
@@ -87,13 +86,16 @@ private:
         if (FAILED_UNEXPECTEDLY(hr))
             return hr;
 
-        hr = m_pTrayPriv->AppendMenuW(&hmenu);
+        hr = m_pTrayPriv->AppendMenu(&hmenu);
         if (FAILED_UNEXPECTEDLY(hr))
             return hr;
 
         hr = m_pShellMenu->SetMenu(hmenu, NULL, SMSET_BOTTOM);
         if (FAILED_UNEXPECTEDLY(hr))
+        {
+            DestroyMenu(hmenu);
             return hr;
+        }
 
         return hr;
     }
@@ -106,20 +108,22 @@ private:
         {
             // Smaller "24x24" icons used for the start menu
             // The bitmaps are still 32x32, but the image is centered
-        case IDM_FAVORITES: iconIndex = -322; break;
-        case IDM_SEARCH: iconIndex = -323; break;
-        case IDM_HELPANDSUPPORT: iconIndex = -324; break;
-        case IDM_LOGOFF: iconIndex = -325; break;
-        case IDM_PROGRAMS:  iconIndex = -326; break;
-        case IDM_DOCUMENTS: iconIndex = -327; break;
-        case IDM_RUN: iconIndex = -328; break;
-        case IDM_SHUTDOWN: iconIndex = -329; break;
-        case IDM_SETTINGS: iconIndex = -330; break;
+        case IDM_FAVORITES: iconIndex = -IDI_SHELL_FAVOTITES; break;
+        case IDM_SEARCH: iconIndex = -IDI_SHELL_SEARCH1; break;
+        case IDM_HELPANDSUPPORT: iconIndex = -IDI_SHELL_HELP2; break;
+        case IDM_LOGOFF: iconIndex = -IDI_SHELL_LOGOFF1; break;
+        case IDM_PROGRAMS:  iconIndex = -IDI_SHELL_PROGRAMS_FOLDER1; break;
+        case IDM_DOCUMENTS: iconIndex = -IDI_SHELL_RECENT_DOCUMENTS1; break;
+        case IDM_RUN: iconIndex = -IDI_SHELL_RUN1; break;
+        case IDM_SHUTDOWN: iconIndex = -IDI_SHELL_SHUTDOWN1; break;
+        case IDM_SETTINGS: iconIndex = -IDI_SHELL_CONTROL_PANEL1; break;
+        case IDM_MYDOCUMENTS: iconIndex = -IDI_SHELL_MY_DOCUMENTS; break;
+        case IDM_MYPICTURES: iconIndex = -IDI_SHELL_MY_PICTURES; break;
 
-        case IDM_CONTROLPANEL: iconIndex = -22; break;
-        case IDM_NETWORKCONNECTIONS: iconIndex = -257; break;
-        case IDM_PRINTERSANDFAXES: iconIndex = -138; break;
-        case IDM_TASKBARANDSTARTMENU: iconIndex = -40; break;
+        case IDM_CONTROLPANEL: iconIndex = -IDI_SHELL_CONTROL_PANEL; break;
+        case IDM_NETWORKCONNECTIONS: iconIndex = -IDI_SHELL_NETWORK_CONNECTIONS2; break;
+        case IDM_PRINTERSANDFAXES: iconIndex = -IDI_SHELL_PRINTER2; break;
+        case IDM_TASKBARANDSTARTMENU: iconIndex = -IDI_SHELL_TSKBAR_STARTMENU; break;
         //case IDM_SECURITY: iconIndex = -21; break;
         //case IDM_SYNCHRONIZE: iconIndex = -21; break;
         //case IDM_DISCONNECT: iconIndex = -21; break;
@@ -149,11 +153,127 @@ private:
         return S_OK;
     }
 
+    void AddOrSetMenuItem(HMENU hMenu, UINT nID, INT csidl, BOOL bExpand,
+                          BOOL bAdd = TRUE, BOOL bSetText = TRUE) const
+    {
+        MENUITEMINFOW mii = { sizeof(mii), MIIM_ID | MIIM_SUBMENU };
+        mii.wID = nID;
+
+        SHFILEINFOW fileInfo = { 0 };
+        if (bAdd || bSetText)
+        {
+            LPITEMIDLIST pidl;
+            if (SHGetSpecialFolderLocation(NULL, csidl, &pidl) != S_OK)
+            {
+                ERR("SHGetSpecialFolderLocation failed\n");
+                return;
+            }
+
+            SHGetFileInfoW((LPWSTR)pidl, 0, &fileInfo, sizeof(fileInfo),
+                           SHGFI_PIDL | SHGFI_DISPLAYNAME);
+            CoTaskMemFree(pidl);
+
+            mii.fMask |= MIIM_TYPE;
+            mii.fType = MFT_STRING;
+            mii.dwTypeData = fileInfo.szDisplayName;
+        }
+
+        if (bExpand)
+            mii.hSubMenu = ::CreatePopupMenu();
+
+        if (bAdd)
+            InsertMenuItemW(hMenu, GetMenuItemCount(hMenu), TRUE, &mii);
+        else
+            SetMenuItemInfoW(hMenu, nID, FALSE, &mii);
+    }
+
+    BOOL GetAdvancedValue(LPCWSTR pszName, BOOL bDefault = FALSE) const
+    {
+        return SHRegGetBoolUSValueW(
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+            pszName, FALSE, bDefault);
+    }
+
+    HMENU CreateRecentMenu() const
+    {
+        HMENU hMenu = ::CreateMenu();
+        BOOL bAdded = FALSE;
+
+        // My Documents
+        if (!SHRestricted(REST_NOSMMYDOCS) &&
+            GetAdvancedValue(L"Start_ShowMyDocs", TRUE))
+        {
+            BOOL bExpand = GetAdvancedValue(L"CascadeMyDocuments", FALSE);
+            AddOrSetMenuItem(hMenu, IDM_MYDOCUMENTS, CSIDL_MYDOCUMENTS, bExpand);
+            bAdded = TRUE;
+        }
+
+        // My Pictures
+        if (!SHRestricted(REST_NOSMMYPICS) &&
+            GetAdvancedValue(L"Start_ShowMyPics", TRUE))
+        {
+            BOOL bExpand = GetAdvancedValue(L"CascadeMyPictures", FALSE);
+            AddOrSetMenuItem(hMenu, IDM_MYPICTURES, CSIDL_MYPICTURES, bExpand);
+            bAdded = TRUE;
+        }
+
+        if (bAdded)
+            AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+
+        return hMenu;
+    }
+
+    void UpdateSettingsMenu(HMENU hMenu)
+    {
+        BOOL bExpand;
+
+        bExpand = GetAdvancedValue(L"CascadeControlPanel");
+        AddOrSetMenuItem(hMenu, IDM_CONTROLPANEL, CSIDL_CONTROLS, bExpand, FALSE, FALSE);
+
+        bExpand = GetAdvancedValue(L"CascadeNetworkConnections");
+        AddOrSetMenuItem(hMenu, IDM_NETWORKCONNECTIONS, CSIDL_NETWORK, bExpand, FALSE, FALSE);
+
+        bExpand = GetAdvancedValue(L"CascadePrinters");
+        AddOrSetMenuItem(hMenu, IDM_PRINTERSANDFAXES, CSIDL_PRINTERS, bExpand, FALSE, FALSE);
+    }
+
+    HRESULT AddStartMenuItems(IShellMenu *pShellMenu, INT csidl, DWORD dwFlags, IShellFolder *psf = NULL)
+    {
+        CComHeapPtr<ITEMIDLIST> pidlFolder;
+        CComPtr<IShellFolder> psfDesktop;
+        CComPtr<IShellFolder> pShellFolder;
+        HRESULT hr;
+
+        hr = SHGetFolderLocation(NULL, csidl, 0, 0, &pidlFolder);
+        if (FAILED_UNEXPECTEDLY(hr))
+            return hr;
+
+        if (psf)
+        {
+            pShellFolder = psf;
+        }
+        else
+        {
+            hr = SHGetDesktopFolder(&psfDesktop);
+            if (FAILED_UNEXPECTEDLY(hr))
+                return hr;
+
+            hr = psfDesktop->BindToObject(pidlFolder, NULL, IID_PPV_ARG(IShellFolder, &pShellFolder));
+            if (FAILED_UNEXPECTEDLY(hr))
+                return hr;
+        }
+
+        hr = pShellMenu->SetShellFolder(pShellFolder, pidlFolder, NULL, dwFlags);
+        if (FAILED_UNEXPECTEDLY(hr))
+            return hr;
+
+        return hr;
+    }
+
     HRESULT OnGetSubMenu(LPSMDATA psmd, REFIID iid, void ** pv)
     {
         HRESULT hr;
-        int csidl = 0;
-        IShellMenu *pShellMenu;
+        CComPtr<IShellMenu> pShellMenu;
 
         hr = CMenuBand_CreateInstance(IID_PPV_ARG(IShellMenu, &pShellMenu));
         if (FAILED_UNEXPECTEDLY(hr))
@@ -163,69 +283,107 @@ private:
         if (FAILED_UNEXPECTEDLY(hr))
             return hr;
 
+        hr = E_FAIL;
         switch (psmd->uId)
         {
-        case IDM_PROGRAMS:  csidl = CSIDL_PROGRAMS; break;
-        case IDM_FAVORITES: csidl = CSIDL_FAVORITES; break;
-        case IDM_DOCUMENTS: csidl = CSIDL_RECENT; break;
+            case IDM_PROGRAMS:
+            {
+                hr = AddStartMenuItems(pShellMenu, CSIDL_PROGRAMS, SMSET_TOP, m_psfPrograms);
+                break;
+            }
+            case IDM_FAVORITES:
+            case IDM_MYDOCUMENTS:
+            case IDM_MYPICTURES:
+            case IDM_CONTROLPANEL:
+            case IDM_NETWORKCONNECTIONS:
+            case IDM_PRINTERSANDFAXES:
+            {
+                hr = AddStartMenuItems(pShellMenu, CSIDLFromID(psmd->uId), SMSET_TOP);
+                break;
+            }
+            case IDM_DOCUMENTS:
+            {
+                HMENU hMenu = CreateRecentMenu();
+                if (hMenu == NULL)
+                    ERR("CreateRecentMenu failed\n");
+
+                hr = pShellMenu->SetMenu(hMenu, NULL, SMSET_BOTTOM);
+                if (FAILED_UNEXPECTEDLY(hr))
+                    return hr;
+
+                hr = AddStartMenuItems(pShellMenu, CSIDL_RECENT, SMSET_BOTTOM);
+                break;
+            }
+            case IDM_SETTINGS:
+            {
+                MENUITEMINFOW mii = { sizeof(mii), MIIM_SUBMENU };
+                if (GetMenuItemInfoW(psmd->hmenu, psmd->uId, FALSE, &mii))
+                {
+                    UpdateSettingsMenu(mii.hSubMenu);
+
+                    hr = pShellMenu->SetMenu(mii.hSubMenu, NULL, SMSET_BOTTOM);
+                    if (FAILED_UNEXPECTEDLY(hr))
+                        return hr;
+                }
+                break;
+            }
+            default:
+            {
+                MENUITEMINFOW mii = { sizeof(mii), MIIM_SUBMENU };
+                if (GetMenuItemInfoW(psmd->hmenu, psmd->uId, FALSE, &mii))
+                {
+                    hr = pShellMenu->SetMenu(mii.hSubMenu, NULL, SMSET_BOTTOM);
+                    if (FAILED_UNEXPECTEDLY(hr))
+                        return hr;
+                }
+            }
         }
 
-        if (csidl)
+        if (FAILED(hr))
+            return hr;
+
+        hr = pShellMenu->QueryInterface(iid, pv);
+        pShellMenu.Detach();
+        return hr;
+    }
+
+    INT CSIDLFromID(UINT uId) const
+    {
+        switch (uId)
         {
-            IShellFolder *psfStartMenu;
-
-            if (csidl == CSIDL_PROGRAMS && m_psfPrograms)
-            {
-                psfStartMenu = m_psfPrograms;
-            }
-            else
-            {
-                LPITEMIDLIST pidlStartMenu;
-                IShellFolder *psfDestop;
-                hr = SHGetFolderLocation(NULL, csidl, 0, 0, &pidlStartMenu);
-                if (FAILED_UNEXPECTEDLY(hr))
-                    return hr;
-
-                hr = SHGetDesktopFolder(&psfDestop);
-                if (FAILED_UNEXPECTEDLY(hr))
-                    return hr;
-
-                hr = psfDestop->BindToObject(pidlStartMenu, NULL, IID_PPV_ARG(IShellFolder, &psfStartMenu));
-                if (FAILED_UNEXPECTEDLY(hr))
-                    return hr;
-            }
-
-            hr = pShellMenu->SetShellFolder(psfStartMenu, NULL, NULL, 0);
-            if (FAILED_UNEXPECTEDLY(hr))
-                return hr;
-
+            case IDM_PROGRAMS: return CSIDL_PROGRAMS;
+            case IDM_FAVORITES: return CSIDL_FAVORITES;
+            case IDM_DOCUMENTS: return CSIDL_RECENT;
+            case IDM_MYDOCUMENTS: return CSIDL_MYDOCUMENTS;
+            case IDM_MYPICTURES: return CSIDL_MYPICTURES;
+            case IDM_CONTROLPANEL: return CSIDL_CONTROLS;
+            case IDM_NETWORKCONNECTIONS: return CSIDL_NETWORK;
+            case IDM_PRINTERSANDFAXES: return CSIDL_PRINTERS;
+            default: return 0;
         }
-        else
-        {
-            MENUITEMINFO mii;
-            mii.cbSize = sizeof(mii);
-            mii.fMask = MIIM_SUBMENU;
-            if (GetMenuItemInfoW(psmd->hmenu, psmd->uId, FALSE, &mii))
-            {
-                hr = pShellMenu->SetMenu(mii.hSubMenu, NULL, SMSET_BOTTOM);
-                if (FAILED_UNEXPECTEDLY(hr))
-                    return hr;
-            }
-        }
-        return pShellMenu->QueryInterface(iid, pv);
     }
 
     HRESULT OnGetContextMenu(LPSMDATA psmd, REFIID iid, void ** pv)
     {
-        if (psmd->uId == IDM_PROGRAMS ||
-            psmd->uId == IDM_CONTROLPANEL ||
-            psmd->uId == IDM_NETWORKCONNECTIONS ||
-            psmd->uId == IDM_PRINTERSANDFAXES)
-        {
-            //UNIMPLEMENTED
-        }
+        INT csidl = CSIDLFromID(psmd->uId);
+        if (!csidl)
+            return S_FALSE;
 
-        return S_FALSE;
+        TRACE("csidl: 0x%X\n", csidl);
+
+        if (csidl == CSIDL_CONTROLS || csidl == CSIDL_NETWORK || csidl == CSIDL_PRINTERS)
+            FIXME("This CSIDL %d wrongly opens My Computer. CORE-19477\n", csidl);
+
+        CComHeapPtr<ITEMIDLIST> pidl;
+        SHGetSpecialFolderLocation(NULL, csidl, &pidl);
+
+        CComPtr<IShellFolder> pSF;
+        LPCITEMIDLIST pidlChild = NULL;
+        HRESULT hr = SHBindToParent(pidl, IID_IShellFolder, (void**)&pSF, &pidlChild);
+        if (FAILED(hr))
+            return hr;
+
+        return pSF->GetUIObjectOf(NULL, 1, &pidlChild, IID_IContextMenu, NULL, pv);
     }
 
     HRESULT OnGetObject(LPSMDATA psmd, REFIID iid, void ** pv)
@@ -240,6 +398,8 @@ private:
 
     HRESULT OnExec(LPSMDATA psmd)
     {
+        WCHAR szPath[MAX_PATH];
+
         // HACK: Because our ShellExecute can't handle CLSID components in paths, we can't launch the paths using the "open" verb.
         // FIXME: Change this back to using the path as the filename and the "open" verb, once ShellExecute can handle CLSID path components.
 
@@ -249,6 +409,20 @@ private:
             ShellExecuteW(NULL, NULL, L"explorer.exe", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\::{21EC2020-3AEA-1069-A2DD-08002B30309D}\\::{7007ACC7-3202-11D1-AAD2-00805FC1270E}", NULL, SW_SHOWNORMAL);
         else if (psmd->uId == IDM_PRINTERSANDFAXES)
             ShellExecuteW(NULL, NULL, L"explorer.exe", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\::{21EC2020-3AEA-1069-A2DD-08002B30309D}\\::{2227A280-3AEA-1069-A2DE-08002B30309D}", NULL, SW_SHOWNORMAL);
+        else if (psmd->uId == IDM_MYDOCUMENTS)
+        {
+            if (SHGetSpecialFolderPathW(NULL, szPath, CSIDL_PERSONAL, FALSE))
+                ShellExecuteW(NULL, NULL, szPath, NULL, NULL, SW_SHOWNORMAL);
+            else
+                ERR("SHGetSpecialFolderPathW failed\n");
+        }
+        else if (psmd->uId == IDM_MYPICTURES)
+        {
+            if (SHGetSpecialFolderPathW(NULL, szPath, CSIDL_MYPICTURES, FALSE))
+                ShellExecuteW(NULL, NULL, szPath, NULL, NULL, SW_SHOWNORMAL);
+            else
+                ERR("SHGetSpecialFolderPathW failed\n");
+        }
         else
             PostMessageW(m_hwndTray, WM_COMMAND, psmd->uId, 0);
 
@@ -448,7 +622,7 @@ RSHELL_CStartMenu_CreateInstance(REFIID riid, void **ppv)
     pCallback->AddRef(); // CreateInstance returns object with 0 ref count */
     pCallback->Initialize(pShellMenu, pBandSite, pDeskBar);
 
-    pShellMenu->Initialize(pCallback, (UINT) -1, 0, SMINIT_TOPLEVEL | SMINIT_VERTICAL);
+    hr = pShellMenu->Initialize(pCallback, (UINT) -1, 0, SMINIT_TOPLEVEL | SMINIT_VERTICAL);
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
 
@@ -461,7 +635,7 @@ RSHELL_CStartMenu_CreateInstance(REFIID riid, void **ppv)
         hr = SHGetSpecialFolderLocation(NULL, CSIDL_PROGRAMS, &pidlProgramsAbsolute);
         if (FAILED_UNEXPECTEDLY(hr))
         {
-            WARN("USER Programs folder not found.");
+            WARN("USER Programs folder not found\n");
             hr = SHGetSpecialFolderLocation(NULL, CSIDL_COMMON_PROGRAMS, &pidlProgramsAbsolute);
             if (FAILED_UNEXPECTEDLY(hr))
                 return hr;
@@ -497,7 +671,7 @@ RSHELL_CStartMenu_CreateInstance(REFIID riid, void **ppv)
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
 
-    hr = pShellMenu->SetShellFolder(psf, NULL, NULL, 0);
+    hr = pShellMenu->SetShellFolder(psf, NULL, NULL, SMSET_TOP);
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
 

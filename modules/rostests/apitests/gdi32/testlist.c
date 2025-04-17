@@ -55,6 +55,7 @@ extern void func_GetStockObject(void);
 extern void func_GetTextExtentExPoint(void);
 extern void func_GetTextFace(void);
 extern void func_GetTextMetrics(void);
+extern void func_LPtoDP(void);
 extern void func_MaskBlt(void);
 extern void func_NtGdiAddFontResource(void);
 extern void func_OffsetClipRgn(void);
@@ -69,11 +70,14 @@ extern void func_SetBrushOrgEx(void);
 extern void func_SetDCPenColor(void);
 extern void func_SetDIBits(void);
 extern void func_SetDIBitsToDevice(void);
+extern void func_SetLayout(void);
 extern void func_SetMapMode(void);
 extern void func_SetPixel(void);
 extern void func_SetSysColors(void);
 extern void func_SetWindowExtEx(void);
 extern void func_SetWorldTransform(void);
+extern void func_StretchBlt(void);
+extern void func_TextTransform(void);
 
 const struct test winetest_testlist[] =
 {
@@ -129,6 +133,7 @@ const struct test winetest_testlist[] =
     { "GetTextExtentExPoint", func_GetTextExtentExPoint },
     { "GetTextMetrics", func_GetTextMetrics },
     { "GetTextFace", func_GetTextFace },
+    { "LPtoDP", func_LPtoDP },
     { "MaskBlt", func_MaskBlt },
     { "NtGdiAddFontResource", func_NtGdiAddFontResource},
     { "OffsetClipRgn", func_OffsetClipRgn },
@@ -143,11 +148,14 @@ const struct test winetest_testlist[] =
     { "SetDCPenColor", func_SetDCPenColor },
     { "SetDIBits", func_SetDIBits },
     { "SetDIBitsToDevice", func_SetDIBitsToDevice },
+    { "SetLayout", func_SetLayout },
     { "SetMapMode", func_SetMapMode },
     { "SetPixel", func_SetPixel },
     { "SetSysColors", func_SetSysColors },
     { "SetWindowExtEx", func_SetWindowExtEx },
     { "SetWorldTransform", func_SetWorldTransform },
+    { "StretchBlt", func_StretchBlt },
+    { "TextTransform", func_TextTransform },
 
     { 0, 0 }
 };

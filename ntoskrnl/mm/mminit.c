@@ -1,4 +1,4 @@
-﻿/*
+/*
  * PROJECT:         ReactOS Kernel
  * LICENSE:         GPL - See COPYING in the top level directory
  * FILE:            ntoskrnl/mm/mminit.c
@@ -16,8 +16,6 @@
 #include "ARM3/miarm.h"
 
 /* GLOBALS *******************************************************************/
-
-VOID NTAPI MiInitializeUserPfnBitmap(VOID);
 
 BOOLEAN Mm64BitPhysicalAddress = FALSE;
 ULONG MmReadClusterSize;
@@ -39,8 +37,8 @@ extern NTSTATUS MiRosTrimCache(ULONG Target, ULONG Priority, PULONG NrFreed);
 // Helper function to create initial memory areas.
 // The created area is always read/write.
 //
+CODE_SEG("INIT")
 VOID
-INIT_FUNCTION
 NTAPI
 MiCreateArm3StaticMemoryArea(PVOID BaseAddress, SIZE_T Size, BOOLEAN Executable)
 {
@@ -61,14 +59,21 @@ MiCreateArm3StaticMemoryArea(PVOID BaseAddress, SIZE_T Size, BOOLEAN Executable)
     // TODO: Perhaps it would be  prudent to bugcheck here, not only assert?
 }
 
+CODE_SEG("INIT")
 VOID
-INIT_FUNCTION
 NTAPI
 MiInitSystemMemoryAreas(VOID)
 {
     //
     // Create all the static memory areas.
     //
+
+    MmLockAddressSpace(MmGetKernelAddressSpace());
+
+#ifdef _M_AMD64
+    // Reserved range FFFF800000000000 - FFFFF68000000000
+    MiCreateArm3StaticMemoryArea((PVOID)MI_REAL_SYSTEM_RANGE_START, PTE_BASE - MI_REAL_SYSTEM_RANGE_START, FALSE);
+#endif /* _M_AMD64 */
 
     // The loader mappings. The only Executable area.
     MiCreateArm3StaticMemoryArea((PVOID)KSEG0_BASE, MmBootImageSize, TRUE);
@@ -115,11 +120,13 @@ MiInitSystemMemoryAreas(VOID)
     // KUSER_SHARED_DATA
     MiCreateArm3StaticMemoryArea((PVOID)KI_USER_SHARED_DATA, PAGE_SIZE, FALSE);
 #endif /* _X86_ */
+
+    MmUnlockAddressSpace(MmGetKernelAddressSpace());
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 MiDbgDumpAddressSpace(VOID)
 {
     //
@@ -169,9 +176,9 @@ MiDbgDumpAddressSpace(VOID)
             "Non Paged Pool Expansion PTE Space");
 }
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 MmInitBsmThread(VOID)
 {
     NTSTATUS Status;
@@ -193,9 +200,9 @@ MmInitBsmThread(VOID)
     return Status;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 MmInitSystem(IN ULONG Phase,
              IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
@@ -203,16 +210,23 @@ MmInitSystem(IN ULONG Phase,
     PMMPTE PointerPte;
     MMPTE TempPte = ValidKernelPte;
     PFN_NUMBER PageFrameNumber;
+    PLIST_ENTRY ListEntry;
+    PLDR_DATA_TABLE_ENTRY DataTableEntry;
 
     /* Initialize the kernel address space */
     ASSERT(Phase == 1);
 
+#ifdef NEWCC
     InitializeListHead(&MiSegmentList);
     ExInitializeFastMutex(&MiGlobalPageOperation);
     KeInitializeEvent(&MmWaitPageEvent, SynchronizationEvent, FALSE);
     // Until we're fully demand paged, we can do things the old way through
     // the balance manager
+    // CcInitView will override this...
     MmInitializeMemoryConsumer(MC_CACHE, MiRosTrimCache);
+#else
+    KeInitializeEvent(&MmWaitPageEvent, SynchronizationEvent, FALSE);
+#endif
 
     MmKernelAddressSpace = &PsIdleProcess->Vm;
 
@@ -223,7 +237,6 @@ MmInitSystem(IN ULONG Phase,
     MiDbgDumpAddressSpace();
 
     MmInitGlobalKernelPageDirectory();
-    MiInitializeUserPfnBitmap();
     MmInitializeMemoryConsumer(MC_USER, MmTrimUserMemory);
     MmInitializeRmapList();
     MmInitSectionImplementation();
@@ -270,6 +283,20 @@ MmInitSystem(IN ULONG Phase,
 
     /* Initialize the balance set manager */
     MmInitBsmThread();
+
+    /* Loop the boot loaded images (under lock) */
+    ExAcquireResourceExclusiveLite(&PsLoadedModuleResource, TRUE);
+    for (ListEntry = PsLoadedModuleList.Flink;
+         ListEntry != &PsLoadedModuleList;
+         ListEntry = ListEntry->Flink)
+    {
+        /* Get the data table entry */
+        DataTableEntry = CONTAINING_RECORD(ListEntry, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
+
+        /* Set up the image protection */
+        MiWriteProtectSystemImage(DataTableEntry->DllBase);
+    }
+    ExReleaseResourceLite(&PsLoadedModuleResource);
 
     return TRUE;
 }

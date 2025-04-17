@@ -50,6 +50,8 @@
 #define ROUND_UP(n, align) \
     ROUND_DOWN(((ULONG)n) + (align) - 1, (align))
 
+#define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
+
 #define __TRY _SEH2_TRY
 #define __EXCEPT_PAGE_FAULT _SEH2_EXCEPT(_SEH2_GetExceptionCode() == STATUS_ACCESS_VIOLATION)
 #define __ENDTRY _SEH2_END
@@ -181,10 +183,17 @@ BaseFormatObjectAttributes(OUT POBJECT_ATTRIBUTES ObjectAttributes,
 
 NTSTATUS
 WINAPI
-BaseCreateStack(HANDLE hProcess,
-                 SIZE_T StackReserve,
-                 SIZE_T StackCommit,
-                 PINITIAL_TEB InitialTeb);
+BaseCreateStack(
+    _In_ HANDLE hProcess,
+    _In_opt_ SIZE_T StackCommit,
+    _In_opt_ SIZE_T StackReserve,
+    _Out_ PINITIAL_TEB InitialTeb);
+
+VOID
+WINAPI
+BaseFreeThreadStack(
+    _In_ HANDLE hProcess,
+    _In_ PINITIAL_TEB InitialTeb);
 
 VOID
 WINAPI
@@ -225,27 +234,25 @@ BasepProbeForDllManifest(
     OUT PVOID *ActCtx
 );
 
-__declspec(noreturn)
+DECLSPEC_NORETURN
 VOID
 WINAPI
-BaseThreadStartup(LPTHREAD_START_ROUTINE lpStartAddress,
-                  LPVOID lpParameter);
+BaseThreadStartup(
+    _In_ LPTHREAD_START_ROUTINE lpStartAddress,
+    _In_ LPVOID lpParameter);
 
-VOID
-WINAPI
-BaseFreeThreadStack(IN HANDLE hProcess,
-                    IN PINITIAL_TEB InitialTeb);
-
-__declspec(noreturn)
+DECLSPEC_NORETURN
 VOID
 WINAPI
 BaseFiberStartup(VOID);
 
-typedef UINT (WINAPI *PPROCESS_START_ROUTINE)(VOID);
+typedef DWORD (WINAPI *PPROCESS_START_ROUTINE)(VOID);
 
+DECLSPEC_NORETURN
 VOID
 WINAPI
-BaseProcessStartup(PPROCESS_START_ROUTINE lpStartAddress);
+BaseProcessStartup(
+    _In_ PPROCESS_START_ROUTINE lpStartAddress);
 
 PVOID
 WINAPI

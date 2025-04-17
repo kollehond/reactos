@@ -17,15 +17,16 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  *
- * TRANSLATOR: Ștefan Fulea (stefan dot fulea at mail dot md)
+ * TRANSLATORS: Copyright 2011-2019 Ștefan Fulea <stefan.fulea@mail.com>
+ *              Copyright 2022-2024 Andrei Miloiu <miloiuandrei@gmail.com>
  */
 
 LANGUAGE LANG_ROMANIAN, SUBLANG_NEUTRAL
 
 STRINGTABLE
 BEGIN
-    IDS_CPL_NAME        "Preferințe Internet"
-    IDS_CPL_INFO        "Configurarea Navigatorului de Internet Wine și preferințele aferente"
+    IDS_CPL_NAME        "Opţiuni Internet"
+    IDS_CPL_INFO        "Configurarea WINE Internet Explorer și a setărilor aferente."
     IDS_SEC_SETTINGS    "Preferințe de securitate pentru zona: "
     IDS_SEC_LEVEL0      "Particularizată"
     IDS_SEC_LEVEL1      "Joasă"
@@ -67,18 +68,17 @@ CAPTION "Eliminare istoric de navigare"
 BEGIN
 
     AUTOCHECKBOX   "Fișierele de internet t&emporare\nCopii ale paginilor temporar stocate, imagini și certificate.",
-                    IDC_DELETE_TEMP_FILES, 10, 8, 230, 40, BS_TOP | BS_MULTILINE
+                    IDC_DELETE_TEMP_FILES, 10, 8, 230, 40, BS_TOP | BS_MULTILINE | WS_GROUP | WS_TABSTOP
     AUTOCHECKBOX   "Informațiile de &conexiune (Cookies)\nFișiere cu date precum informații de autentificare sau preferințe, stocate în calculatorul dumneavoastră din paginile vizitate.",
                     IDC_DELETE_COOKIES, 10, 48, 230, 40, BS_TOP | BS_MULTILINE
     AUTOCHECKBOX   "Ist&oricul\nLista paginilor pe care le-ați accesat în timp.",
                     IDC_DELETE_HISTORY, 10, 88, 230, 40, BS_TOP | BS_MULTILINE
     AUTOCHECKBOX   "&Datele formularelor\nNume de utilizatori și alte informații pe care le-ați introdus prin formulare.",
                     IDC_DELETE_FORM_DATA, 10, 128, 230, 40, BS_TOP | BS_MULTILINE
-    AUTOCHECKBOX   "&Parolele\nParolele păstrate pe care le-ați introdus prin formulare.",
+    AUTOCHECKBOX   "&Parolele\nParolele salvate pe care le-ați introdus prin formulare.",
                     IDC_DELETE_PASSWORDS, 10, 168, 230, 40, BS_TOP | BS_MULTILINE
-    DEFPUSHBUTTON  "A&nulează", IDCANCEL, 185, 230, 60, 15, WS_GROUP
+    DEFPUSHBUTTON  "Revocare", IDCANCEL, 185, 230, 60, 15, WS_GROUP
     PUSHBUTTON     "&Elimină", IDOK, 120, 230, 60, 15, WS_GROUP
-
 END
 
 /* "Security" propsheet */
@@ -113,4 +113,23 @@ BEGIN
     PUSHBUTTON  "&Certificate…", IDC_CERT, 146, 34, 80, 14
     PUSHBUTTON	"Agenți pu&blici…", IDC_CERT_PUBLISHER, 230, 34, 80, 14
 
+END
+
+/* "Connections" propsheet */
+IDD_CONNECTIONS DIALOG 0, 0, 320, 220
+STYLE WS_CAPTION | WS_CHILD | WS_DISABLED
+FONT 8, "MS Shell Dlg"
+CAPTION "Conexiuni"
+BEGIN
+    GROUPBOX        "Configurare automată", IDC_STATIC, 4, 4, 312, 56
+    AUTOCHECKBOX    "Identificare automată de mandatar web (WPAD)", IDC_USE_WPAD, 10, 14, 200, 14, BS_TOP
+    AUTOCHECKBOX    "Configurare automată de mandatar (PAC)", IDC_USE_PAC_SCRIPT, 10, 28, 200, 14, BS_TOP
+    LTEXT           "Adresă:", IDC_STATIC, 10, 42, 40, 14
+    EDITTEXT        IDC_EDIT_PAC_SCRIPT, 50, 42, 160, 14, WS_VISIBLE | ES_AUTOHSCROLL | WS_DISABLED
+    GROUPBOX        "Server mandatar", IDC_STATIC, 4, 66, 312, 42
+    AUTOCHECKBOX    "Folosește mandatar", IDC_USE_PROXY_SERVER, 10, 76, 200, 14, BS_TOP | BS_MULTILINE
+    LTEXT           "Adresă:", IDC_STATIC, 10, 90, 40, 14
+    EDITTEXT        IDC_EDIT_PROXY_SERVER, 50, 90, 80, 14, WS_VISIBLE | ES_AUTOHSCROLL | WS_DISABLED
+    LTEXT           "Port:", IDC_STATIC, 140, 90, 30, 14
+    EDITTEXT        IDC_EDIT_PROXY_PORT, 170, 90, 40, 14, WS_VISIBLE | ES_AUTOHSCROLL | WS_DISABLED | ES_NUMBER
 END

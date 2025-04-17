@@ -197,6 +197,8 @@ xsltTemplateParamsCleanup(xsltTransformContextPtr ctxt)
         ctxt->vars = NULL;
 }
 
+#ifdef WITH_PROFILER
+
 /**
  * profPush:
  * @ctxt: the transformation context
@@ -304,6 +306,8 @@ profCallgraphAdd(xsltTemplatePtr templ, xsltTemplatePtr parent)
         templ->templNr++;
     }
 }
+
+#endif /* WITH_PROFILER */
 
 /**
  * xsltPreCompEval:
@@ -598,7 +602,6 @@ xsltNewTransformContext(xsltStylesheetPtr style, xmlDocPtr doc) {
     cur->prof = 0;
 
     cur->style = style;
-    xmlXPathInit();
     cur->xpathCtxt = xmlXPathNewContext(doc);
     if (cur->xpathCtxt == NULL) {
 	xsltTransformError(NULL, NULL, (xmlNodePtr) doc,
@@ -1055,6 +1058,8 @@ xsltCopyText(xsltTransformContextPtr ctxt, xmlNodePtr target,
 	    if ((copy->content = xmlStrdup(cur->content)) == NULL)
 		return NULL;
 	}
+
+	ctxt->lasttext = NULL;
     } else {
         /*
 	 * normal processing. keep counters to extend the text node
@@ -1854,7 +1859,7 @@ static void
 xsltDefaultProcessOneNode(xsltTransformContextPtr ctxt, xmlNodePtr node,
 			  xsltStackElemPtr params) {
     xmlNodePtr copy;
-    xmlNodePtr delete = NULL, cur;
+    xmlNodePtr cur;
     int nbchild = 0, oldSize;
     int childno = 0, oldPos;
     xsltTemplatePtr template;
@@ -1927,54 +1932,13 @@ xsltDefaultProcessOneNode(xsltTransformContextPtr ctxt, xmlNodePtr node,
 	    return;
     }
     /*
-     * Handling of Elements: first pass, cleanup and counting
+     * Handling of Elements: first pass, counting
      */
     cur = node->children;
     while (cur != NULL) {
-	switch (cur->type) {
-	    case XML_TEXT_NODE:
-	    case XML_CDATA_SECTION_NODE:
-	    case XML_DOCUMENT_NODE:
-	    case XML_HTML_DOCUMENT_NODE:
-	    case XML_ELEMENT_NODE:
-	    case XML_PI_NODE:
-	    case XML_COMMENT_NODE:
-		nbchild++;
-		break;
-            case XML_DTD_NODE:
-		/* Unlink the DTD, it's still reachable using doc->intSubset */
-		if (cur->next != NULL)
-		    cur->next->prev = cur->prev;
-		if (cur->prev != NULL)
-		    cur->prev->next = cur->next;
-		break;
-	    default:
-#ifdef WITH_XSLT_DEBUG_PROCESS
-		XSLT_TRACE(ctxt,XSLT_TRACE_PROCESS_NODE,xsltGenericDebug(xsltGenericDebugContext,
-		 "xsltDefaultProcessOneNode: skipping node type %d\n",
-		                 cur->type));
-#endif
-		delete = cur;
-	}
+	if (IS_XSLT_REAL_NODE(cur))
+	    nbchild++;
 	cur = cur->next;
-	if (delete != NULL) {
-#ifdef WITH_XSLT_DEBUG_PROCESS
-	    XSLT_TRACE(ctxt,XSLT_TRACE_PROCESS_NODE,xsltGenericDebug(xsltGenericDebugContext,
-		 "xsltDefaultProcessOneNode: removing ignorable blank node\n"));
-#endif
-	    xmlUnlinkNode(delete);
-	    xmlFreeNode(delete);
-	    delete = NULL;
-	}
-    }
-    if (delete != NULL) {
-#ifdef WITH_XSLT_DEBUG_PROCESS
-	XSLT_TRACE(ctxt,XSLT_TRACE_PROCESS_NODE,xsltGenericDebug(xsltGenericDebugContext,
-	     "xsltDefaultProcessOneNode: removing ignorable blank node\n"));
-#endif
-	xmlUnlinkNode(delete);
-	xmlFreeNode(delete);
-	delete = NULL;
     }
 
     /*
@@ -2170,6 +2134,7 @@ xsltProcessOneNode(xsltTransformContextPtr ctxt, xmlNodePtr contextNode,
     }
 }
 
+#ifdef WITH_DEBUGGER
 static xmlNodePtr
 xsltDebuggerStartSequenceConstructor(xsltTransformContextPtr ctxt,
 				     xmlNodePtr contextNode,
@@ -2205,6 +2170,7 @@ xsltDebuggerStartSequenceConstructor(xsltTransformContextPtr ctxt,
     }
     return(debugedNode);
 }
+#endif /* WITH_DEBUGGER */
 
 /**
  * xsltLocalVariablePush:
@@ -2266,6 +2232,11 @@ xsltReleaseLocalRVTs(xsltTransformContextPtr ctxt, xmlDocPtr base)
     if (cur->prev != NULL)
         xsltTransformError(ctxt, NULL, NULL, "localRVT not head of list\n");
 
+    /* Reset localRVT early because some RVTs might be registered again. */
+    ctxt->localRVT = base;
+    if (base != NULL)
+        base->prev = NULL;
+
     do {
         tmp = cur;
         cur = (xmlDocPtr) cur->next;
@@ -2273,16 +2244,19 @@ xsltReleaseLocalRVTs(xsltTransformContextPtr ctxt, xmlDocPtr base)
             xsltReleaseRVT(ctxt, tmp);
         } else if (tmp->psvi == XSLT_RVT_GLOBAL) {
             xsltRegisterPersistRVT(ctxt, tmp);
-        } else if (tmp->psvi != XSLT_RVT_FUNC_RESULT) {
+        } else if (tmp->psvi == XSLT_RVT_FUNC_RESULT) {
+            /*
+             * This will either register the RVT again or move it to the
+             * context variable.
+             */
+            xsltRegisterLocalRVT(ctxt, tmp);
+            tmp->psvi = XSLT_RVT_FUNC_RESULT;
+        } else {
             xmlGenericError(xmlGenericErrorContext,
                     "xsltReleaseLocalRVTs: Unexpected RVT flag %p\n",
                     tmp->psvi);
         }
     } while (cur != base);
-
-    if (base != NULL)
-        base->prev = NULL;
-    ctxt->localRVT = base;
 }
 
 /**
@@ -2368,6 +2342,17 @@ xsltApplySequenceConstructor(xsltTransformContextPtr ctxt,
     */
     cur = list;
     while (cur != NULL) {
+        if (ctxt->opLimit != 0) {
+            if (ctxt->opCount >= ctxt->opLimit) {
+		xsltTransformError(ctxt, NULL, cur,
+		    "xsltApplySequenceConstructor: "
+                    "Operation limit exceeded\n");
+	        ctxt->state = XSLT_STATE_STOPPED;
+                goto error;
+            }
+            ctxt->opCount += 1;
+        }
+
         ctxt->inst = cur;
 
 #ifdef WITH_DEBUGGER
@@ -2621,8 +2606,8 @@ xsltApplySequenceConstructor(xsltTransformContextPtr ctxt,
 		    * Libxslt will now lookup if a handler is
 		    * registered in the context of this transformation.
 		    */
-		    func = (xsltTransformFunction)
-			xsltExtElementLookup(ctxt, cur->name, cur->ns->href);
+		    func = xsltExtElementLookup(ctxt, cur->name,
+                                                cur->ns->href);
 		} else
 		    func = ((xsltElemPreCompPtr) cur->psvi)->func;
 
@@ -2807,8 +2792,8 @@ xsltApplySequenceConstructor(xsltTransformContextPtr ctxt,
              * Flagged as an extension element
              */
             if (cur->psvi == xsltExtMarker)
-                function = (xsltTransformFunction)
-                    xsltExtElementLookup(ctxt, cur->name, cur->ns->href);
+                function = xsltExtElementLookup(ctxt, cur->name,
+                                                cur->ns->href);
             else
                 function = ((xsltElemPreCompPtr) cur->psvi)->func;
 
@@ -2824,6 +2809,7 @@ xsltApplySequenceConstructor(xsltTransformContextPtr ctxt,
                 /*
                  * Search if there are fallbacks
                  */
+                ctxt->insert = insert;
                 child = cur->children;
                 while (child != NULL) {
                     if ((IS_XSLT_ELEM(child)) &&
@@ -2835,6 +2821,7 @@ xsltApplySequenceConstructor(xsltTransformContextPtr ctxt,
                     }
                     child = child->next;
                 }
+                ctxt->insert = oldInsert;
 
                 if (!found) {
                     xsltTransformError(ctxt, NULL, cur,
@@ -3043,10 +3030,12 @@ xsltApplyXSLTTemplate(xsltTransformContextPtr ctxt,
 		      xsltStackElemPtr withParams)
 {
     int oldVarsBase = 0;
-    long start = 0;
     xmlNodePtr cur;
     xsltStackElemPtr tmpParam = NULL;
     xmlDocPtr oldUserFragmentTop;
+#ifdef WITH_PROFILER
+    long start = 0;
+#endif
 
 #ifdef XSLT_REFACTORED
     xsltStyleItemParamPtr iparam;
@@ -3101,12 +3090,16 @@ xsltApplyXSLTTemplate(xsltTransformContextPtr ctxt,
     ctxt->varsBase = ctxt->varsNr;
 
     ctxt->node = contextNode;
+
+#ifdef WITH_PROFILER
     if (ctxt->profile) {
 	templ->nbCalls++;
 	start = xsltTimestamp();
 	profPush(ctxt, 0);
 	profCallgraphAdd(templ, ctxt->templ);
     }
+#endif
+
     /*
     * Push the xsl:template declaration onto the stack.
     */
@@ -3214,6 +3207,8 @@ xsltApplyXSLTTemplate(xsltTransformContextPtr ctxt,
     * Pop the xsl:template declaration from the stack.
     */
     templPop(ctxt);
+
+#ifdef WITH_PROFILER
     if (ctxt->profile) {
 	long spent, child, total, end;
 
@@ -3234,6 +3229,7 @@ xsltApplyXSLTTemplate(xsltTransformContextPtr ctxt,
 	if (ctxt->profNr > 0)
 	    ctxt->profTab[ctxt->profNr - 1] += total;
     }
+#endif
 
 #ifdef WITH_DEBUGGER
     if ((ctxt->debugStatus != XSLT_DEBUG_NONE) && (addCallResult)) {
@@ -3325,12 +3321,12 @@ xsltApplyOneTemplate(xsltTransformContextPtr ctxt,
  */
 void
 xsltDocumentElem(xsltTransformContextPtr ctxt, xmlNodePtr node,
-                 xmlNodePtr inst, xsltStylePreCompPtr castedComp)
+                 xmlNodePtr inst, xsltElemPreCompPtr castedComp)
 {
 #ifdef XSLT_REFACTORED
     xsltStyleItemDocumentPtr comp = (xsltStyleItemDocumentPtr) castedComp;
 #else
-    xsltStylePreCompPtr comp = castedComp;
+    xsltStylePreCompPtr comp = (xsltStylePreCompPtr) castedComp;
 #endif
     xsltStylesheetPtr style = NULL;
     int ret;
@@ -3391,7 +3387,7 @@ xsltDocumentElem(xsltTransformContextPtr ctxt, xmlNodePtr node,
 		 * XPath expression.
 		 * (see http://xml.apache.org/xalan-j/extensionslib.html#redirect)
 		 */
-		cmp = xmlXPathCompile(URL);
+		cmp = xmlXPathCtxtCompile(ctxt->xpathCtxt, URL);
                 val = xsltEvalXPathString(ctxt, cmp);
 		xmlXPathFreeCompExpr(cmp);
 		xmlFree(URL);
@@ -3450,10 +3446,11 @@ xsltDocumentElem(xsltTransformContextPtr ctxt, xmlNodePtr node,
      */
     if (ctxt->sec != NULL) {
 	ret = xsltCheckWrite(ctxt->sec, ctxt, filename);
-	if (ret == 0) {
-	    xsltTransformError(ctxt, NULL, inst,
-		 "xsltDocumentElem: write rights for %s denied\n",
-			     filename);
+	if (ret <= 0) {
+            if (ret == 0)
+                xsltTransformError(ctxt, NULL, inst,
+                     "xsltDocumentElem: write rights for %s denied\n",
+                                 filename);
 	    xmlFree(URL);
 	    xmlFree(filename);
 	    return;
@@ -3598,17 +3595,19 @@ xsltDocumentElem(xsltTransformContextPtr ctxt, xmlNodePtr node,
     if (elements != NULL) {
 	if (style->stripSpaces == NULL)
 	    style->stripSpaces = xmlHashCreate(10);
-	if (style->stripSpaces == NULL)
+	if (style->stripSpaces == NULL) {
+	    xmlFree(elements);
 	    return;
+	}
 
 	element = elements;
 	while (*element != 0) {
-	    while (IS_BLANK_CH(*element))
+	    while (xmlIsBlank_ch(*element))
 		element++;
 	    if (*element == 0)
 		break;
 	    end = element;
-	    while ((*end != 0) && (!IS_BLANK_CH(*end)))
+	    while ((*end != 0) && (!xmlIsBlank_ch(*end)))
 		end++;
 	    element = xmlStrndup(element, end - element);
 	    if (element) {
@@ -3839,7 +3838,7 @@ xsltDocumentElem(xsltTransformContextPtr ctxt, xmlNodePtr node,
 void
 xsltSort(xsltTransformContextPtr ctxt,
 	xmlNodePtr node ATTRIBUTE_UNUSED, xmlNodePtr inst,
-	xsltStylePreCompPtr comp) {
+	xsltElemPreCompPtr comp) {
     if (comp == NULL) {
 	xsltTransformError(ctxt, NULL, inst,
 	     "xsl:sort : compilation failed\n");
@@ -3860,12 +3859,12 @@ xsltSort(xsltTransformContextPtr ctxt,
  */
 void
 xsltCopy(xsltTransformContextPtr ctxt, xmlNodePtr node,
-	 xmlNodePtr inst, xsltStylePreCompPtr castedComp)
+	 xmlNodePtr inst, xsltElemPreCompPtr castedComp)
 {
 #ifdef XSLT_REFACTORED
     xsltStyleItemCopyPtr comp = (xsltStyleItemCopyPtr) castedComp;
 #else
-    xsltStylePreCompPtr comp = castedComp;
+    xsltStylePreCompPtr comp = (xsltStylePreCompPtr) castedComp;
 #endif
     xmlNodePtr copy, oldInsert;
 
@@ -3979,7 +3978,7 @@ xsltCopy(xsltTransformContextPtr ctxt, xmlNodePtr node,
  */
 void
 xsltText(xsltTransformContextPtr ctxt, xmlNodePtr node ATTRIBUTE_UNUSED,
-	    xmlNodePtr inst, xsltStylePreCompPtr comp ATTRIBUTE_UNUSED) {
+	    xmlNodePtr inst, xsltElemPreCompPtr comp ATTRIBUTE_UNUSED) {
     if ((inst->children != NULL) && (comp != NULL)) {
 	xmlNodePtr text = inst->children;
 	xmlNodePtr copy;
@@ -4016,11 +4015,11 @@ xsltText(xsltTransformContextPtr ctxt, xmlNodePtr node ATTRIBUTE_UNUSED,
  */
 void
 xsltElement(xsltTransformContextPtr ctxt, xmlNodePtr node,
-	    xmlNodePtr inst, xsltStylePreCompPtr castedComp) {
+	    xmlNodePtr inst, xsltElemPreCompPtr castedComp) {
 #ifdef XSLT_REFACTORED
     xsltStyleItemElementPtr comp = (xsltStyleItemElementPtr) castedComp;
 #else
-    xsltStylePreCompPtr comp = castedComp;
+    xsltStylePreCompPtr comp = (xsltStylePreCompPtr) castedComp;
 #endif
     xmlChar *prop = NULL;
     const xmlChar *name, *prefix = NULL, *nsName = NULL;
@@ -4224,7 +4223,7 @@ error:
  */
 void
 xsltComment(xsltTransformContextPtr ctxt, xmlNodePtr node,
-	           xmlNodePtr inst, xsltStylePreCompPtr comp ATTRIBUTE_UNUSED) {
+	           xmlNodePtr inst, xsltElemPreCompPtr comp ATTRIBUTE_UNUSED) {
     xmlChar *value = NULL;
     xmlNodePtr commentNode;
     int len;
@@ -4268,11 +4267,11 @@ xsltComment(xsltTransformContextPtr ctxt, xmlNodePtr node,
  */
 void
 xsltProcessingInstruction(xsltTransformContextPtr ctxt, xmlNodePtr node,
-	           xmlNodePtr inst, xsltStylePreCompPtr castedComp) {
+	           xmlNodePtr inst, xsltElemPreCompPtr castedComp) {
 #ifdef XSLT_REFACTORED
     xsltStyleItemPIPtr comp = (xsltStyleItemPIPtr) castedComp;
 #else
-    xsltStylePreCompPtr comp = castedComp;
+    xsltStylePreCompPtr comp = (xsltStylePreCompPtr) castedComp;
 #endif
     const xmlChar *name;
     xmlChar *value = NULL;
@@ -4334,11 +4333,11 @@ error:
  */
 void
 xsltCopyOf(xsltTransformContextPtr ctxt, xmlNodePtr node,
-	           xmlNodePtr inst, xsltStylePreCompPtr castedComp) {
+	           xmlNodePtr inst, xsltElemPreCompPtr castedComp) {
 #ifdef XSLT_REFACTORED
     xsltStyleItemCopyOfPtr comp = (xsltStyleItemCopyOfPtr) castedComp;
 #else
-    xsltStylePreCompPtr comp = castedComp;
+    xsltStylePreCompPtr comp = (xsltStylePreCompPtr) castedComp;
 #endif
     xmlXPathObjectPtr res = NULL;
     xmlNodeSetPtr list = NULL;
@@ -4478,12 +4477,12 @@ xsltCopyOf(xsltTransformContextPtr ctxt, xmlNodePtr node,
  */
 void
 xsltValueOf(xsltTransformContextPtr ctxt, xmlNodePtr node,
-	           xmlNodePtr inst, xsltStylePreCompPtr castedComp)
+	           xmlNodePtr inst, xsltElemPreCompPtr castedComp)
 {
 #ifdef XSLT_REFACTORED
     xsltStyleItemValueOfPtr comp = (xsltStyleItemValueOfPtr) castedComp;
 #else
-    xsltStylePreCompPtr comp = castedComp;
+    xsltStylePreCompPtr comp = (xsltStylePreCompPtr) castedComp;
 #endif
     xmlXPathObjectPtr res = NULL;
     xmlChar *value = NULL;
@@ -4552,12 +4551,12 @@ error:
  */
 void
 xsltNumber(xsltTransformContextPtr ctxt, xmlNodePtr node,
-	   xmlNodePtr inst, xsltStylePreCompPtr castedComp)
+	   xmlNodePtr inst, xsltElemPreCompPtr castedComp)
 {
 #ifdef XSLT_REFACTORED
     xsltStyleItemNumberPtr comp = (xsltStyleItemNumberPtr) castedComp;
 #else
-    xsltStylePreCompPtr comp = castedComp;
+    xsltStylePreCompPtr comp = (xsltStylePreCompPtr) castedComp;
 #endif
     xmlXPathContextPtr xpctxt;
     xmlNsPtr *oldXPNamespaces;
@@ -4610,7 +4609,7 @@ xsltNumber(xsltTransformContextPtr ctxt, xmlNodePtr node,
 void
 xsltApplyImports(xsltTransformContextPtr ctxt, xmlNodePtr contextNode,
 	         xmlNodePtr inst,
-		 xsltStylePreCompPtr comp ATTRIBUTE_UNUSED)
+		 xsltElemPreCompPtr comp ATTRIBUTE_UNUSED)
 {
     xsltTemplatePtr templ;
 
@@ -4678,13 +4677,13 @@ xsltApplyImports(xsltTransformContextPtr ctxt, xmlNodePtr contextNode,
  */
 void
 xsltCallTemplate(xsltTransformContextPtr ctxt, xmlNodePtr node,
-	           xmlNodePtr inst, xsltStylePreCompPtr castedComp)
+	           xmlNodePtr inst, xsltElemPreCompPtr castedComp)
 {
 #ifdef XSLT_REFACTORED
     xsltStyleItemCallTemplatePtr comp =
 	(xsltStyleItemCallTemplatePtr) castedComp;
 #else
-    xsltStylePreCompPtr comp = castedComp;
+    xsltStylePreCompPtr comp = (xsltStylePreCompPtr) castedComp;
 #endif
     xsltStackElemPtr withParams = NULL;
 
@@ -4781,16 +4780,16 @@ xsltCallTemplate(xsltTransformContextPtr ctxt, xmlNodePtr node,
  */
 void
 xsltApplyTemplates(xsltTransformContextPtr ctxt, xmlNodePtr node,
-	           xmlNodePtr inst, xsltStylePreCompPtr castedComp)
+	           xmlNodePtr inst, xsltElemPreCompPtr castedComp)
 {
 #ifdef XSLT_REFACTORED
     xsltStyleItemApplyTemplatesPtr comp =
 	(xsltStyleItemApplyTemplatesPtr) castedComp;
 #else
-    xsltStylePreCompPtr comp = castedComp;
+    xsltStylePreCompPtr comp = (xsltStylePreCompPtr) castedComp;
 #endif
     int i;
-    xmlNodePtr cur, delNode = NULL, oldContextNode;
+    xmlNodePtr cur, oldContextNode;
     xmlNodeSetPtr list = NULL, oldList;
     xsltStackElemPtr withParams = NULL;
     int oldXPProximityPosition, oldXPContextSize;
@@ -4924,73 +4923,9 @@ xsltApplyTemplates(xsltTransformContextPtr ctxt, xmlNodePtr node,
 	else
 	    cur = NULL;
 	while (cur != NULL) {
-	    switch (cur->type) {
-		case XML_TEXT_NODE:
-		    if ((IS_BLANK_NODE(cur)) &&
-			(cur->parent != NULL) &&
-			(cur->parent->type == XML_ELEMENT_NODE) &&
-			(ctxt->style->stripSpaces != NULL)) {
-			const xmlChar *val;
-
-			if (cur->parent->ns != NULL) {
-			    val = (const xmlChar *)
-				  xmlHashLookup2(ctxt->style->stripSpaces,
-						 cur->parent->name,
-						 cur->parent->ns->href);
-			    if (val == NULL) {
-				val = (const xmlChar *)
-				  xmlHashLookup2(ctxt->style->stripSpaces,
-						 BAD_CAST "*",
-						 cur->parent->ns->href);
-			    }
-			} else {
-			    val = (const xmlChar *)
-				  xmlHashLookup2(ctxt->style->stripSpaces,
-						 cur->parent->name, NULL);
-			}
-			if ((val != NULL) &&
-			    (xmlStrEqual(val, (xmlChar *) "strip"))) {
-			    delNode = cur;
-			    break;
-			}
-		    }
-		    /* no break on purpose */
-		case XML_ELEMENT_NODE:
-		case XML_DOCUMENT_NODE:
-		case XML_HTML_DOCUMENT_NODE:
-		case XML_CDATA_SECTION_NODE:
-		case XML_PI_NODE:
-		case XML_COMMENT_NODE:
-		    xmlXPathNodeSetAddUnique(list, cur);
-		    break;
-		case XML_DTD_NODE:
-		    /* Unlink the DTD, it's still reachable
-		     * using doc->intSubset */
-		    if (cur->next != NULL)
-			cur->next->prev = cur->prev;
-		    if (cur->prev != NULL)
-			cur->prev->next = cur->next;
-		    break;
-		case XML_NAMESPACE_DECL:
-		    break;
-		default:
-#ifdef WITH_XSLT_DEBUG_PROCESS
-		    XSLT_TRACE(ctxt,XSLT_TRACE_APPLY_TEMPLATES,xsltGenericDebug(xsltGenericDebugContext,
-		     "xsltApplyTemplates: skipping cur type %d\n",
-				     cur->type));
-#endif
-		    delNode = cur;
-	    }
+            if (IS_XSLT_REAL_NODE(cur))
+		xmlXPathNodeSetAddUnique(list, cur);
 	    cur = cur->next;
-	    if (delNode != NULL) {
-#ifdef WITH_XSLT_DEBUG_PROCESS
-		XSLT_TRACE(ctxt,XSLT_TRACE_APPLY_TEMPLATES,xsltGenericDebug(xsltGenericDebugContext,
-		     "xsltApplyTemplates: removing ignorable blank cur\n"));
-#endif
-		xmlUnlinkNode(delNode);
-		xmlFreeNode(delNode);
-		delNode = NULL;
-	    }
 	}
     }
 
@@ -5047,6 +4982,7 @@ xsltApplyTemplates(xsltTransformContextPtr ctxt, xmlNodePtr node,
 		xmlNodePtr sorts[XSLT_MAX_SORT];
 
 		sorts[nbsorts++] = cur;
+		cur = cur->next;
 
 		while (cur) {
 
@@ -5158,7 +5094,7 @@ error:
  */
 void
 xsltChoose(xsltTransformContextPtr ctxt, xmlNodePtr contextNode,
-	   xmlNodePtr inst, xsltStylePreCompPtr comp ATTRIBUTE_UNUSED)
+	   xmlNodePtr inst, xsltElemPreCompPtr comp ATTRIBUTE_UNUSED)
 {
     xmlNodePtr cur;
 
@@ -5317,14 +5253,14 @@ error:
  */
 void
 xsltIf(xsltTransformContextPtr ctxt, xmlNodePtr contextNode,
-	           xmlNodePtr inst, xsltStylePreCompPtr castedComp)
+	           xmlNodePtr inst, xsltElemPreCompPtr castedComp)
 {
     int res = 0;
 
 #ifdef XSLT_REFACTORED
     xsltStyleItemIfPtr comp = (xsltStyleItemIfPtr) castedComp;
 #else
-    xsltStylePreCompPtr comp = castedComp;
+    xsltStylePreCompPtr comp = (xsltStylePreCompPtr) castedComp;
 #endif
 
     if ((ctxt == NULL) || (contextNode == NULL) || (inst == NULL))
@@ -5423,12 +5359,12 @@ error:
  */
 void
 xsltForEach(xsltTransformContextPtr ctxt, xmlNodePtr contextNode,
-	    xmlNodePtr inst, xsltStylePreCompPtr castedComp)
+	    xmlNodePtr inst, xsltElemPreCompPtr castedComp)
 {
 #ifdef XSLT_REFACTORED
     xsltStyleItemForEachPtr comp = (xsltStyleItemForEachPtr) castedComp;
 #else
-    xsltStylePreCompPtr comp = castedComp;
+    xsltStylePreCompPtr comp = (xsltStylePreCompPtr) castedComp;
 #endif
     int i;
     xmlXPathObjectPtr res = NULL;
@@ -5854,8 +5790,16 @@ xsltApplyStylesheetInternal(xsltStylesheetPtr style, xmlDocPtr doc,
     ctxt->initialContextDoc = doc;
     ctxt->initialContextNode = (xmlNodePtr) doc;
 
-    if (profile != NULL)
+    if (profile != NULL) {
+#ifdef WITH_PROFILER
         ctxt->profile = 1;
+#else
+        xsltTransformError(ctxt, NULL, (xmlNodePtr) doc,
+                "xsltApplyStylesheetInternal: "
+                "libxslt compiled without profiler\n");
+        goto error;
+#endif
+    }
 
     if (output != NULL)
         ctxt->outputFile = output;
@@ -5968,6 +5912,13 @@ xsltApplyStylesheetInternal(xsltStylesheetPtr style, xmlDocPtr doc,
         res->encoding = xmlStrdup(encoding);
     variables = style->variables;
 
+    ctxt->node = (xmlNodePtr) doc;
+    ctxt->output = res;
+
+    ctxt->xpathCtxt->contextSize = 1;
+    ctxt->xpathCtxt->proximityPosition = 1;
+    ctxt->xpathCtxt->node = NULL; /* TODO: Set the context node here? */
+
     /*
      * Start the evaluation, evaluate the params, the stylesheets globals
      * and start by processing the top node.
@@ -5977,7 +5928,6 @@ xsltApplyStylesheetInternal(xsltStylesheetPtr style, xmlDocPtr doc,
     /*
     * Evaluate global params and user-provided params.
     */
-    ctxt->node = (xmlNodePtr) doc;
     if (ctxt->globalVars == NULL)
 	ctxt->globalVars = xmlHashCreate(20);
     if (params != NULL) {
@@ -5992,14 +5942,9 @@ xsltApplyStylesheetInternal(xsltStylesheetPtr style, xmlDocPtr doc,
     /* Clean up any unused RVTs. */
     xsltReleaseLocalRVTs(ctxt, NULL);
 
-    ctxt->node = (xmlNodePtr) doc;
-    ctxt->output = res;
     ctxt->insert = (xmlNodePtr) res;
     ctxt->varsBase = ctxt->varsNr - 1;
 
-    ctxt->xpathCtxt->contextSize = 1;
-    ctxt->xpathCtxt->proximityPosition = 1;
-    ctxt->xpathCtxt->node = NULL; /* TODO: Set the context node here? */
     /*
     * Start processing the source tree -----------------------------------
     */
@@ -6129,9 +6074,12 @@ xsltApplyStylesheetInternal(xsltStylesheetPtr style, xmlDocPtr doc,
         }
     }
     xmlXPathFreeNodeSet(ctxt->nodeList);
+
+#ifdef WITH_PROFILER
     if (profile != NULL) {
         xsltSaveProfiling(ctxt, profile);
     }
+#endif
 
     /*
      * Be pedantic.
@@ -6343,6 +6291,12 @@ xsltRunStylesheet(xsltStylesheetPtr style, xmlDocPtr doc,
 		                 NULL, NULL));
 }
 
+static void
+xsltMessageWrapper(xsltTransformContextPtr ctxt, xmlNodePtr node,
+                   xmlNodePtr inst, xsltElemPreCompPtr comp ATTRIBUTE_UNUSED) {
+    xsltMessage(ctxt, node, inst);
+}
+
 /**
  * xsltRegisterAllElement:
  * @ctxt:  the XPath context
@@ -6354,79 +6308,79 @@ xsltRegisterAllElement(xsltTransformContextPtr ctxt)
 {
     xsltRegisterExtElement(ctxt, (const xmlChar *) "apply-templates",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltApplyTemplates);
+			   xsltApplyTemplates);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "apply-imports",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltApplyImports);
+			   xsltApplyImports);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "call-template",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltCallTemplate);
+			   xsltCallTemplate);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "element",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltElement);
+			   xsltElement);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "attribute",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltAttribute);
+			   xsltAttribute);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "text",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltText);
+			   xsltText);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "processing-instruction",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltProcessingInstruction);
+			   xsltProcessingInstruction);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "comment",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltComment);
+			   xsltComment);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "copy",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltCopy);
+			   xsltCopy);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "value-of",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltValueOf);
+			   xsltValueOf);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "number",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltNumber);
+			   xsltNumber);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "for-each",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltForEach);
+			   xsltForEach);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "if",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltIf);
+			   xsltIf);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "choose",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltChoose);
+			   xsltChoose);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "sort",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltSort);
+			   xsltSort);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "copy-of",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltCopyOf);
+			   xsltCopyOf);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "message",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltMessage);
+			   xsltMessageWrapper);
 
     /*
      * Those don't have callable entry points but are registered anyway
      */
     xsltRegisterExtElement(ctxt, (const xmlChar *) "variable",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltDebug);
+			   xsltDebug);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "param",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltDebug);
+			   xsltDebug);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "with-param",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltDebug);
+			   xsltDebug);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "decimal-format",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltDebug);
+			   xsltDebug);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "when",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltDebug);
+			   xsltDebug);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "otherwise",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltDebug);
+			   xsltDebug);
     xsltRegisterExtElement(ctxt, (const xmlChar *) "fallback",
                            XSLT_NAMESPACE,
-			   (xsltTransformFunction) xsltDebug);
+			   xsltDebug);
 
 }

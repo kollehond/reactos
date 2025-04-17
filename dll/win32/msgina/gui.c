@@ -2,7 +2,8 @@
  * PROJECT:         ReactOS msgina.dll
  * FILE:            dll/win32/msgina/gui.c
  * PURPOSE:         ReactOS Logon GINA DLL
- * PROGRAMMER:      Hervé Poussineau (hpoussin@reactos.org)
+ * PROGRAMMERS:     HervÃ© Poussineau (hpoussin@reactos.org)
+ *                  Katayama Hirofumi MZ (katayama.hirofumi.mz@gmail.com)
  */
 
 #include "msgina.h"
@@ -10,6 +11,8 @@
 #include <wingdi.h>
 #include <winnls.h>
 #include <winreg.h>
+#include <ndk/exfuncs.h>
+#include <ndk/setypes.h>
 
 typedef struct _DISPLAYSTATUSMSG
 {
@@ -27,11 +30,91 @@ typedef struct _LEGALNOTICEDATA
     LPWSTR pszText;
 } LEGALNOTICEDATA, *PLEGALNOTICEDATA;
 
+// Timer ID for the animated dialog bar.
+#define IDT_BAR 1
+
+#define ISKEYDOWN(x) (GetKeyState(x) & 0x8000)
+
 typedef struct _DLG_DATA
 {
     PGINA_CONTEXT pgContext;
-    HBITMAP hBitmap;
+    HBITMAP hLogoBitmap;
+    HBITMAP hBarBitmap;
+    HWND hWndBarCtrl;
+    DWORD BarCounter;
+    DWORD LogoWidth;
+    DWORD LogoHeight;
+    DWORD BarWidth;
+    DWORD BarHeight;
 } DLG_DATA, *PDLG_DATA;
+
+static PDLG_DATA
+DlgData_Create(HWND hwndDlg, PGINA_CONTEXT pgContext)
+{
+    PDLG_DATA pDlgData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*pDlgData));
+    if (pDlgData)
+    {
+        pDlgData->pgContext = pgContext;
+        SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pDlgData);
+    }
+    return pDlgData;
+}
+
+static VOID
+DlgData_LoadBitmaps(_Inout_ PDLG_DATA pDlgData)
+{
+    BITMAP bm;
+
+    if (!pDlgData)
+    {
+        return;
+    }
+
+    pDlgData->hLogoBitmap = LoadImageW(pDlgData->pgContext->hDllInstance,
+                                       MAKEINTRESOURCEW(IDI_ROSLOGO), IMAGE_BITMAP,
+                                       0, 0, LR_DEFAULTCOLOR);
+    if (pDlgData->hLogoBitmap)
+    {
+        GetObject(pDlgData->hLogoBitmap, sizeof(bm), &bm);
+        pDlgData->LogoWidth = bm.bmWidth;
+        pDlgData->LogoHeight = bm.bmHeight;
+    }
+
+    pDlgData->hBarBitmap = LoadImageW(hDllInstance, MAKEINTRESOURCEW(IDI_BAR),
+                                      IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
+    if (pDlgData->hBarBitmap)
+    {
+        GetObject(pDlgData->hBarBitmap, sizeof(bm), &bm);
+        pDlgData->BarWidth = bm.bmWidth;
+        pDlgData->BarHeight = bm.bmHeight;
+    }
+}
+
+static VOID
+DlgData_Destroy(_Inout_ HWND hwndDlg)
+{
+    PDLG_DATA pDlgData;
+
+    pDlgData = (PDLG_DATA)GetWindowLongPtrW(hwndDlg, GWLP_USERDATA);
+    if (!pDlgData)
+    {
+        return;
+    }
+
+    SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)NULL);
+
+    if (pDlgData->hBarBitmap)
+    {
+        DeleteObject(pDlgData->hBarBitmap);
+    }
+
+    if (pDlgData->hLogoBitmap)
+    {
+        DeleteObject(pDlgData->hLogoBitmap);
+    }
+
+    HeapFree(GetProcessHeap(), 0, pDlgData);
+}
 
 static BOOL
 GUIInitialize(
@@ -40,7 +123,6 @@ GUIInitialize(
     TRACE("GUIInitialize(%p)\n", pgContext);
     return TRUE;
 }
-
 
 static
 VOID
@@ -54,7 +136,7 @@ SetWelcomeText(HWND hWnd)
     TRACE("SetWelcomeText(%p)\n", hWnd);
 
     /* Open the Winlogon key */
-    rc = RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
+    rc = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
                        L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
                        0,
                        KEY_QUERY_VALUE,
@@ -103,6 +185,69 @@ done:
     RegCloseKey(hKey);
 }
 
+static VOID
+AdjustStatusMessageWindow(HWND hwndDlg, PDLG_DATA pDlgData)
+{
+    INT xOld, yOld, cxOld, cyOld;
+    INT xNew, yNew, cxNew, cyNew;
+    INT cxLabel, cyLabel, dyLabel;
+    RECT rc, rcBar, rcLabel, rcWnd;
+    BITMAP bmLogo, bmBar;
+    DWORD style, exstyle;
+    HWND hwndLogo = GetDlgItem(hwndDlg, IDC_ROSLOGO);
+    HWND hwndBar = GetDlgItem(hwndDlg, IDC_BAR);
+    HWND hwndLabel = GetDlgItem(hwndDlg, IDC_STATUS_MESSAGE);
+
+    /* This adjustment is for CJK only */
+    switch (PRIMARYLANGID(GetUserDefaultLangID()))
+    {
+        case LANG_CHINESE:
+        case LANG_JAPANESE:
+        case LANG_KOREAN:
+            break;
+
+        default:
+            return;
+    }
+
+    if (!GetObjectW(pDlgData->hLogoBitmap, sizeof(BITMAP), &bmLogo) ||
+        !GetObjectW(pDlgData->hBarBitmap, sizeof(BITMAP), &bmBar))
+    {
+        return;
+    }
+
+    GetWindowRect(hwndBar, &rcBar);
+    MapWindowPoints(NULL, hwndDlg, (LPPOINT)&rcBar, 2);
+    dyLabel = bmLogo.bmHeight - rcBar.top;
+
+    GetWindowRect(hwndLabel, &rcLabel);
+    MapWindowPoints(NULL, hwndDlg, (LPPOINT)&rcLabel, 2);
+    cxLabel = rcLabel.right - rcLabel.left;
+    cyLabel = rcLabel.bottom - rcLabel.top;
+
+    MoveWindow(hwndLogo, 0, 0, bmLogo.bmWidth, bmLogo.bmHeight, TRUE);
+    MoveWindow(hwndBar, 0, bmLogo.bmHeight, bmLogo.bmWidth, bmBar.bmHeight, TRUE);
+    MoveWindow(hwndLabel, rcLabel.left, rcLabel.top + dyLabel, cxLabel, cyLabel, TRUE);
+
+    GetWindowRect(hwndDlg, &rcWnd);
+    xOld = rcWnd.left;
+    yOld = rcWnd.top;
+    cxOld = rcWnd.right - rcWnd.left;
+    cyOld = rcWnd.bottom - rcWnd.top;
+
+    GetClientRect(hwndDlg, &rc);
+    SetRect(&rc, 0, 0, bmLogo.bmWidth, rc.bottom - rc.top); /* new client size */
+
+    style = (DWORD)GetWindowLongPtrW(hwndDlg, GWL_STYLE);
+    exstyle = (DWORD)GetWindowLongPtrW(hwndDlg, GWL_EXSTYLE);
+    AdjustWindowRectEx(&rc, style, FALSE, exstyle);
+
+    cxNew = rc.right - rc.left;
+    cyNew = (rc.bottom - rc.top) + dyLabel;
+    xNew = xOld - (cxNew - cxOld) / 2;
+    yNew = yOld - (cyNew - cyOld) / 2;
+    MoveWindow(hwndDlg, xNew, yNew, cxNew, cyNew, TRUE);
+}
 
 static INT_PTR CALLBACK
 StatusDialogProc(
@@ -111,7 +256,10 @@ StatusDialogProc(
     IN WPARAM wParam,
     IN LPARAM lParam)
 {
+    PDLG_DATA pDlgData;
     UNREFERENCED_PARAMETER(wParam);
+
+    pDlgData = (PDLG_DATA)GetWindowLongPtrW(hwndDlg, GWLP_USERDATA);
 
     switch (uMsg)
     {
@@ -127,6 +275,80 @@ StatusDialogProc(
                 SetWindowTextW(hwndDlg, msg->pTitle);
             SetDlgItemTextW(hwndDlg, IDC_STATUS_MESSAGE, msg->pMessage);
             SetEvent(msg->StartupEvent);
+
+            pDlgData = DlgData_Create(hwndDlg, msg->Context);
+            if (pDlgData == NULL)
+                return FALSE;
+
+            DlgData_LoadBitmaps(pDlgData);
+            if (pDlgData->hBarBitmap)
+            {
+                if (SetTimer(hwndDlg, IDT_BAR, 20, NULL) == 0)
+                {
+                    ERR("SetTimer(IDT_BAR) failed: %d\n", GetLastError());
+                }
+                else
+                {
+                    /* Get the animation bar control */
+                    pDlgData->hWndBarCtrl = GetDlgItem(hwndDlg, IDC_BAR);
+                }
+            }
+
+            AdjustStatusMessageWindow(hwndDlg, pDlgData);
+            return TRUE;
+        }
+
+        case WM_TIMER:
+        {
+            if (pDlgData && pDlgData->hBarBitmap)
+            {
+                /*
+                 * Default rotation bar image width is 413 (same as logo)
+                 * We can divide 413 by 7 without remainder
+                 */
+                pDlgData->BarCounter = (pDlgData->BarCounter + 7) % pDlgData->BarWidth;
+                InvalidateRect(pDlgData->hWndBarCtrl, NULL, FALSE);
+                UpdateWindow(pDlgData->hWndBarCtrl);
+            }
+            return TRUE;
+        }
+
+        case WM_DRAWITEM:
+        {
+            LPDRAWITEMSTRUCT lpDis = (LPDRAWITEMSTRUCT)lParam;
+
+            if (lpDis->CtlID != IDC_BAR)
+            {
+                return FALSE;
+            }
+
+            if (pDlgData && pDlgData->hBarBitmap)
+            {
+                HDC hdcMem;
+                HGDIOBJ hOld;
+                DWORD off = pDlgData->BarCounter;
+                DWORD iw = pDlgData->BarWidth;
+                DWORD ih = pDlgData->BarHeight;
+
+                hdcMem = CreateCompatibleDC(lpDis->hDC);
+                hOld = SelectObject(hdcMem, pDlgData->hBarBitmap);
+                BitBlt(lpDis->hDC, off, 0, iw - off, ih, hdcMem, 0, 0, SRCCOPY);
+                BitBlt(lpDis->hDC, 0, 0, off, ih, hdcMem, iw - off, 0, SRCCOPY);
+                SelectObject(hdcMem, hOld);
+                DeleteDC(hdcMem);
+
+                return TRUE;
+            }
+            return FALSE;
+        }
+
+        case WM_DESTROY:
+        {
+            if (pDlgData && pDlgData->hBarBitmap)
+            {
+                KillTimer(hwndDlg, IDT_BAR);
+            }
+            DlgData_Destroy(hwndDlg);
             return TRUE;
         }
     }
@@ -141,12 +363,12 @@ StartupWindowThread(LPVOID lpParam)
 
     /* When SetThreadDesktop is called the system closes the desktop handle when needed
        so we have to create a new handle because this handle may still be in use by winlogon  */
-    if (!DuplicateHandle (  GetCurrentProcess(), 
-                            msg->hDesktop, 
-                            GetCurrentProcess(), 
-                            (HANDLE*)&hDesk, 
-                            0, 
-                            FALSE, 
+    if (!DuplicateHandle (  GetCurrentProcess(),
+                            msg->hDesktop,
+                            GetCurrentProcess(),
+                            (HANDLE*)&hDesk,
+                            0,
+                            FALSE,
                             DUPLICATE_SAME_ACCESS))
     {
         ERR("Duplicating handle failed!\n");
@@ -275,34 +497,28 @@ WelcomeDialogProc(
     {
         case WM_INITDIALOG:
         {
-            pDlgData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(DLG_DATA));
+            pDlgData = DlgData_Create(hwndDlg, (PGINA_CONTEXT)lParam);
             if (pDlgData == NULL)
                 return FALSE;
 
-            SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pDlgData);
-
-            pDlgData->pgContext = (PGINA_CONTEXT)lParam;
-
-            /* Load the logo bitmap */
-            pDlgData->hBitmap = LoadImageW(pDlgData->pgContext->hDllInstance, MAKEINTRESOURCEW(IDI_ROSLOGO), IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
+            DlgData_LoadBitmaps(pDlgData);
             return TRUE;
         }
 
         case WM_PAINT:
         {
             PAINTSTRUCT ps;
-            if (pDlgData->hBitmap)
+            if (pDlgData && pDlgData->hLogoBitmap)
             {
                 BeginPaint(hwndDlg, &ps);
-                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pDlgData->hBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
+                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pDlgData->hLogoBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
                 EndPaint(hwndDlg, &ps);
             }
             return TRUE;
         }
         case WM_DESTROY:
         {
-            DeleteObject(pDlgData->hBitmap);
-            HeapFree(GetProcessHeap(), 0, pDlgData);
+            DlgData_Destroy(hwndDlg);
             return TRUE;
         }
     }
@@ -433,7 +649,7 @@ DoChangePassword(
     Ptr = (LPWSTR)((ULONG_PTR)RequestBuffer + sizeof(MSV1_0_CHANGEPASSWORD_REQUEST));
 
     /* Pack the domain name */
-    RequestBuffer->DomainName.Length = wcslen(Domain) * sizeof(WCHAR);
+    RequestBuffer->DomainName.Length = (USHORT)wcslen(Domain) * sizeof(WCHAR);
     RequestBuffer->DomainName.MaximumLength = RequestBuffer->DomainName.Length + sizeof(WCHAR);
     RequestBuffer->DomainName.Buffer = Ptr;
 
@@ -444,7 +660,7 @@ DoChangePassword(
     Ptr = (LPWSTR)((ULONG_PTR)Ptr + RequestBuffer->DomainName.MaximumLength);
 
     /* Pack the user name */
-    RequestBuffer->AccountName.Length = wcslen(UserName) * sizeof(WCHAR);
+    RequestBuffer->AccountName.Length = (USHORT)wcslen(UserName) * sizeof(WCHAR);
     RequestBuffer->AccountName.MaximumLength = RequestBuffer->AccountName.Length + sizeof(WCHAR);
     RequestBuffer->AccountName.Buffer = Ptr;
 
@@ -455,7 +671,7 @@ DoChangePassword(
     Ptr = (LPWSTR)((ULONG_PTR)Ptr + RequestBuffer->AccountName.MaximumLength);
 
     /* Pack the old password */
-    RequestBuffer->OldPassword.Length = wcslen(OldPassword) * sizeof(WCHAR);
+    RequestBuffer->OldPassword.Length = (USHORT)wcslen(OldPassword) * sizeof(WCHAR);
     RequestBuffer->OldPassword.MaximumLength = RequestBuffer->OldPassword.Length + sizeof(WCHAR);
     RequestBuffer->OldPassword.Buffer = Ptr;
 
@@ -466,7 +682,7 @@ DoChangePassword(
     Ptr = (LPWSTR)((ULONG_PTR)Ptr + RequestBuffer->OldPassword.MaximumLength);
 
     /* Pack the new password */
-    RequestBuffer->NewPassword.Length = wcslen(NewPassword1) * sizeof(WCHAR);
+    RequestBuffer->NewPassword.Length = (USHORT)wcslen(NewPassword1) * sizeof(WCHAR);
     RequestBuffer->NewPassword.MaximumLength = RequestBuffer->NewPassword.Length + sizeof(WCHAR);
     RequestBuffer->NewPassword.Buffer = Ptr;
 
@@ -773,12 +989,44 @@ SecurityDialogProc(
                     EndDialog(hwndDlg, WLX_SAS_ACTION_LOCK_WKSTA);
                     return TRUE;
                 case IDC_SECURITY_LOGOFF:
-                    if (OnLogOff(hwndDlg, pgContext) == IDYES)
+                    if (ISKEYDOWN(VK_CONTROL))
+                    {
+                        if (ResourceMessageBox(pgContext,
+                                               hwndDlg,
+                                               MB_OKCANCEL | MB_ICONSTOP,
+                                               IDS_EMERGENCYLOGOFFTITLE,
+                                               IDS_EMERGENCYLOGOFF) == IDOK)
+                        {
+                            EndDialog(hwndDlg, WLX_SAS_ACTION_FORCE_LOGOFF);
+                        }
+                    }
+                    else if (OnLogOff(hwndDlg, pgContext) == IDYES)
+                    {
                         EndDialog(hwndDlg, WLX_SAS_ACTION_LOGOFF);
+                    }
                     return TRUE;
                 case IDC_SECURITY_SHUTDOWN:
-                    if (OnShutDown(hwndDlg, pgContext) == IDOK)
+                    /* Emergency restart feature */
+                    if (ISKEYDOWN(VK_CONTROL))
+                    {
+                        if (ResourceMessageBox(pgContext,
+                                               hwndDlg,
+                                               MB_OKCANCEL | MB_ICONSTOP,
+                                               IDS_EMERGENCYRESTARTTITLE,
+                                               IDS_EMERGENCYRESTART) == IDOK)
+                        {
+                            BOOLEAN Old;
+
+                            ERR("Emergency restarting NT...\n");
+                            RtlAdjustPrivilege(SE_SHUTDOWN_PRIVILEGE, TRUE, FALSE, &Old);
+                            NtShutdownSystem(ShutdownReboot);
+                            RtlAdjustPrivilege(SE_SHUTDOWN_PRIVILEGE, Old, FALSE, &Old);
+                        }
+                    }
+                    else if (OnShutDown(hwndDlg, pgContext) == IDOK)
+                    {
                         EndDialog(hwndDlg, pgContext->nShutdownAction);
+                    }
                     return TRUE;
                 case IDC_SECURITY_CHANGEPWD:
                     if (OnChangePassword(hwndDlg, pgContext))
@@ -893,11 +1141,11 @@ DoLogon(
         else if (SubStatus == STATUS_ACCOUNT_LOCKED_OUT)
         {
             TRACE("Account locked!\n");
-            pgContext->pWlxFuncs->WlxMessageBox(pgContext->hWlx,
-                                                hwndDlg,
-                                                L"Account locked!",
-                                                L"Logon error",
-                                                MB_OK | MB_ICONERROR);
+            ResourceMessageBox(pgContext,
+                               hwndDlg,
+                               MB_OK | MB_ICONERROR,
+                               IDS_LOGONTITLE,
+                               IDS_ACCOUNTLOCKED);
             goto done;
         }
         else if ((SubStatus == STATUS_PASSWORD_MUST_CHANGE) ||
@@ -940,14 +1188,32 @@ DoLogon(
                                IDS_LOGONTITLE,
                                IDS_ACCOUNTEXPIRED);
         }
+        else if (SubStatus == STATUS_INVALID_LOGON_HOURS)
+        {
+            ResourceMessageBox(pgContext,
+                               hwndDlg,
+                               MB_OK | MB_ICONERROR,
+                               IDS_LOGONTITLE,
+                               IDS_INVALIDLOGONHOURS);
+            goto done;
+        }
+        else if (SubStatus == STATUS_INVALID_WORKSTATION)
+        {
+            ResourceMessageBox(pgContext,
+                               hwndDlg,
+                               MB_OK | MB_ICONERROR,
+                               IDS_LOGONTITLE,
+                               IDS_INVALIDWORKSTATION);
+            goto done;
+        }
         else
         {
             TRACE("Other error!\n");
-            pgContext->pWlxFuncs->WlxMessageBox(pgContext->hWlx,
-                                                hwndDlg,
-                                                L"Other error!",
-                                                L"Logon error",
-                                                MB_OK | MB_ICONERROR);
+            ResourceMessageBox(pgContext,
+                               hwndDlg,
+                               MB_OK | MB_ICONERROR,
+                               IDS_LOGONTITLE,
+                               IDS_ACCOUNTRESTRICTION);
             goto done;
         }
     }
@@ -956,7 +1222,6 @@ DoLogon(
         TRACE("DoLoginTasks failed! Status 0x%08lx\n", Status);
         goto done;
     }
-
 
     if (!CreateProfile(pgContext, UserName, Domain, Password))
     {
@@ -1036,17 +1301,12 @@ LogonDialogProc(
     {
         case WM_INITDIALOG:
         {
-            pDlgData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(DLG_DATA));
+            /* FIXME: take care of NoDomainUI */
+            pDlgData = DlgData_Create(hwndDlg, (PGINA_CONTEXT)lParam);
             if (pDlgData == NULL)
                 return FALSE;
 
-            SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pDlgData);
-
-            /* FIXME: take care of NoDomainUI */
-            pDlgData->pgContext = (PGINA_CONTEXT)lParam;
-
-            /* Draw the logo bitmap */
-            pDlgData->hBitmap = LoadImageW(pDlgData->pgContext->hDllInstance, MAKEINTRESOURCEW(IDI_ROSLOGO), IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
+            DlgData_LoadBitmaps(pDlgData);
 
             SetWelcomeText(hwndDlg);
 
@@ -1076,18 +1336,17 @@ LogonDialogProc(
         case WM_PAINT:
         {
             PAINTSTRUCT ps;
-            if (pDlgData->hBitmap)
+            if (pDlgData && pDlgData->hLogoBitmap)
             {
                 BeginPaint(hwndDlg, &ps);
-                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pDlgData->hBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
+                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pDlgData->hLogoBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
                 EndPaint(hwndDlg, &ps);
             }
             return TRUE;
         }
 
         case WM_DESTROY:
-            DeleteObject(pDlgData->hBitmap);
-            HeapFree(GetProcessHeap(), 0, pDlgData);
+            DlgData_Destroy(hwndDlg);
             return TRUE;
 
         case WM_COMMAND:
@@ -1316,13 +1575,9 @@ UnlockDialogProc(
     {
         case WM_INITDIALOG:
         {
-            pDlgData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(DLG_DATA));
+            pDlgData = DlgData_Create(hwndDlg, (PGINA_CONTEXT)lParam);
             if (pDlgData == NULL)
                 return FALSE;
-
-            SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pDlgData);
-
-            pDlgData->pgContext = (PGINA_CONTEXT)lParam;
 
             SetWelcomeText(hwndDlg);
 
@@ -1334,25 +1589,23 @@ UnlockDialogProc(
             if (pDlgData->pgContext->bDisableCAD)
                 EnableWindow(GetDlgItem(hwndDlg, IDCANCEL), FALSE);
 
-            /* Load the logo bitmap */
-            pDlgData->hBitmap = LoadImageW(pDlgData->pgContext->hDllInstance, MAKEINTRESOURCEW(IDI_ROSLOGO), IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
+            DlgData_LoadBitmaps(pDlgData);
             return TRUE;
         }
 
         case WM_PAINT:
         {
             PAINTSTRUCT ps;
-            if (pDlgData->hBitmap)
+            if (pDlgData && pDlgData->hLogoBitmap)
             {
                 BeginPaint(hwndDlg, &ps);
-                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pDlgData->hBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
+                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pDlgData->hLogoBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
                 EndPaint(hwndDlg, &ps);
             }
             return TRUE;
         }
         case WM_DESTROY:
-            DeleteObject(pDlgData->hBitmap);
-            HeapFree(GetProcessHeap(), 0, pDlgData);
+            DlgData_Destroy(hwndDlg);
             return TRUE;
 
         case WM_COMMAND:
@@ -1416,16 +1669,11 @@ LockedDialogProc(
     {
         case WM_INITDIALOG:
         {
-            pDlgData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(DLG_DATA));
+            pDlgData = DlgData_Create(hwndDlg, (PGINA_CONTEXT)lParam);
             if (pDlgData == NULL)
                 return FALSE;
 
-            SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pDlgData);
-
-            pDlgData->pgContext = (PGINA_CONTEXT)lParam;
-
-            /* Load the logo bitmap */
-            pDlgData->hBitmap = LoadImageW(pDlgData->pgContext->hDllInstance, MAKEINTRESOURCEW(IDI_ROSLOGO), IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
+            DlgData_LoadBitmaps(pDlgData);
 
             SetWelcomeText(hwndDlg);
 
@@ -1435,18 +1683,17 @@ LockedDialogProc(
         case WM_PAINT:
         {
             PAINTSTRUCT ps;
-            if (pDlgData->hBitmap)
+            if (pDlgData && pDlgData->hLogoBitmap)
             {
                 BeginPaint(hwndDlg, &ps);
-                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pDlgData->hBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
+                DrawStateW(ps.hdc, NULL, NULL, (LPARAM)pDlgData->hLogoBitmap, (WPARAM)0, 0, 0, 0, 0, DST_BITMAP);
                 EndPaint(hwndDlg, &ps);
             }
             return TRUE;
         }
         case WM_DESTROY:
         {
-            DeleteObject(pDlgData->hBitmap);
-            HeapFree(GetProcessHeap(), 0, pDlgData);
+            DlgData_Destroy(hwndDlg);
             return TRUE;
         }
     }

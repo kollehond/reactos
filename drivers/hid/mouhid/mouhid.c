@@ -44,7 +44,7 @@ MouHid_GetButtonMove(
     *LastX = 0;
     *LastY = 0;
 
-    if (!DeviceExtension->MouseAbsolute) 
+    if (!DeviceExtension->MouseAbsolute)
     {
         /* get scaled usage value x */
         Status =  HidP_GetScaledUsageValue(HidP_Input,
@@ -947,8 +947,8 @@ MouHid_StartDevice(
     }
 
     /* check if mice is absolute */
-    if (DeviceExtension->ValueCapsY.LogicalMax > DeviceExtension->ValueCapsY.LogicalMin ||
-        DeviceExtension->ValueCapsX.LogicalMax > DeviceExtension->ValueCapsX.LogicalMin)
+    if (DeviceExtension->ValueCapsY.IsAbsolute &&
+        DeviceExtension->ValueCapsX.IsAbsolute)
     {
         /* mice is absolute */
         DeviceExtension->MouseAbsolute = TRUE;

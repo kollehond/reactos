@@ -39,6 +39,7 @@ BEGIN
     IDS_RESOURCE_INTERRUPT "IRQ"
     IDS_RESOURCE_DMA "DMA"
     IDS_RESOURCE_PORT "I/O range"
+    IDS_COPY "Копі&ювати"
 END
 
 /* error messages, source: http://www.z123.org/techsupport/medm.htm */
@@ -81,12 +82,12 @@ BEGIN
     IDS_DEV_FAILED_INSTALL "Драйвери для цього пристрою не встановлені."
     IDS_DEV_HARDWARE_DISABLED "Цей пристрій вимкнено, оскільки BIOS не виділив для пристрою ресурсів."
     IDS_DEV_CANT_SHARE_IRQ "Цей пристрій використувує ресурс Запиту Переривань (IRQ), який використовується іншим пристроєм та не може бути спільним.\nВи повинні змінити конфліктуючі налаштування або видалити драйвер реального режиму, що спричинює конфлікт."
-    IDS_DEV_FAILED_ADD "Цей пристрій працює неправильно, оскільки %1 is not working properly."
+    IDS_DEV_FAILED_ADD "This device is not working properly because ReactOS cannot load the drivers required for this device."
     IDS_DEV_DISABLED_SERVICE "ReactOS не може встановити драйвери для цього пристрою, оскільки не має доступу до диску чи мережного ресурсу, які містять файли установки."
     IDS_DEV_TRANSLATION_FAILED "Цей пристрій не відповідає його драйверу."
     IDS_DEV_NO_SOFTCONFIG "ReactOS не може визначити налаштуванн для цього пристрою. Зверніться до документації пристрою, і використовуйте вкладку Ресурси для налаштування конфігурації."
-    IDS_DEV_BIOS_TABLE "Мікропрограма вашого комп'ютера не містить досить інформації для коректних налаштування та використання цього пристрою. \nЩоб використовувати цей пристрій, зверніться до виробника комп'ютера для отримання оновлених мікропрограми чи BIOS."
-    IDS_DEV_IRQ_TRANSLATION_FAILED "Цей пристрій запитує переривання PCI, а він налаштований на переривання ISA (або навпаки). \nВикористайте програму налаштування комп'ютера для зміни параметрів переривань цього пристрою."
+    IDS_DEV_BIOS_TABLE "Мікропрограма вашого комп'ютера не містить досить інформації для коректних налаштування та використання цього пристрою.\nЩоб використовувати цей пристрій, зверніться до виробника комп'ютера для отримання оновлених мікропрограми чи BIOS."
+    IDS_DEV_IRQ_TRANSLATION_FAILED "Цей пристрій запитує переривання PCI, а він налаштований на переривання ISA (або навпаки).\nВикористайте програму налаштування комп'ютера для зміни параметрів переривань цього пристрою."
     IDS_DEV_FAILED_DRIVER_ENTRY "ReactOS не може ініціалізувати драйвер пристрою для даного обладнання."
     IDS_DEV_DRIVER_FAILED_PRIOR_UNLOAD "ReactOS не може завантажити драйвер цого пристрою, оскільки попередня версія драйвера пристрою все ще знаходиться в пам'яті."
     IDS_DEV_DRIVER_FAILED_LOAD "ReactOS не може завантажити драйвер для цого пристрою. Драйвер зіпсований або відсутній."
@@ -234,7 +235,7 @@ BEGIN
     ICON "", IDC_DEVICON, 7, 7, 20, 20
     LTEXT "", IDC_DEVNAME, 37, 9, 174, 16, SS_NOPREFIX
     LTEXT "Resource settings:", -1, 7, 36, 204, 8
-    CONTROL "", IDC_DRIVERRESOURCES, "SysListView32", LVS_REPORT | 
+    CONTROL "", IDC_DRIVERRESOURCES, "SysListView32", LVS_REPORT |
             LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS | LVS_SORTASCENDING |
             LVS_NOSORTHEADER | WS_BORDER | WS_TABSTOP, 7, 46, 238, 80
 END
@@ -248,6 +249,17 @@ BEGIN
     LTEXT "", IDC_DEVNAME, 37, 9, 174, 16, SS_NOPREFIX
 END
 
+IDD_UNINSTALLDRIVER DIALOGEX 0, 0, 224, 121
+STYLE DS_SHELLFONT | DS_MODALFRAME | DS_CONTEXTHELP | WS_POPUPWINDOW | WS_VISIBLE | WS_DLGFRAME
+CAPTION "Confirm Device Removal"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    ICON "", IDC_DEVICON, 7, 7, 20, 20
+    LTEXT "", IDC_DEVNAME, 40, 9, 174, 16, SS_NOPREFIX
+    LTEXT "Warning: You are about to uninstall this device from your system.", -1, 7, 37, 204, 50
+    DEFPUSHBUTTON "OK", IDOK, 110, 100, 50, 14
+    PUSHBUTTON "Cancel", IDCANCEL, 166, 100, 50, 14
+END
 
 
 /*
@@ -256,34 +268,40 @@ END
 
 IDR_MAINMENU MENU
 BEGIN
-  POPUP "&File"
-  BEGIN
-    MENUITEM "E&xit",                       IDC_EXIT
-  END
-  MENUITEM "Action",                        IDC_ACTIONMENU
-  POPUP "View"
-  BEGIN
-    MENUITEM "Devices by type",             IDC_DEVBYTYPE
-    MENUITEM "Devices by connection",       IDC_DEVBYCONN
-    MENUITEM "Resources by type",           IDC_RESBYTYPE, GRAYED
-    MENUITEM "Resources by connection",     IDC_RESBYCONN, GRAYED
-    MENUITEM SEPARATOR
-    MENUITEM "Show hidden devices",         IDC_SHOWHIDDEN
-  END
-  POPUP "Help"
-  BEGIN
-    MENUITEM "About",                       IDC_ABOUT
-  END
+    POPUP "&File"
+    BEGIN
+        MENUITEM "E&xit",                       IDM_EXIT
+    END
+    POPUP "Action"
+    BEGIN
+        MENUITEM "Scan for hardware changes",   IDM_SCAN_HARDWARE
+        MENUITEM "Add hardware",                IDM_ADD_HARDWARE
+    END
+    POPUP "View"
+    BEGIN
+        MENUITEM "Devices by type",             IDM_DEVBYTYPE
+        MENUITEM "Devices by connection",       IDM_DEVBYCONN
+        MENUITEM "Resources by type",           IDM_RESBYTYPE, GRAYED
+        MENUITEM "Resources by connection",     IDM_RESBYCONN, GRAYED
+        MENUITEM SEPARATOR
+        MENUITEM "Show hidden devices",         IDM_SHOWHIDDEN
+    END
+    POPUP "Help"
+    BEGIN
+        MENUITEM "About",                       IDM_ABOUT
+    END
 END
 
 
-STRINGTABLE DISCARDABLE
+STRINGTABLE
 BEGIN
   IDS_APPNAME               "ReactOS Device Manager"
-  IDS_CONFIRM_DISABLE       "Disabling this device will cause it to stop functioning.\r\nDo you really want to disable it?"
-  IDS_CONFIRM_UNINSTALL     "Warning: You are about to uninstall this device from your system.\r\nDo you want to continue?"
+  IDS_APP_AUTHORS           "Copyright 2015 Ged Murphy"
+  IDS_CONFIRM_DISABLE       "Disabling this device will cause it to stop functioning.\nDo you really want to disable it?"
+  IDS_CONFIRM_UNINSTALL     "Warning: You are about to uninstall this device from your system.\nDo you want to continue?"
 END
-STRINGTABLE DISCARDABLE
+
+STRINGTABLE
 BEGIN
   IDS_MENU_UPDATE           "Update driver software..."
   IDS_MENU_ENABLE           "Enable"
@@ -294,7 +312,7 @@ BEGIN
   IDS_MENU_PROPERTIES       "Properties"
 END
 
-STRINGTABLE DISCARDABLE
+STRINGTABLE
 BEGIN
   IDS_TOOLTIP_PROPERTIES    "Properties"
   IDS_TOOLTIP_SCAN          "Scan for hardware changes"
@@ -305,7 +323,7 @@ BEGIN
 END
 
 /* Hints */
-STRINGTABLE DISCARDABLE
+STRINGTABLE
 BEGIN
   IDS_HINT_BLANK        " "
   IDS_HINT_PROPERTIES   " Open property dialog for the current selection."
@@ -314,7 +332,7 @@ BEGIN
   IDS_HINT_DISABLE      " Disables the selected device."
   IDS_HINT_UPDATE       " Launches the Update Driver Software wizard for the selected device."
   IDS_HINT_UNINSTALL    " Uninstalls the driver for the selected device."
-  IDS_HINT_ADD          " Adds a legacy (non-Plug and Play) device to the computer." 
+  IDS_HINT_ADD          " Adds a legacy (non-Plug and Play) device to the computer."
   IDS_HINT_ABOUT        " About ReactOS Device Manager."
   IDS_HINT_EXIT         " Exits the program."
 

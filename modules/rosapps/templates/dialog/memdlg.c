@@ -1,9 +1,7 @@
 /*
  *  ReactOS Standard Dialog Application Template
  *
- *  memdlg.c
- *
- *  Copyright (C) 2002  Robert Dickenson <robd@reactos.org>
+ *  Copyright (C) 2002 Robert Dickenson <robd@reactos.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -33,16 +31,16 @@ extern HINSTANCE hInst;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-LRESULT CALLBACK DialogWndProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK DialogWndProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
     return 0;
 }
 
 LPWORD lpwAlign(LPWORD lpIn)
 {
-    ULONG ul;
+    ULONG_PTR ul;
 
-    ul = (ULONG)lpIn;
+    ul = (ULONG_PTR)lpIn;
     ul += 3;
     ul >>= 2;
     ul <<= 2;
@@ -144,7 +142,7 @@ LRESULT CreateMemoryDialog(HINSTANCE hinst, HWND hwndOwner, LPSTR lpszMessage)
     *lpw++ = 0;           // no creation data
 
     GlobalUnlock(hgbl);
-    ret = DialogBoxIndirect(hinst, (LPDLGTEMPLATE)hgbl, hwndOwner, (DLGPROC)DialogWndProc);
+    ret = DialogBoxIndirect(hinst, (LPDLGTEMPLATE)hgbl, hwndOwner, DialogWndProc);
     if (ret == 0) {
         TRACE(_T("DialogBoxIndirect() failed due to invalid handle to parent window: 0x%08X"), hwndOwner);
     } else if (ret == -1) {

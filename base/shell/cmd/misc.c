@@ -83,45 +83,59 @@ cgetchar (VOID)
 /*
  * Takes a path in and returns it with the correct case of the letters
  */
-VOID GetPathCase( TCHAR * Path, TCHAR * OutPath)
+VOID GetPathCase(IN LPCTSTR Path, OUT LPTSTR OutPath)
 {
-    UINT i = 0;
+    SIZE_T i;
+    SIZE_T cchPath = _tcslen(Path);
     TCHAR TempPath[MAX_PATH];
+    LPTSTR pchTemp = TempPath;
+    LPTSTR pchTempEnd = TempPath + _countof(TempPath);
     WIN32_FIND_DATA FindFileData;
     HANDLE hFind;
-    _tcscpy(TempPath, _T(""));
-    _tcscpy(OutPath, _T(""));
 
-    for(i = 0; i < _tcslen(Path); i++)
+    *pchTemp = OutPath[0] = 0;
+
+    for (i = 0; i < cchPath; ++i)
     {
-        if (Path[i] != _T('\\'))
+        if (pchTemp + 1 >= pchTempEnd)
         {
-            _tcsncat(TempPath, &Path[i], 1);
-            if (i != _tcslen(Path) - 1)
+            // On failure, copy the original path for an error message
+            StringCchCopy(OutPath, MAX_PATH, Path);
+            return;
+        }
+
+        if (Path[i] != _T('\\') && Path[i] != _T('/'))
+        {
+            *pchTemp++ = Path[i];
+            *pchTemp = 0;
+            if (i != cchPath - 1)
                 continue;
         }
+
         /* Handle the base part of the path different.
            Because if you put it into findfirstfile, it will
            return your current folder */
-        if (_tcslen(TempPath) == 2 && TempPath[1] == _T(':'))
+        if (TempPath[0] && TempPath[1] == _T(':') && !TempPath[2]) /* "C:", "D:" etc. */
         {
-            _tcscat(OutPath, TempPath);
-            _tcscat(OutPath, _T("\\"));
-            _tcscat(TempPath, _T("\\"));
+            StringCchCat(OutPath, MAX_PATH, TempPath);
+            StringCchCat(OutPath, MAX_PATH, _T("\\"));
+            StringCchCat(TempPath, _countof(TempPath), _T("\\"));
         }
         else
         {
-            hFind = FindFirstFile(TempPath,&FindFileData);
+            hFind = FindFirstFile(TempPath, &FindFileData);
             if (hFind == INVALID_HANDLE_VALUE)
             {
-                _tcscpy(OutPath, Path);
+                StringCchCopy(OutPath, MAX_PATH, Path);
                 return;
             }
-            _tcscat(TempPath, _T("\\"));
-            _tcscat(OutPath, FindFileData.cFileName);
-            _tcscat(OutPath, _T("\\"));
             FindClose(hFind);
+            StringCchCat(OutPath, MAX_PATH, _T("\\"));
+            StringCchCat(OutPath, MAX_PATH, FindFileData.cFileName);
+            StringCchCat(OutPath, MAX_PATH, _T("\\"));
+            StringCchCopy(TempPath, _countof(TempPath), OutPath);
         }
+        pchTemp = TempPath + _tcslen(TempPath);
     }
 }
 
@@ -151,10 +165,9 @@ BOOL CheckCtrlBreak(INT mode)
 
             LoadString(CMD_ModuleHandle, STRING_COPY_OPTION, options, ARRAYSIZE(options));
 
-            /* we need to be sure the string arrives on the screen! */
+            ConOutResPuts(STRING_CANCEL_BATCH_FILE);
             do
             {
-                ConOutResPuts(STRING_CANCEL_BATCH_FILE);
                 c = _totupper(cgetchar());
             } while (!(_tcschr(options, c) || c == _T('\3')) || !c);
 
@@ -478,77 +491,36 @@ StripQuotes(TCHAR *in)
 
 
 /*
- * Checks if a path is valid (accessible)
+ * Checks if a path is valid (is accessible)
  */
-BOOL IsValidPathName (LPCTSTR pszPath)
+BOOL IsValidPathName(IN LPCTSTR pszPath)
 {
-    TCHAR szOldPath[MAX_PATH];
     BOOL  bResult;
+    TCHAR szOldPath[MAX_PATH];
 
-    GetCurrentDirectory (MAX_PATH, szOldPath);
-    bResult = SetCurrentDirectory (pszPath);
+    GetCurrentDirectory(ARRAYSIZE(szOldPath), szOldPath);
+    bResult = SetCurrentDirectory(pszPath);
 
-    SetCurrentDirectory (szOldPath);
+    SetCurrentDirectory(szOldPath);
 
     return bResult;
 }
 
-
 /*
- * Checks if a file exists (accessible)
+ * Checks if a file exists (is accessible)
  */
-BOOL IsExistingFile (LPCTSTR pszPath)
+BOOL IsExistingFile(IN LPCTSTR pszPath)
 {
-    DWORD attr = GetFileAttributes (pszPath);
-    return (attr != 0xFFFFFFFF && (! (attr & FILE_ATTRIBUTE_DIRECTORY)) );
+    DWORD attr = GetFileAttributes(pszPath);
+    return ((attr != INVALID_FILE_ATTRIBUTES) && !(attr & FILE_ATTRIBUTE_DIRECTORY));
 }
 
-
-BOOL IsExistingDirectory (LPCTSTR pszPath)
+BOOL IsExistingDirectory(IN LPCTSTR pszPath)
 {
-    DWORD attr = GetFileAttributes (pszPath);
-    return (attr != 0xFFFFFFFF && (attr & FILE_ATTRIBUTE_DIRECTORY) );
+    DWORD attr = GetFileAttributes(pszPath);
+    return ((attr != INVALID_FILE_ATTRIBUTES) && (attr & FILE_ATTRIBUTE_DIRECTORY));
 }
 
-
-BOOL FileGetString (HANDLE hFile, LPTSTR lpBuffer, INT nBufferLength)
-{
-    LPSTR lpString;
-    DWORD  dwRead;
-    INT len = 0;
-#ifdef _UNICODE
-    lpString = cmd_alloc(nBufferLength);
-#else
-    lpString = lpBuffer;
-#endif
-
-    if (ReadFile(hFile, lpString, nBufferLength - 1, &dwRead, NULL))
-    {
-        /* break at new line*/
-        CHAR *end = memchr(lpString, '\n', dwRead);
-        len = dwRead;
-        if (end)
-        {
-            len = (INT)(end - lpString) + 1;
-            SetFilePointer(hFile, len - dwRead, NULL, FILE_CURRENT);
-        }
-    }
-
-    if (!len)
-    {
-#ifdef _UNICODE
-        cmd_free(lpString);
-#endif
-        return FALSE;
-    }
-
-    lpString[len++] = '\0';
-#ifdef _UNICODE
-    MultiByteToWideChar(OutputCodePage, 0, lpString, -1, lpBuffer, len);
-    cmd_free(lpString);
-#endif
-    return TRUE;
-}
 
 // See r874
 BOOL __stdcall PagePrompt(PCON_PAGER Pager, DWORD Done, DWORD Total)
@@ -612,7 +584,6 @@ INT FilePromptYN (UINT resID)
 
     /* preliminary fix */
     ConInString(szIn, 10);
-    ConOutChar(_T('\n'));
 
     _tcsupr (szIn);
     for (p = szIn; _istspace (*p); p++)
@@ -676,13 +647,12 @@ INT FilePromptYNA (UINT resID)
 
     /* preliminary fix */
     ConInString(szIn, 10);
-    ConOutChar(_T('\n'));
 
     _tcsupr (szIn);
     for (p = szIn; _istspace (*p); p++)
         ;
 
-    LoadString( CMD_ModuleHandle, STRING_COPY_OPTION, szMsg, ARRAYSIZE(szMsg));
+    LoadString(CMD_ModuleHandle, STRING_COPY_OPTION, szMsg, ARRAYSIZE(szMsg));
 
     if (_tcsncmp(p, &szMsg[0], 1) == 0)
         return PROMPT_YES;

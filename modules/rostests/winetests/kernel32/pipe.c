@@ -117,6 +117,7 @@ static BOOL RpcReadFile(HANDLE hFile, LPVOID buffer, DWORD bytesToRead, LPDWORD 
 static void _test_not_signaled(unsigned line, HANDLE handle)
 {
     DWORD res = WaitForSingleObject(handle, 0);
+    disable_success_count
     ok_(__FILE__,line)(res == WAIT_TIMEOUT, "WaitForSingleObject returned %u (%u)\n", res, GetLastError());
 }
 
@@ -2784,7 +2785,9 @@ static void _overlapped_write_async(unsigned line, HANDLE writer, void *buf, DWO
     memset(overlapped, 0, sizeof(*overlapped));
     overlapped->hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
     res = WriteFile(writer, buf, size, &written_bytes, overlapped);
+    disable_success_count
     ok_(__FILE__,line)(!res && GetLastError() == ERROR_IO_PENDING, "WriteFile returned %x(%u)\n", res, GetLastError());
+    disable_success_count
     ok_(__FILE__,line)(!written_bytes, "written_bytes = %u\n", written_bytes);
 
     _test_not_signaled(line, overlapped->hEvent);
@@ -3161,6 +3164,14 @@ START_TEST(pipe)
     char **argv;
     int argc;
     HMODULE hmod;
+
+#if defined(__REACTOS__) && defined(_M_AMD64)
+    if (!winetest_interactive)
+    {
+        skip("ROSTESTS-370: Skipping kernel32_winetest:pipe because it hangs on Windows Server 2003 x64-Testbot. Set winetest_interactive to run it anyway.\n");
+        return;
+    }
+#endif
 
     hmod = GetModuleHandleA("advapi32.dll");
     pDuplicateTokenEx = (void *) GetProcAddress(hmod, "DuplicateTokenEx");

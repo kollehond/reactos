@@ -52,7 +52,7 @@ VOID
 KeMemoryBarrier(VOID)
 {
   LONG Barrier, *Dummy = &Barrier;
-  UNREFERENCED_LOCAL_VARIABLE(Dummy);
+  (VOID)Dummy;
 
 #if defined(__GNUC__)
   __asm__ __volatile__ ("xchg %%eax, %0" : : "m" (Barrier) : "%eax");
@@ -169,6 +169,16 @@ NTAPI
 KeRestoreFloatingPointState(
   _In_ PKFLOATING_SAVE FloatSave);
 
+#if (NTDDI_VERSION >= NTDDI_WIN7)
+FORCEINLINE
+ULONG
+NTAPI
+KeGetCurrentProcessorIndex(VOID)
+{
+    return __readfsbyte(0x51);
+}
+#endif
+
 /* VOID
  * KeFlushIoBuffers(
  *   IN PMDL Mdl,
@@ -273,8 +283,6 @@ typedef struct _CONTEXT {
 } CONTEXT;
 #include "poppack.h"
 
-#define KeGetPcr()                      PCR
-
 #define PCR_MINOR_VERSION 1
 #define PCR_MAJOR_VERSION 1
 
@@ -315,6 +323,21 @@ typedef struct _KPCR {
   ULONG HalReserved[16];
 } KPCR, *PKPCR;
 
+/* NOTE: This macro is not exposed in the DDK/WDK for _M_IX86.
+ * If it were, this would be its definition. */
+#if 0
+// #define KeGetPcr()      ((PKPCR)__readfsdword(FIELD_OFFSET(KPCR, SelfPcr)))
+FORCEINLINE
+PKPCR
+KeGetPcr(VOID)
+{
+    return (PKPCR)__readfsdword(FIELD_OFFSET(KPCR, SelfPcr));
+}
+#endif
+
+#if (NTDDI_VERSION >= NTDDI_WIN7)
+_CRT_DEPRECATE_TEXT("KeGetCurrentProcessorNumber is deprecated. Use KeGetCurrentProcessorNumberEx or KeGetCurrentProcessorIndex instead.")
+#endif
 FORCEINLINE
 ULONG
 KeGetCurrentProcessorNumber(VOID)
@@ -322,8 +345,25 @@ KeGetCurrentProcessorNumber(VOID)
     return (ULONG)__readfsbyte(FIELD_OFFSET(KPCR, Number));
 }
 
+/* Macros for kernel-mode run-time checks of X86 system architecture */
+#ifdef IsNEC_98
+#undef IsNEC_98
+#endif
+#define IsNEC_98     (SharedUserData->AlternativeArchitecture == NEC98x86)
+
+#ifdef IsNotNEC_98
+#undef IsNotNEC_98
+#endif
+#define IsNotNEC_98  (SharedUserData->AlternativeArchitecture != NEC98x86)
+
+#ifdef SetNEC_98
+#undef SetNEC_98
+#endif
+#define SetNEC_98    (SharedUserData->AlternativeArchitecture = NEC98x86)
+
+#ifdef SetNotNEC_98
+#undef SetNotNEC_98
+#endif
+#define SetNotNEC_98 (SharedUserData->AlternativeArchitecture = StandardDesign)
+
 $endif (_NTDDK_)
-
-
-
-

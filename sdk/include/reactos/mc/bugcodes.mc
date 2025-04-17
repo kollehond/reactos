@@ -292,7 +292,7 @@ Severity=Success
 Facility=System
 SymbolicName=CREATE_DELETE_LOCK_NOT_LOCKED
 Language=English
-The thread reaper was handed a thread to reap, but the thread's process'
+CREATE_DELETE_LOCK_NOT_LOCKED
 .
 
 MessageId=0x15
@@ -1171,6 +1171,22 @@ Language=English
 PP1_INITIALIZATION_FAILED
 .
 
+MessageId=0x91
+Severity=Success
+Facility=System
+SymbolicName=WIN32K_INIT_OR_RIT_FAILURE
+Language=English
+WIN32K_INIT_OR_RIT_FAILURE
+.
+
+MessageId=0x92
+Severity=Success
+Facility=System
+SymbolicName=UP_DRIVER_ON_MP_SYSTEM
+Language=English
+UP_DRIVER_ON_MP_SYSTEM
+.
+
 MessageId=0x93
 Severity=Success
 Facility=System
@@ -1271,7 +1287,7 @@ Severity=Success
 Facility=System
 SymbolicName=VIDEO_DRIVER_INIT_FAILURE
 Language=English
-The video driver failed to initialize
+The video driver failed to initialize.
 .
 
 MessageId=0xB7
@@ -1588,6 +1604,14 @@ Facility=System
 SymbolicName=POWER_FAILURE_SIMULATE
 Language=English
 POWER_FAILURE_SIMULATE
+.
+
+MessageId=0xE7
+Severity=Success
+Facility=System
+SymbolicName=INVALID_FLOATING_POINT_STATE
+Language=English
+INVALID_FLOATING_POINT_STATE
 .
 
 MessageId=0xE8

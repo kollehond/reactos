@@ -1,4 +1,9 @@
-/* Translation made by Jerome Signouret, 2005. */
+/*
+ * PROJECT:     Disk Format Utility
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
+ * PURPOSE:     French resource file
+ * TRANSLATOR:  Copyright 2005 Jerome Signouret <ggcom@tele2.fr>
+ */
 
 LANGUAGE LANG_FRENCH, SUBLANG_NEUTRAL
 
@@ -13,15 +18,15 @@ BEGIN
                    sont fortement recommandées pour une utilisation courante\n\
                    NTFS peut utiliser 512, 1024, 2048, 4096, 8192, 16K, 32K, 64K.\n\
                    FAT peut utiliser 8192, 16K, 32K, 64K, 128K, 256K.\n\
-                   La compression NTFS n'est pas possible au de là de 4096.\n\
+                   La compression NTFS n'est pas possible au delà de 4096.\n\
   -C               Les fichiers sur le nouveau disque seront compressés automatiquement.\n\n"
     STRING_COMPLETE "%lu pourcent effectués.\r"
-    STRING_FORMAT_FAIL "FormatEx ne peut se finir avec succés.\n\n"
-    STRING_NO_SUPPORT "Fontion Non Supportée"
+    STRING_FORMAT_FAIL "FormatEx ne peut se finir avec succès.\n\n"
+    STRING_NO_SUPPORT "Opération non supportée"
     STRING_FMIFS_FAIL "Impossible de trouver les points d'entrée FMIFS.\n\n"
     STRING_UNKNOW_ARG "Argument inconnu : %s\n"
     STRING_DRIVE_PARM "Le disque à formater n'est pas indiqué.\n\n"
-    STRING_ERROR_DRIVE_TYPE "Impossible d'obtenir le type de disque"
+    STRING_ERROR_DRIVE_TYPE "Impossible d'obtenir le type de disque.\n"
     STRING_INSERT_DISK "Mettre une nouvelle disquette dans le lecteur %C:\n et appuyer sur Entrée..."
     STRING_NO_VOLUME "Impossible de trouver le disque"
     STRING_NO_VOLUME_SIZE "Impossible de déterminer la taille du disque"
@@ -38,6 +43,6 @@ PERDUES !\nContinuer avec le formatage (O/N) ? "
     STRING_VOL_COMPRESS "Le disque ne supporte pas la compression.\n"
     STRING_ENTER_LABEL "Nom du disque (11 caractères, Entrée si aucun) ? "
     STRING_NO_LABEL "Impossible de donner un nom au disque"
-    STRING_FREE_SPACE "\nEspace disque total : %I64d octet.\n Espace disque disponible : %I64d octet.\n"
+    STRING_FREE_SPACE "\nEspace disque total : %I64d octet(s).\nEspace disque disponible : %I64d octet(s).\n"
     STRING_SERIAL_NUMBER "\nNuméro de série du disque: %04X-%04X\n"
 END

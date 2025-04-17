@@ -18,8 +18,6 @@ int main(int argc, char *argv[])
     BOOL bResult;
     HANDLE hPort;
     int i;
-    int j;
-    int k;
 	int nPortNum = 1;
 
 	TCHAR szPortName[MAX_PORTNAME_LEN];
@@ -56,9 +54,7 @@ int main(int argc, char *argv[])
     if (!bResult) {
         printf("WARNING: EscapeCommFunction(SETRTS) failed: %lx\n", (DWORD)bResult);
     }
-	for (j = 0; j < 1000; j++) {
-		k *= j;
-	}
+    Sleep(500);
 /*
 #define CLRDTR	(6)
 #define CLRRTS	(4)
@@ -101,7 +97,7 @@ int main(int argc, char *argv[])
         rxBuffer[i] = 0xFF;
     }
     printf("\n");
-    printf("Writting transmit buffer to the serial port\n");
+    printf("Writing transmit buffer to the serial port\n");
     bResult = WriteFile(hPort, txBuffer, BUFSIZE, &dwNumWritten, NULL);
     if (!bResult) {
         printf("ERROR: failed to write to the serial port: %lx\n", (DWORD)bResult);

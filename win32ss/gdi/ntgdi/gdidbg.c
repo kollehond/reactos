@@ -32,6 +32,7 @@ DBG_CHANNEL DbgChannels[DbgChCount] = {
     {L"EngLDev", DbgChEngLDev},
     {L"EngLine", DbgChEngLine},
     {L"EngMapping", DbgChEngMapping},
+    {L"EngMDev", DbgChEngMDev},
     {L"EngPDev", DbgChEngPDev},
     {L"EngSurface", DbgChEngSurface},
     {L"EngWnd", DbgChEngWnd},
@@ -84,8 +85,10 @@ DBG_CHANNEL DbgChannels[DbgChCount] = {
     {L"UserObj", DbgChUserObj},
     {L"UserPainting", DbgChUserPainting},
     {L"UserProcess", DbgChUserProcess},
+    {L"UserPowerManager", DbgChUserPowerManager},
     {L"UserProp", DbgChUserProp},
     {L"UserScrollbar", DbgChUserScrollbar},
+    {L"UserSecurity", DbgChUserSecurity},
     {L"UserShutdown", DbgChUserShutdown},
     {L"UserSysparams", DbgChUserSysparams},
     {L"UserTimer", DbgChUserTimer},
@@ -365,7 +368,7 @@ DbgGdiHTIntegrityCheck(VOID)
 
 		pEntry = &GdiHandleTable->Entries[i];
 		Type = pEntry->Type;
-		Handle = (HGDIOBJ)(((ULONG_PTR)Type << GDI_ENTRY_UPPER_SHIFT) + i);
+		Handle = (HGDIOBJ)(ULONG_PTR)((Type << GDI_ENTRY_UPPER_SHIFT) + i);
 
 		if (Type & GDI_ENTRY_BASETYPE_MASK)
 		{

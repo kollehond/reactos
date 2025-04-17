@@ -35,6 +35,7 @@ IntCbAllocateMemory(ULONG Size)
       return NULL;
    }
 
+   RtlZeroMemory(Mem, Size + sizeof(INT_CALLBACK_HEADER));
    W32Thread = PsGetCurrentThreadWin32Thread();
    ASSERT(W32Thread);
 
@@ -185,10 +186,6 @@ co_IntClientLoadLibrary(PUNICODE_STRING pstrLibName,
        pLibNameBuffer -= (ULONG_PTR)pArguments;
        pArguments->strLibraryName.Buffer = (PWCHAR)(pLibNameBuffer);
    }
-   else
-   {
-       RtlZeroMemory(&pArguments->strLibraryName, sizeof(UNICODE_STRING));
-   }
 
    if(pstrInitFunc)
    {
@@ -201,10 +198,6 @@ co_IntClientLoadLibrary(PUNICODE_STRING pstrLibName,
        /* Fix argument pointers to be relative to the argument */
        pInitFuncBuffer -= (ULONG_PTR)pArguments;
        pArguments->strInitFuncName.Buffer = (PWCHAR)(pInitFuncBuffer);
-   }
-   else
-   {
-       RtlZeroMemory(&pArguments->strInitFuncName, sizeof(UNICODE_STRING));
    }
 
    /* Do the callback */
@@ -294,7 +287,7 @@ co_IntCallWindowProc(WNDPROC Proc,
                      LPARAM lParam,
                      INT lParamBufferSize)
 {
-   WINDOWPROC_CALLBACK_ARGUMENTS StackArguments;
+   WINDOWPROC_CALLBACK_ARGUMENTS StackArguments = { 0 };
    PWINDOWPROC_CALLBACK_ARGUMENTS Arguments;
    NTSTATUS Status;
    PVOID ResultPointer, pActCtx;
@@ -509,6 +502,8 @@ co_IntLoadDefaultCursors(VOID)
    return TRUE;
 }
 
+static INT iTheId = -2; // Set it out of range.
+
 LRESULT APIENTRY
 co_IntCallHookProc(INT HookId,
                    INT Code,
@@ -535,6 +530,8 @@ co_IntCallHookProc(INT HookId,
    PMSG pMsg = NULL;
    BOOL Hit = FALSE;
    UINT lParamSize = 0;
+   CWPSTRUCT* pCWP = NULL;
+   CWPRETSTRUCT* pCWPR = NULL;
 
    ASSERT(Proc);
    /* Do not allow the desktop thread to do callback to user mode */
@@ -593,28 +590,38 @@ co_IntCallHookProc(INT HookId,
                goto Fault_Exit;
          }
          break;
-      case WH_KEYBOARD_LL:
+     case WH_KEYBOARD_LL:
          ArgumentLength += sizeof(KBDLLHOOKSTRUCT);
          break;
-      case WH_MOUSE_LL:
+     case WH_MOUSE_LL:
          ArgumentLength += sizeof(MSLLHOOKSTRUCT);
          break;
-      case WH_MOUSE:
+     case WH_MOUSE:
          ArgumentLength += sizeof(MOUSEHOOKSTRUCT);
          break;
      case WH_CALLWNDPROC:
      {
-         CWPSTRUCT* pCWP = (CWPSTRUCT*) lParam;
-         ArgumentLength += sizeof(CWPSTRUCT);
-         lParamSize = lParamMemorySize(pCWP->message, pCWP->wParam, pCWP->lParam);
+         pCWP = (CWPSTRUCT*) lParam;
+         ArgumentLength = sizeof(CWP_Struct);
+         if ( pCWP->message == WM_CREATE || pCWP->message == WM_NCCREATE )
+         {
+             lParamSize = sizeof(CREATESTRUCTW);
+         }
+         else
+             lParamSize = lParamMemorySize(pCWP->message, pCWP->wParam, pCWP->lParam);
          ArgumentLength += lParamSize;
          break;
       }
       case WH_CALLWNDPROCRET:
       {
-         CWPRETSTRUCT* pCWPR = (CWPRETSTRUCT*) lParam;
-         ArgumentLength += sizeof(CWPRETSTRUCT);
-         lParamSize = lParamMemorySize(pCWPR->message, pCWPR->wParam, pCWPR->lParam);
+         pCWPR = (CWPRETSTRUCT*) lParam;
+         ArgumentLength = sizeof(CWPR_Struct);
+         if ( pCWPR->message == WM_CREATE || pCWPR->message == WM_NCCREATE )
+         {
+             lParamSize = sizeof(CREATESTRUCTW);
+         }
+         else
+             lParamSize = lParamMemorySize(pCWPR->message, pCWPR->wParam, pCWPR->lParam);
          ArgumentLength += lParamSize;
          break;
       }
@@ -635,7 +642,7 @@ co_IntCallHookProc(INT HookId,
    Argument = IntCbAllocateMemory(ArgumentLength);
    if (NULL == Argument)
    {
-      ERR("HookProc callback failed: out of memory\n");
+      ERR("HookProc callback %d failed: out of memory %d\n",HookId,ArgumentLength);
       goto Fault_Exit;
    }
    Common = (PHOOKPROC_CALLBACK_ARGUMENTS) Argument;
@@ -647,7 +654,7 @@ co_IntCallHookProc(INT HookId,
    Common->Mod = Mod;
    Common->offPfn = offPfn;
    Common->Ansi = Ansi;
-   RtlZeroMemory(&Common->ModuleName, sizeof(Common->ModuleName));
+   Common->lParamSize = lParamSize;
    if (ModuleName->Buffer && ModuleName->Length)
    {
       RtlCopyMemory(&Common->ModuleName, ModuleName->Buffer, ModuleName->Length);
@@ -666,9 +673,10 @@ co_IntCallHookProc(INT HookId,
                CbtCreatewndExtra = (PHOOKPROC_CBT_CREATEWND_EXTRA_ARGUMENTS) Extra;
                RtlCopyMemory( &CbtCreatewndExtra->Cs, CbtCreateWnd->lpcs, sizeof(CREATESTRUCTW) );
                CbtCreatewndExtra->WndInsertAfter = CbtCreateWnd->hwndInsertAfter;
-               CbtCreatewndExtra->Cs.lpszClass = CbtCreateWnd->lpcs->lpszClass;
-               CbtCreatewndExtra->Cs.lpszName = CbtCreateWnd->lpcs->lpszName;
+               CbtCreatewndExtra->Cs.lpszClass   = CbtCreateWnd->lpcs->lpszClass;
+               CbtCreatewndExtra->Cs.lpszName    = CbtCreateWnd->lpcs->lpszName;
                Common->lParam = (LPARAM) (Extra - (PCHAR) Common);
+               //ERR("HCBT_CREATEWND: hWnd %p Csw %p Name %p Class %p\n", Common->wParam, CbtCreateWnd->lpcs, CbtCreateWnd->lpcs->lpszName, CbtCreateWnd->lpcs->lpszClass);
                break;
             case HCBT_CLICKSKIPPED:
                RtlCopyMemory(Extra, (PVOID) lParam, sizeof(MOUSEHOOKSTRUCT));
@@ -697,25 +705,27 @@ co_IntCallHookProc(INT HookId,
          Common->lParam = (LPARAM) (Extra - (PCHAR) Common);
          break;
       case WH_CALLWNDPROC:
+      {
+         PCWP_Struct pcwps = (PCWP_Struct)Common;
+         RtlCopyMemory( &pcwps->cwps, pCWP, sizeof(CWPSTRUCT));
          /* For CALLWNDPROC and CALLWNDPROCRET, we must be wary of the fact that
           * lParam could be a pointer to a buffer. This buffer must be exported
           * to user space too */
-         RtlCopyMemory(Extra, (PVOID) lParam, sizeof(CWPSTRUCT));
-         Common->lParam = (LPARAM) (Extra - (PCHAR) Common);
-         if(lParamSize)
+         if ( lParamSize )
          {
-             RtlCopyMemory(Extra + sizeof(CWPSTRUCT), (PVOID)((CWPSTRUCT*)lParam)->lParam, lParamSize);
-             ((CWPSTRUCT*)Extra)->lParam = (LPARAM)lParamSize;
+             RtlCopyMemory( &pcwps->Extra, (PVOID)pCWP->lParam, lParamSize );
          }
+      }
          break;
       case WH_CALLWNDPROCRET:
-         RtlCopyMemory(Extra, (PVOID) lParam, sizeof(CWPRETSTRUCT));
-         Common->lParam = (LPARAM) (Extra - (PCHAR) Common);
-         if(lParamSize)
+      {
+         PCWPR_Struct pcwprs = (PCWPR_Struct)Common;
+         RtlCopyMemory( &pcwprs->cwprs, pCWPR, sizeof(CWPRETSTRUCT));
+         if ( lParamSize )
          {
-             RtlCopyMemory(Extra + sizeof(CWPRETSTRUCT), (PVOID)((CWPRETSTRUCT*)lParam)->lParam, lParamSize);
-             ((CWPRETSTRUCT*)Extra)->lParam = (LPARAM)lParamSize;
+             RtlCopyMemory( &pcwprs->Extra, (PVOID)pCWPR->lParam, lParamSize );
          }
+      }
          break;
       case WH_MSGFILTER:
       case WH_SYSMSGFILTER:
@@ -745,7 +755,11 @@ co_IntCallHookProc(INT HookId,
 
    if (!NT_SUCCESS(Status))
    {
-      ERR("Failure to make Callback! Status 0x%x\n",Status);
+      if ( iTheId != HookId ) // Hook ID can change.
+      {
+          ERR("Failure to make Callback %d! Status 0x%x ArgumentLength %d\n",HookId,Status,ArgumentLength);
+          iTheId = HookId;
+      }
       goto Fault_Exit;
    }
 
@@ -906,9 +920,6 @@ co_IntCallLoadMenu( HINSTANCE hModule,
       return 0;
    }
    Common = (PLOADMENU_CALLBACK_ARGUMENTS) Argument;
-
-   // Help Intersource check and MenuName is now 4 bytes + so zero it.
-   RtlZeroMemory(Common, ArgumentLength);
 
    Common->hModule = hModule;
    if (pMenuName->Length)
@@ -1208,5 +1219,103 @@ co_IntSetupOBM(VOID)
    IntCbFreeMemory(Argument);
 }
 
+//
+//  Called from Kernel GDI sides, no UserLeave/EnterCo required.
+//
+LRESULT
+APIENTRY
+co_UserCBClientPrinterThunk( PVOID pkt, INT InSize, PVOID pvOutData, INT OutSize )
+{
+   NTSTATUS Status;
+   PVOID ResultPointer;
+
+   Status = KeUserModeCallback( USER32_CALLBACK_UMPD,
+                                pkt,
+                                InSize,
+                               &ResultPointer,
+                               (PULONG)&OutSize );
+
+
+   if (!NT_SUCCESS(Status))
+   {
+      ERR("User UMPD callback failed!\n");
+      return 1;
+   }
+
+   if (OutSize) RtlMoveMemory( pvOutData, ResultPointer, OutSize );
+
+   return 0;
+}
+
+// Win: ClientImmProcessKey
+DWORD
+APIENTRY
+co_IntImmProcessKey(HWND hWnd, HKL hKL, UINT vKey, LPARAM lParam, DWORD dwHotKeyID)
+{
+    DWORD ret = 0;
+    NTSTATUS Status;
+    ULONG ResultLength = sizeof(DWORD);
+    PVOID ResultPointer = NULL;
+    IMMPROCESSKEY_CALLBACK_ARGUMENTS Common = { hWnd, hKL, vKey, lParam, dwHotKeyID };
+
+    UserLeaveCo();
+    Status = KeUserModeCallback(USER32_CALLBACK_IMMPROCESSKEY,
+                                &Common,
+                                sizeof(Common),
+                                &ResultPointer,
+                                &ResultLength);
+    UserEnterCo();
+
+    if (NT_SUCCESS(Status))
+        ret = *(LPDWORD)ResultPointer;
+
+    return ret;
+}
+
+/* Win: ClientImmLoadLayout */
+BOOL
+APIENTRY
+co_ClientImmLoadLayout(
+    _In_ HKL hKL,
+    _Inout_ PIMEINFOEX pImeInfoEx)
+{
+    BOOL ret;
+    NTSTATUS Status;
+    IMMLOADLAYOUT_CALLBACK_ARGUMENTS Common = { hKL };
+    ULONG ResultLength = sizeof(IMMLOADLAYOUT_CALLBACK_OUTPUT);
+    PIMMLOADLAYOUT_CALLBACK_OUTPUT ResultPointer = NULL;
+
+    RtlZeroMemory(pImeInfoEx, sizeof(IMEINFOEX));
+
+    UserLeaveCo();
+    Status = KeUserModeCallback(USER32_CALLBACK_IMMLOADLAYOUT,
+                                &Common,
+                                sizeof(Common),
+                                (PVOID*)&ResultPointer,
+                                &ResultLength);
+    UserEnterCo();
+
+    if (!NT_SUCCESS(Status) || !ResultPointer ||
+        ResultLength != sizeof(IMMLOADLAYOUT_CALLBACK_OUTPUT))
+    {
+        ERR("0x%lX, %p, %lu\n", Status, ResultPointer, ResultLength);
+        return FALSE;
+    }
+
+    _SEH2_TRY
+    {
+        ProbeForRead(ResultPointer, ResultLength, 1);
+        ret = ResultPointer->ret;
+        if (ret)
+            RtlCopyMemory(pImeInfoEx, &ResultPointer->iiex, sizeof(IMEINFOEX));
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        ret = FALSE;
+    }
+    _SEH2_END;
+
+    return ret;
+}
 
 /* EOF */

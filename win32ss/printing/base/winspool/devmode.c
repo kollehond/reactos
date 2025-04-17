@@ -233,3 +233,161 @@ Failure:
     SetLastError(ERROR_INVALID_DATA);
     return FALSE;
 }
+
+BOOL WINAPI
+IsValidDevmodeNoSizeW(PDEVMODEW pDevmode)
+{
+    PMINIMUM_SIZE_TABLE pTable = MinimumSizeW;
+    WORD wRequiredSize;
+
+    TRACE("IsValidDevmodeNoSizeW(%p)\n", pDevmode);
+
+    // Check if a Devmode was given at all.
+    if (!pDevmode)
+        goto Failure;
+
+    // If the structure has private members, the public structure must be 32-bit packed.
+    if (pDevmode->dmDriverExtra && pDevmode->dmSize % 4)
+        goto Failure;
+
+    // Now determine the minimum possible dmSize based on the given fields in dmFields.
+    wRequiredSize = FIELD_OFFSET(DEVMODEW, dmFields) + RTL_FIELD_SIZE(DEVMODEW, dmFields);
+
+    while (pTable->dwField)
+    {
+        if (pDevmode->dmFields & pTable->dwField)
+        {
+            wRequiredSize = pTable->wSize;
+            break;
+        }
+
+        pTable++;
+    }
+
+    // Verify that the value in dmSize is big enough for the used fields.
+    if (pDevmode->dmSize < wRequiredSize)
+        goto Failure;
+
+    // Check if dmDeviceName and (if used) dmFormName are null-terminated.
+    // Fix this if they aren't.
+    _FixStringW(pDevmode->dmDeviceName, sizeof(pDevmode->dmDeviceName));
+    if (pDevmode->dmFields & DM_FORMNAME)
+        _FixStringW(pDevmode->dmFormName, sizeof(pDevmode->dmFormName));
+
+    // Return success without setting the error code.
+    return TRUE;
+
+Failure:
+    SetLastError(ERROR_INVALID_DATA);
+    return FALSE;
+}
+
+void RosConvertAnsiDevModeToUnicodeDevmode(PDEVMODEA pDevModeInput, PDEVMODEW *pDevModeOutput)
+{
+    // FIXME: This function should become ConvertAnsiDevModeToUnicodeDevmode when its parameters are known!
+
+    // Check if a pDevModeInput and pDevModeOutput are both not NULL.
+    if (!pDevModeInput || !pDevModeOutput)
+        return;
+
+    *pDevModeOutput = GdiConvertToDevmodeW(pDevModeInput);
+}
+
+// Internal counterpart to GdiConvertToDevmodeW from gdi32
+static __inline DEVMODEA*
+_ConvertToDevmodeA(const DEVMODEW *dmW)
+{
+    DEVMODEA *dmA;
+    WORD dmA_size, dmW_size;
+    size_t BytesToCopy;
+
+    dmW_size = dmW->dmSize;
+
+    /* this is the minimal dmSize that XP accepts */
+    if (dmW_size < FIELD_OFFSET(DEVMODEW, dmFields))
+        return NULL;
+
+    // Guard against callers that set dmSize incorrectly.
+    if (dmW_size > sizeof(DEVMODEW))
+        dmW_size = sizeof(DEVMODEW);
+
+    // dmA_size must become dmW_size without the additional 1 byte per character for each Unicode string (dmDeviceName and dmFormName).
+    dmA_size = dmW_size - CCHDEVICENAME;
+    if (dmW_size >= FIELD_OFFSET(DEVMODEW, dmFormName) + CCHFORMNAME * sizeof(WCHAR))
+        dmA_size -= CCHFORMNAME;
+
+    // Allocate the required bytes, that is dmSize for the ANSI DEVMODEA structure plus any extra bytes requested through dmDriverExtra.
+    dmA = HeapAlloc(GetProcessHeap(), 0, dmA_size + dmW->dmDriverExtra);
+    if (!dmA) return NULL;
+
+    // Every valid DEVMODEW has a dmDeviceName, which we convert to ANSI here.
+    WideCharToMultiByte(CP_ACP, 0, dmW->dmDeviceName, -1, (LPSTR)dmA->dmDeviceName, CCHDEVICENAME, NULL, NULL);
+
+    // Copy everything up to dmFormName or the remaining dmW_size, whatever is smaller.
+    BytesToCopy = min(FIELD_OFFSET(DEVMODEW, dmFormName) - FIELD_OFFSET(DEVMODEW, dmSpecVersion), dmW_size - CCHDEVICENAME * sizeof(WCHAR));
+    memcpy(&dmA->dmSpecVersion, &dmW->dmSpecVersion, BytesToCopy);
+
+    // Handle dmFormName if the input DEVMODEW is large enough to contain one.
+    if (dmW_size >= FIELD_OFFSET(DEVMODEW, dmFormName) + CCHFORMNAME * sizeof(WCHAR))
+    {
+        if (dmW->dmFields & DM_FORMNAME)
+            WideCharToMultiByte(CP_ACP, 0, dmW->dmFormName, -1, (LPSTR)dmA->dmFormName, CCHFORMNAME, NULL, NULL);
+        else
+            dmA->dmFormName[0] = 0;
+
+        // Copy the remaining fields.
+        if (dmW_size > FIELD_OFFSET(DEVMODEW, dmLogPixels))
+            memcpy(&dmA->dmLogPixels, &dmW->dmLogPixels, dmW_size - FIELD_OFFSET(DEVMODEW, dmLogPixels));
+    }
+
+    // Append dmDriverExtra if required.
+    if (dmW->dmDriverExtra)
+        memcpy((char *)dmA + dmA_size, (const char *)dmW + dmW_size, dmW->dmDriverExtra);
+
+    // Set the corrected dmSize and we are done.
+    dmA->dmSize = dmA_size;
+
+    return dmA;
+}
+
+void RosConvertUnicodeDevModeToAnsiDevmode(PDEVMODEW pDevModeInput, PDEVMODEA pDevModeOutput)
+{
+    PDEVMODEA pTmp;
+
+    // FIXME: This function should become ConvertUnicodeDevModeToAnsiDevmode when its parameters are known!
+
+    // Check if a pDevModeInput and pDevModeOutput are both not NULL.
+    if (!pDevModeInput || !pDevModeOutput)
+        return;
+
+    pTmp = _ConvertToDevmodeA(pDevModeInput);
+    memcpy( pDevModeOutput, pTmp, pTmp->dmSize + pTmp->dmDriverExtra); // Copy into a Wide char (Larger) buffer.
+    HeapFree(hProcessHeap, 0, pTmp);
+}
+
+VOID
+WINAPI
+DeviceMode(
+    PVOID param_1,
+    PVOID param_2,
+    PCHAR param_3,
+    PVOID param_4)
+{
+    UNIMPLEMENTED;
+}
+
+LONG
+WINAPI
+ExtDeviceMode(
+    HWND hWnd,
+    HANDLE hInst,
+    LPDEVMODEA pDevModeOutput,
+    LPSTR pDeviceName,
+    LPSTR pPort,
+    LPDEVMODEA pDevModeInput,
+    LPSTR pProfile,
+    DWORD fMode)
+{
+    UNIMPLEMENTED;
+    return 0;
+}

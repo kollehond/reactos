@@ -3,7 +3,7 @@
  * LICENSE:         LGPLv2.1+ - See COPYING.LIB in the top level directory
  * PURPOSE:         Test for CreateWindowEx
  * PROGRAMMERS:     Thomas Faber <thomas.faber@reactos.org>
- *                  Mark Jansen
+ *                  Mark Jansen (mark.jansen@reactos.org)
  */
 
 #include "precomp.h"
@@ -65,9 +65,9 @@ static void Test_Params(void)
     ok(dwError == ERROR_INVALID_WINDOW_HANDLE, "error = %lu\n", dwError);
 }
 
-HWND g_TestWindow = NULL;
-HWND g_ChildWindow = NULL;
-HWND g_hwndMDIClient = NULL;
+static HWND g_TestWindow = NULL;
+static HWND g_ChildWindow = NULL;
+static HWND g_hwndMDIClient = NULL;
 
 static int get_iwnd(HWND hWnd)
 {
@@ -83,17 +83,18 @@ static int get_iwnd(HWND hWnd)
     return 0;
 }
 
-DWORD g_FaultLine = 0;
-DWORD g_NcExpectStyle = 0;
-DWORD g_NcExpectExStyle = 0;
-DWORD g_ExpectStyle = 0;
-DWORD g_ExpectExStyle = 0;
+static DWORD g_FaultLine = 0;
+static DWORD g_NcExpectStyle = 0;
+static DWORD g_NcExpectExStyle = 0;
+static DWORD g_ExpectStyle = 0;
+static DWORD g_ExpectExStyle = 0;
 
-DWORD g_ChildNcExpectStyle = 0;
-DWORD g_ChildNcExpectExStyle = 0;
-DWORD g_ChildExpectStyle = 0;
-DWORD g_ChildExpectExStyle = 0;
+static DWORD g_ChildNcExpectStyle = 0;
+static DWORD g_ChildNcExpectExStyle = 0;
+static DWORD g_ChildExpectStyle = 0;
+static DWORD g_ChildExpectExStyle = 0;
 
+#undef ok_hex_
 #define ok_hex_(expression, result) \
     do { \
         int _value = (expression); \
@@ -169,7 +170,7 @@ static LRESULT CALLBACK MSGTestProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
     return lRet;
 }
 
-MSG_ENTRY create_chain[] =
+static MSG_ENTRY create_chain[] =
 {
     { 1, WM_GETMINMAXINFO, SENT },
     { 1, WM_GETMINMAXINFO, SENT_RET },
@@ -182,7 +183,7 @@ MSG_ENTRY create_chain[] =
     { 0, 0 }
 };
 
-MSG_ENTRY create_chain_modify[] =
+static MSG_ENTRY create_chain_modify[] =
 {
     { 1, WM_GETMINMAXINFO, SENT },
     { 1, WM_GETMINMAXINFO, SENT_RET },
@@ -211,7 +212,7 @@ MSG_ENTRY create_chain_modify[] =
     { 0, 0 }
 };
 
-MSG_ENTRY create_chain_modify_below8_nonsrv[] =
+static MSG_ENTRY create_chain_modify_below8_nonsrv[] =
 {
     { 1, WM_GETMINMAXINFO, SENT },
     { 1, WM_GETMINMAXINFO, SENT_RET },
@@ -805,7 +806,7 @@ static LRESULT CALLBACK MSGTestProcMDI2(HWND hWnd, UINT message, WPARAM wParam, 
         mcs.style = WS_MAXIMIZE;
 
         hchild = (HWND) SendMessage (g_hwndMDIClient, WM_MDICREATE, 0,
-            (LONG)(LPMDICREATESTRUCT) &mcs);
+            (LPARAM)&mcs);
         ok(hchild == g_ChildWindow, "We are testing with %p instead of %p\n", g_ChildWindow, hchild);
 
     }
@@ -883,7 +884,7 @@ static LRESULT CALLBACK MSGChildProcMDI2(HWND hWnd, UINT message, WPARAM wParam,
 }
 
 
-MSG_ENTRY child_create_chain_MDI[] =
+static MSG_ENTRY child_create_chain_MDI[] =
 {
     { 1, WM_GETMINMAXINFO, SENT },
     { 1, WM_GETMINMAXINFO, SENT_RET },
@@ -948,7 +949,7 @@ MSG_ENTRY child_create_chain_MDI[] =
     { 0, 0 },
 };
 
-MSG_ENTRY child_create_chain_MDI_below8[] =
+static MSG_ENTRY child_create_chain_MDI_below8[] =
 {
     { 1, WM_GETMINMAXINFO, SENT },
     { 1, WM_GETMINMAXINFO, SENT_RET },
@@ -1013,7 +1014,7 @@ MSG_ENTRY child_create_chain_MDI_below8[] =
     { 0, 0 },
 };
 
-MSG_ENTRY child_create_chain_MDI_below8_nonsrv[] =
+static MSG_ENTRY child_create_chain_MDI_below8_nonsrv[] =
 {
     { 1, WM_GETMINMAXINFO, SENT },
     { 1, WM_GETMINMAXINFO, SENT_RET },

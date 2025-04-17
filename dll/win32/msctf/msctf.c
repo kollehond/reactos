@@ -18,8 +18,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
-
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -558,8 +556,10 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD fdwReason, LPVOID fImpLoad)
     TRACE("%p 0x%x %p\n", hinst, fdwReason, fImpLoad);
     switch (fdwReason)
     {
+#ifndef __REACTOS__
         case DLL_WINE_PREATTACH:
             return FALSE;   /* prefer native version */
+#endif
         case DLL_PROCESS_ATTACH:
             MSCTF_hinstance = hinst;
             tlsIndex = TlsAlloc();
@@ -699,6 +699,7 @@ HRESULT WINAPI TF_CreateLangBarItemMgr(ITfLangBarItemMgr **pplbim)
     return E_NOTIMPL;
 }
 
+#ifndef __REACTOS__ /* See mlng.cpp */
 /***********************************************************************
  *              TF_InitMlngInfo (MSCTF.@)
  */
@@ -707,3 +708,4 @@ HRESULT WINAPI TF_InitMlngInfo(void)
     FIXME("stub\n");
     return S_OK;
 }
+#endif

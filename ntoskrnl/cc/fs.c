@@ -10,14 +10,9 @@
 /* INCLUDES ******************************************************************/
 
 #include <ntoskrnl.h>
+
 #define NDEBUG
 #include <debug.h>
-
-/* GLOBALS   *****************************************************************/
-
-extern KGUARDED_MUTEX ViewLock;
-
-NTSTATUS CcRosInternalFreeVacb(PROS_VACB Vacb);
 
 /* FUNCTIONS *****************************************************************/
 
@@ -50,7 +45,7 @@ NTAPI
 CcGetFileObjectFromBcb (
     IN PVOID Bcb)
 {
-    PINTERNAL_BCB iBcb = (PINTERNAL_BCB)Bcb;
+    PINTERNAL_BCB iBcb = CONTAINING_RECORD(Bcb, INTERNAL_BCB, PFCB);
 
     CCTRACE(CC_API_DEBUG, "Bcb=%p\n", Bcb);
 
@@ -115,12 +110,13 @@ CcIsThereDirtyData (
 {
     PROS_VACB Vacb;
     PLIST_ENTRY Entry;
+    KIRQL oldIrql;
     /* Assume no dirty data */
     BOOLEAN Dirty = FALSE;
 
     CCTRACE(CC_API_DEBUG, "Vpb=%p\n", Vpb);
 
-    KeAcquireGuardedMutex(&ViewLock);
+    oldIrql = KeAcquireQueuedSpinLock(LockQueueMasterLock);
 
     /* Browse dirty VACBs */
     for (Entry = DirtyVacbListHead.Flink; Entry != &DirtyVacbListHead; Entry = Entry->Flink)
@@ -148,7 +144,7 @@ CcIsThereDirtyData (
         }
     }
 
-    KeReleaseGuardedMutex(&ViewLock);
+    KeReleaseQueuedSpinLock(LockQueueMasterLock, oldIrql);
 
     return Dirty;
 }
@@ -165,6 +161,7 @@ CcPurgeCacheSection (
     IN BOOLEAN UninitializeCacheMaps)
 {
     PROS_SHARED_CACHE_MAP SharedCacheMap;
+    PPRIVATE_CACHE_MAP PrivateCacheMap;
     LONGLONG StartOffset;
     LONGLONG EndOffset;
     LIST_ENTRY FreeList;
@@ -177,14 +174,35 @@ CcPurgeCacheSection (
     CCTRACE(CC_API_DEBUG, "SectionObjectPointer=%p\n FileOffset=%p Length=%lu UninitializeCacheMaps=%d",
         SectionObjectPointer, FileOffset, Length, UninitializeCacheMaps);
 
-    if (UninitializeCacheMaps)
-    {
-        DPRINT1("FIXME: CcPurgeCacheSection not uninitializing private cache maps\n");
-    }
-
+    /* Obtain the shared cache from the section */
     SharedCacheMap = SectionObjectPointer->SharedCacheMap;
     if (!SharedCacheMap)
-        return FALSE;
+    {
+        Success = TRUE;
+        goto purgeMm;
+    }
+
+    if (UninitializeCacheMaps)
+    {
+        /*
+         * We have gotten the acknowledgement that
+         * the caller wants to unintialize the private
+         * cache maps so let's do this. Since we already
+         * have the shared cache map from above, iterate
+         * over that cache's private lists.
+         */
+        while (!IsListEmpty(&SharedCacheMap->PrivateList))
+        {
+            /*
+             * This list is not empty, grab the
+             * private cache map.
+             */
+            PrivateCacheMap = CONTAINING_RECORD(SharedCacheMap->PrivateList.Flink, PRIVATE_CACHE_MAP, PrivateLinks);
+
+            /* Unintialize the private cache now */
+            CcUninitializeCacheMap(PrivateCacheMap->FileObject, NULL, NULL);
+        }
+    }
 
     StartOffset = FileOffset != NULL ? FileOffset->QuadPart : 0;
     if (Length == 0 || FileOffset == NULL)
@@ -202,8 +220,8 @@ CcPurgeCacheSection (
     /* Assume success */
     Success = TRUE;
 
-    KeAcquireGuardedMutex(&ViewLock);
-    KeAcquireSpinLock(&SharedCacheMap->CacheMapLock, &OldIrql);
+    OldIrql = KeAcquireQueuedSpinLock(LockQueueMasterLock);
+    KeAcquireSpinLockAtDpcLevel(&SharedCacheMap->CacheMapLock);
     ListEntry = SharedCacheMap->CacheMapVacbListHead.Flink;
     while (ListEntry != &SharedCacheMap->CacheMapVacbListHead)
     {
@@ -246,8 +264,8 @@ CcPurgeCacheSection (
         RemoveEntryList(&Vacb->CacheMapVacbListEntry);
         InsertHeadList(&FreeList, &Vacb->CacheMapVacbListEntry);
     }
-    KeReleaseSpinLock(&SharedCacheMap->CacheMapLock, OldIrql);
-    KeReleaseGuardedMutex(&ViewLock);
+    KeReleaseSpinLockFromDpcLevel(&SharedCacheMap->CacheMapLock);
+    KeReleaseQueuedSpinLock(LockQueueMasterLock, OldIrql);
 
     while (!IsListEmpty(&FreeList))
     {
@@ -261,6 +279,11 @@ CcPurgeCacheSection (
         ASSERT(Refs == 0);
     }
 
+    /* Now make sure that Mm doesn't hold some pages here. */
+purgeMm:
+    if (Success)
+        Success = MmPurgeSegment(SectionObjectPointer, FileOffset, Length);
+
     return Success;
 }
 
@@ -273,8 +296,9 @@ CcSetFileSizes (
     IN PFILE_OBJECT FileObject,
     IN PCC_FILE_SIZES FileSizes)
 {
-    KIRQL oldirql;
+    KIRQL OldIrql;
     PROS_SHARED_CACHE_MAP SharedCacheMap;
+    LARGE_INTEGER OldSectionSize;
 
     CCTRACE(CC_API_DEBUG, "FileObject=%p FileSizes=%p\n",
         FileObject, FileSizes);
@@ -295,18 +319,26 @@ CcSetFileSizes (
     if (SharedCacheMap == NULL)
         return;
 
-    if (FileSizes->AllocationSize.QuadPart < SharedCacheMap->SectionSize.QuadPart)
+    /* Update the relevant fields */
+    KeAcquireSpinLock(&SharedCacheMap->CacheMapLock, &OldIrql);
+    OldSectionSize = SharedCacheMap->SectionSize;
+    SharedCacheMap->SectionSize = FileSizes->AllocationSize;
+    SharedCacheMap->FileSize = FileSizes->FileSize;
+    SharedCacheMap->ValidDataLength = FileSizes->ValidDataLength;
+    KeReleaseSpinLock(&SharedCacheMap->CacheMapLock, OldIrql);
+
+    if (FileSizes->AllocationSize.QuadPart < OldSectionSize.QuadPart)
     {
         CcPurgeCacheSection(FileObject->SectionObjectPointer,
                             &FileSizes->AllocationSize,
                             0,
                             FALSE);
     }
-
-    KeAcquireSpinLock(&SharedCacheMap->CacheMapLock, &oldirql);
-    SharedCacheMap->SectionSize = FileSizes->AllocationSize;
-    SharedCacheMap->FileSize = FileSizes->FileSize;
-    KeReleaseSpinLock(&SharedCacheMap->CacheMapLock, oldirql);
+    else
+    {
+        /* Extend our section object */
+        MmExtendSection(SharedCacheMap->Section, &SharedCacheMap->SectionSize);
+    }
 }
 
 /*

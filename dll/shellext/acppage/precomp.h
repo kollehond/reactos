@@ -17,7 +17,7 @@
 #include <atlsimpcoll.h>
 #include <atlstr.h>
 #include <atlwin.h>
-#include <rosdlgs.h>
+#include <ui/rosdlgs.h>
 
 ULONG DbgPrint(PCH Format,...);
 #include <apphelp.h>
@@ -33,5 +33,7 @@ BOOL IsBuiltinLayer(PCWSTR Name);
 #include "resource.h"
 #include "CLayerStringList.hpp"
 #include "CLayerUIPropPage.hpp"
+
+BOOL ShowEditCompatModes(HWND hWnd, CLayerUIPropPage* page);
 
 #endif /* ACPPAGE_PRECOMP_H */

@@ -51,7 +51,7 @@ BOOL WINAPI SHIM_OBJ_NAME(FreeLibrary)(HMODULE hModule)
         }
         for (n = 0; n < g_NameCount; ++n)
         {
-            if (!stricmp(g_Names[n], ModuleName))
+            if (!_stricmp(g_Names[n], ModuleName))
             {
                 SHIM_INFO("Prevented unload of %s\n", ModuleName);
                 if (Ptr && Ptr != Buffer)
@@ -97,7 +97,7 @@ static VOID InitIgnoreFreeLibrary(PCSTR CommandLine)
         if (!names[n])
         {
             SHIM_WARN("Unable to allocate %u bytes\n", cur - prev + 2);
-            return;
+            goto fail;
         }
         n++;
         prev = cur + 1;
@@ -106,11 +106,23 @@ static VOID InitIgnoreFreeLibrary(PCSTR CommandLine)
     if (!names[n])
     {
         SHIM_WARN("Unable to allocate last string\n");
-        return;
+        goto fail;
     }
 
     g_Names = names;
     g_NameCount = count;
+    return;
+
+fail:
+    --n;
+    while (n >= 0)
+    {
+        if (names[n])
+            ShimLib_ShimFree((PVOID)names[n]);
+
+        --n;
+    }
+    ShimLib_ShimFree((PVOID)names);
 }
 
 BOOL WINAPI SHIM_OBJ_NAME(Notify)(DWORD fdwReason, PVOID ptr)

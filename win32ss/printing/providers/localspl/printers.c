@@ -93,7 +93,7 @@ _PrinterListCompareRoutine(PVOID FirstStruct, PVOID SecondStruct)
     PLOCAL_PRINTER A = (PLOCAL_PRINTER)FirstStruct;
     PLOCAL_PRINTER B = (PLOCAL_PRINTER)SecondStruct;
 
-    return wcsicmp(A->pwszPrinterName, B->pwszPrinterName);
+    return _wcsicmp(A->pwszPrinterName, B->pwszPrinterName);
 }
 
 /**
@@ -346,6 +346,24 @@ Cleanup:
     return (dwErrorCode == ERROR_SUCCESS);
 }
 
+VOID
+BroadcastChange(PLOCAL_HANDLE pHandle)
+{
+    PLOCAL_PRINTER pPrinter;
+    PSKIPLIST_NODE pNode;
+    DWORD cchMachineName = 0;
+    WCHAR wszMachineName[MAX_PATH] = {0}; // if not local, use Machine Name then Printer Name... pPrinter->pJob->pwszMachineName?
+
+    for (pNode = PrinterList.Head.Next[0]; pNode; pNode = pNode->Next[0])
+    {
+        pPrinter = (PLOCAL_PRINTER)pNode->Element;
+
+        StringCchCopyW( &wszMachineName[cchMachineName], sizeof(wszMachineName), pPrinter->pwszPrinterName );
+
+        PostMessageW( HWND_BROADCAST, WM_DEVMODECHANGE, 0, (LPARAM)&wszMachineName );
+    }
+}
+
 /**
  * @name _LocalEnumPrintersCheckName
  *
@@ -388,7 +406,7 @@ _LocalEnumPrintersCheckName(DWORD Flags, PCWSTR Name, PWSTR pwszComputerName, PD
             // Print Provider Name or the local Computer Name.
 
             // Compare with the Print Provider Name.
-            if (wcsicmp(Name, wszPrintProviderInfo[0]) == 0)
+            if (_wcsicmp(Name, wszPrintProviderInfo[0]) == 0)
                 return ERROR_SUCCESS;
 
             // Dismiss anything else.
@@ -491,8 +509,8 @@ static void
 _LocalGetPrinterLevel0(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_STRESS* ppPrinterInfo, PBYTE* ppPrinterInfoEnd, PDWORD pcbNeeded, DWORD cchComputerName, PCWSTR wszComputerName)
 {
     size_t cbName;
-    PWSTR p;
-    PWSTR pwszStrings[1];
+    PWSTR p, Allocation;
+    PCWSTR pwszStrings[1];
     SYSTEM_INFO SystemInfo;
 
     // Calculate the string lengths.
@@ -510,7 +528,7 @@ _LocalGetPrinterLevel0(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_STRESS* ppPrinterI
     (*ppPrinterInfo)->dwGetVersion = GetVersion();
     (*ppPrinterInfo)->Status = pPrinter->dwStatus;
 
-#if !defined(DBG)
+#if !DBG
     (*ppPrinterInfo)->fFreeBuild = 1;
 #endif
 
@@ -521,8 +539,8 @@ _LocalGetPrinterLevel0(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_STRESS* ppPrinterI
     (*ppPrinterInfo)->wProcessorLevel = SystemInfo.wProcessorLevel;
 
     // Copy the Printer Name.
-    pwszStrings[0] = DllAllocSplMem(cbName);
-    p = pwszStrings[0];
+    p = Allocation = DllAllocSplMem(cbName);
+    pwszStrings[0] = Allocation;
     StringCbCopyExW(p, cbName, wszComputerName, &p, &cbName, 0);
     StringCbCopyExW(p, cbName, pPrinter->pwszPrinterName, &p, &cbName, 0);
 
@@ -531,7 +549,7 @@ _LocalGetPrinterLevel0(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_STRESS* ppPrinterI
     (*ppPrinterInfo)++;
 
     // Free the memory for temporary strings.
-    DllFreeSplMem(pwszStrings[0]);
+    DllFreeSplMem(Allocation);
 }
 
 static void
@@ -542,8 +560,8 @@ _LocalGetPrinterLevel1(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_1W* ppPrinterInfo,
     size_t cbName;
     size_t cbComment;
     size_t cbDescription;
-    PWSTR p;
-    PWSTR pwszStrings[3];
+    PWSTR p, Allocation1, Allocation2;
+    PCWSTR pwszStrings[3];
 
     // Calculate the string lengths.
     // Attention: pComment equals the "Description" registry value while pDescription is concatenated out of several strings.
@@ -562,8 +580,8 @@ _LocalGetPrinterLevel1(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_1W* ppPrinterInfo,
     (*ppPrinterInfo)->Flags = PRINTER_ENUM_ICON8;
 
     // Copy the Printer Name.
-    pwszStrings[0] = DllAllocSplMem(cbName);
-    p = pwszStrings[0];
+    p = Allocation1 = DllAllocSplMem(cbName);
+    pwszStrings[0] = Allocation1;
     StringCbCopyExW(p, cbName, wszComputerName, &p, &cbName, 0);
     StringCbCopyExW(p, cbName, pPrinter->pwszPrinterName, &p, &cbName, 0);
 
@@ -571,8 +589,8 @@ _LocalGetPrinterLevel1(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_1W* ppPrinterInfo,
     pwszStrings[1] = pPrinter->pwszDescription;
 
     // Copy the description, which for PRINTER_INFO_1W has the form "Name,Printer Driver,Location"
-    pwszStrings[2] = DllAllocSplMem(cbDescription);
-    p = pwszStrings[2];
+    p = Allocation2 = DllAllocSplMem(cbDescription);
+    pwszStrings[2] = Allocation2;
     StringCbCopyExW(p, cbDescription, wszComputerName, &p, &cbDescription, 0);
     StringCbCopyExW(p, cbDescription, pPrinter->pwszPrinterName, &p, &cbDescription, 0);
     StringCbCopyExW(p, cbDescription, wszComma, &p, &cbDescription, 0);
@@ -585,8 +603,8 @@ _LocalGetPrinterLevel1(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_1W* ppPrinterInfo,
     (*ppPrinterInfo)++;
 
     // Free the memory for temporary strings.
-    DllFreeSplMem(pwszStrings[0]);
-    DllFreeSplMem(pwszStrings[2]);
+    DllFreeSplMem(Allocation1);
+    DllFreeSplMem(Allocation2);
 }
 
 static void
@@ -605,9 +623,9 @@ _LocalGetPrinterLevel2(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_2W* ppPrinterInfo,
     size_t cbPrintProcessor;
     size_t cbDatatype;
     size_t cbParameters;
-    PWSTR p;
-    PWSTR pwszStrings[10];
-
+    PWSTR p, Allocation;
+    PCWSTR pwszStrings[10];
+    FIXME("LocalGetPrinterLevel2\n");
     // Calculate the string lengths.
     cbDevMode = pPrinter->pDefaultDevMode->dmSize + pPrinter->pDefaultDevMode->dmDriverExtra;
     cbPrinterName = (cchComputerName + wcslen(pPrinter->pwszPrinterName) + 1) * sizeof(WCHAR);
@@ -626,6 +644,7 @@ _LocalGetPrinterLevel2(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_2W* ppPrinterInfo,
         cbParameters = sizeof(wszEmpty);
 
         *pcbNeeded += sizeof(PRINTER_INFO_2W) + cbDevMode + cbPrinterName + cbShareName + cbPortName + cbDriverName + cbComment + cbLocation + cbSepFile + cbPrintProcessor + cbDatatype + cbParameters;
+        FIXME("LocalGetPrinterLevel2 Needed %d\n",*pcbNeeded);
         return;
     }
 
@@ -641,8 +660,8 @@ _LocalGetPrinterLevel2(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_2W* ppPrinterInfo,
     (*ppPrinterInfo)->pDevMode = (PDEVMODEW)(*ppPrinterInfoEnd);
 
     // Set the pPrinterName field.
-    pwszStrings[0] = DllAllocSplMem(cbPrinterName);
-    p = pwszStrings[0];
+    p = Allocation = DllAllocSplMem(cbPrinterName);
+    pwszStrings[0] = Allocation;
     StringCbCopyExW(p, cbPrinterName, wszComputerName, &p, &cbPrinterName, 0);
     StringCbCopyExW(p, cbPrinterName, pPrinter->pwszPrinterName, &p, &cbPrinterName, 0);
 
@@ -678,7 +697,7 @@ _LocalGetPrinterLevel2(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_2W* ppPrinterInfo,
     (*ppPrinterInfo)++;
 
     // Free the memory for temporary strings.
-    DllFreeSplMem(pwszStrings[0]);
+    DllFreeSplMem(Allocation);
 }
 
 static void
@@ -707,8 +726,8 @@ static void
 _LocalGetPrinterLevel4(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_4W* ppPrinterInfo, PBYTE* ppPrinterInfoEnd, PDWORD pcbNeeded, DWORD cchComputerName, PCWSTR wszComputerName)
 {
     size_t cbPrinterName;
-    PWSTR p;
-    PWSTR pwszStrings[1];
+    PWSTR p, Allocation;
+    PCWSTR pwszStrings[1];
 
     // Calculate the string lengths.
     cbPrinterName = (cchComputerName + wcslen(pPrinter->pwszPrinterName) + 1) * sizeof(WCHAR);
@@ -724,8 +743,8 @@ _LocalGetPrinterLevel4(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_4W* ppPrinterInfo,
     (*ppPrinterInfo)->Attributes = pPrinter->dwAttributes;
 
     // Set the pPrinterName field.
-    pwszStrings[0] = DllAllocSplMem(cbPrinterName);
-    p = pwszStrings[0];
+    p = Allocation = DllAllocSplMem(cbPrinterName);
+    pwszStrings[0] = Allocation;
     StringCbCopyExW(p, cbPrinterName, wszComputerName, &p, &cbPrinterName, 0);
     StringCbCopyExW(p, cbPrinterName, pPrinter->pwszPrinterName, &p, &cbPrinterName, 0);
 
@@ -734,7 +753,7 @@ _LocalGetPrinterLevel4(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_4W* ppPrinterInfo,
     (*ppPrinterInfo)++;
 
     // Free the memory for temporary strings.
-    DllFreeSplMem(pwszStrings[0]);
+    DllFreeSplMem(Allocation);
 }
 
 static void
@@ -742,8 +761,8 @@ _LocalGetPrinterLevel5(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_5W* ppPrinterInfo,
 {
     size_t cbPrinterName;
     size_t cbPortName;
-    PWSTR p;
-    PWSTR pwszStrings[2];
+    PWSTR p, Allocation;
+    PCWSTR pwszStrings[2];
 
     // Calculate the string lengths.
     cbPrinterName = (cchComputerName + wcslen(pPrinter->pwszPrinterName) + 1) * sizeof(WCHAR);
@@ -762,8 +781,8 @@ _LocalGetPrinterLevel5(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_5W* ppPrinterInfo,
     (*ppPrinterInfo)->TransmissionRetryTimeout = dwTransmissionRetryTimeout;
 
     // Set the pPrinterName field.
-    pwszStrings[0] = DllAllocSplMem(cbPrinterName);
-    p = pwszStrings[0];
+    p = Allocation = DllAllocSplMem(cbPrinterName);
+    pwszStrings[0] = Allocation;
     StringCbCopyExW(p, cbPrinterName, wszComputerName, &p, &cbPrinterName, 0);
     StringCbCopyExW(p, cbPrinterName, pPrinter->pwszPrinterName, &p, &cbPrinterName, 0);
 
@@ -775,7 +794,7 @@ _LocalGetPrinterLevel5(PLOCAL_PRINTER pPrinter, PPRINTER_INFO_5W* ppPrinterInfo,
     (*ppPrinterInfo)++;
 
     // Free the memory for temporary strings.
-    DllFreeSplMem(pwszStrings[0]);
+    DllFreeSplMem(Allocation);
 }
 
 static void
@@ -871,7 +890,7 @@ LocalEnumPrinters(DWORD Flags, LPWSTR Name, DWORD Level, LPBYTE pPrinterEnum, DW
     WCHAR wszComputerName[2 + MAX_COMPUTERNAME_LENGTH + 1 + 1] = { 0 };
     PLOCAL_PRINTER pPrinter;
 
-    TRACE("LocalEnumPrinters(%lu, %S, %lu, %p, %lu, %p, %p)\n", Flags, Name, Level, pPrinterEnum, cbBuf, pcbNeeded, pcReturned);
+    FIXME("LocalEnumPrinters(%lu, %S, %lu, %p, %lu, %p, %p)\n", Flags, Name, Level, pPrinterEnum, cbBuf, pcbNeeded, pcReturned);
 
     // Do no sanity checks or assertions for pcbNeeded and pcReturned here.
     // This is verified and required by localspl_apitest!
@@ -1169,7 +1188,7 @@ _LocalOpenPrinterHandle(PWSTR pwszPrinterName, PWSTR pwszJobParameter, PHANDLE p
             goto Failure;
         }
 
-        // Skip the "Job " string. 
+        // Skip the "Job " string.
         pwszJobParameter += 4;
 
         // Skip even more whitespace.
@@ -1200,7 +1219,7 @@ _LocalOpenPrinterHandle(PWSTR pwszPrinterName, PWSTR pwszJobParameter, PHANDLE p
         if (pPrinterHandle->hSPLFile == INVALID_HANDLE_VALUE)
         {
             dwErrorCode = GetLastError();
-            ERR("CreateFileW failed with error %lu for \"%S\"!", dwErrorCode, wszFullPath);
+            ERR("CreateFileW failed with error %lu for \"%S\"!\n", dwErrorCode, wszFullPath);
             goto Failure;
         }
 
@@ -1283,6 +1302,7 @@ _LocalOpenXcvHandle(PWSTR pwszParameter, PHANDLE phPrinter)
         {
             // The caller supplied a non-existing Monitor name.
             dwErrorCode = ERROR_INVALID_NAME;
+            ERR("OpenXcvHandle failed on Monitor name! %lu\n", dwErrorCode);
             goto Failure;
         }
     }
@@ -1297,6 +1317,7 @@ _LocalOpenXcvHandle(PWSTR pwszParameter, PHANDLE phPrinter)
         {
             // The supplied port is unknown to all our Print Monitors.
             dwErrorCode = ERROR_INVALID_NAME;
+            ERR("OpenXcvHandle failed on Port name! %lu\n", dwErrorCode);
             goto Failure;
         }
 
@@ -1305,6 +1326,7 @@ _LocalOpenXcvHandle(PWSTR pwszParameter, PHANDLE phPrinter)
     else
     {
         dwErrorCode = ERROR_INVALID_NAME;
+        ERR("OpenXcvHandle failed on bad name! %lu\n", dwErrorCode);
         goto Failure;
     }
 
@@ -1318,6 +1340,7 @@ _LocalOpenXcvHandle(PWSTR pwszParameter, PHANDLE phPrinter)
     {
         // The XcvOpenPort function failed. Return its last error.
         dwErrorCode = GetLastError();
+        ERR("XcvOpenPort function failed! %lu\n", dwErrorCode);
         goto Failure;
     }
 
@@ -1348,6 +1371,7 @@ _LocalOpenXcvHandle(PWSTR pwszParameter, PHANDLE phPrinter)
 
     // Return it.
     *phPrinter = (HANDLE)pHandle;
+    ERR("OpenXcvHandle Success! %p\n", pXcvHandle);
     return ERROR_SUCCESS;
 
 Failure:
@@ -1358,6 +1382,16 @@ Failure:
         DllFreeSplMem(pXcvHandle);
 
     return dwErrorCode;
+}
+
+//
+// Dead API
+//
+DWORD WINAPI
+LocalPrinterMessageBox(HANDLE hPrinter, DWORD Error, HWND hWnd, LPWSTR pText, LPWSTR pCaption, DWORD dwType)
+{
+    SetLastError(ERROR_INVALID_HANDLE); // Yes....
+    return 0;
 }
 
 BOOL WINAPI
@@ -1475,6 +1509,7 @@ LocalOpenPrinter(PWSTR lpPrinterName, HANDLE* phPrinter, PPRINTER_DEFAULTSW pDef
         //    "\\COMPUTERNAME\, XcvMonitor Local Port"
         //    ", XcvPort LPT1:"
         //    "\\COMPUTERNAME\, XcvPort LPT1:"
+        FIXME("OpenXcvHandle : %S\n",pwszSecondParameter);
         dwErrorCode = _LocalOpenXcvHandle(pwszSecondParameter, phPrinter);
     }
     else
@@ -1890,6 +1925,7 @@ Cleanup:
 static void
 _LocalClosePortHandle(PLOCAL_PORT_HANDLE pPortHandle)
 {
+    FIXME("LocalClosePortHandle\n");
     // Call the monitor's ClosePort function.
     if (pPortHandle->pPort->pPrintMonitor->bIsLevel2)
         ((PMONITOR2)pPortHandle->pPort->pPrintMonitor->pMonitor)->pfnClosePort(pPortHandle->hPort);
@@ -1900,6 +1936,7 @@ _LocalClosePortHandle(PLOCAL_PORT_HANDLE pPortHandle)
 static void
 _LocalClosePrinterHandle(PLOCAL_PRINTER_HANDLE pPrinterHandle)
 {
+    FIXME("LocalClosePrinterHandle\n");
     // Terminate any started job.
     if (pPrinterHandle->pJob)
         FreeJob(pPrinterHandle->pJob);
@@ -1924,7 +1961,7 @@ LocalClosePrinter(HANDLE hPrinter)
 {
     PLOCAL_HANDLE pHandle = (PLOCAL_HANDLE)hPrinter;
 
-    TRACE("LocalClosePrinter(%p)\n", hPrinter);
+    FIXME("LocalClosePrinter(%p)\n", hPrinter);
 
     if (!pHandle)
     {
@@ -1948,12 +1985,12 @@ LocalClosePrinter(HANDLE hPrinter)
     {
         _LocalCloseXcvHandle(pHandle->pSpecificHandle);
     }
-
+    FIXME("LocalClosePrinter 1\n");
     // Free memory for the handle and the specific handle (if any).
     if (pHandle->pSpecificHandle)
         DllFreeSplMem(pHandle->pSpecificHandle);
-
+    FIXME("LocalClosePrinter 2\n");
     DllFreeSplMem(pHandle);
-
+    FIXME("LocalClosePrinter 3\n");
     return TRUE;
 }

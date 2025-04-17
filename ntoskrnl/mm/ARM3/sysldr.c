@@ -16,19 +16,6 @@
 #define MODULE_INVOLVED_IN_ARM3
 #include <mm/ARM3/miarm.h>
 
-static
-inline
-VOID
-sprintf_nt(IN PCHAR Buffer,
-           IN PCHAR Format,
-           IN ...)
-{
-    va_list ap;
-    va_start(ap, Format);
-    vsprintf(Buffer, Format, ap);
-    va_end(ap);
-}
-
 /* GLOBALS ********************************************************************/
 
 LIST_ENTRY PsLoadedModuleList;
@@ -49,6 +36,13 @@ BOOLEAN MmEnforceWriteProtection = TRUE;
 PMMPTE MiKernelResourceStartPte, MiKernelResourceEndPte;
 ULONG_PTR ExPoolCodeStart, ExPoolCodeEnd, MmPoolCodeStart, MmPoolCodeEnd;
 ULONG_PTR MmPteCodeStart, MmPteCodeEnd;
+
+#ifdef _WIN64
+#define COOKIE_MAX 0x0000FFFFFFFFFFFFll
+#define DEFAULT_SECURITY_COOKIE 0x00002B992DDFA232ll
+#else
+#define DEFAULT_SECURITY_COOKIE 0xBB40E64E
+#endif
 
 /* FUNCTIONS ******************************************************************/
 
@@ -81,13 +75,13 @@ MiCacheImageSymbols(IN PVOID BaseAddress)
 
 NTSTATUS
 NTAPI
-MiLoadImageSection(IN OUT PVOID *SectionPtr,
-                   OUT PVOID *ImageBase,
-                   IN PUNICODE_STRING FileName,
-                   IN BOOLEAN SessionLoad,
-                   IN PLDR_DATA_TABLE_ENTRY LdrEntry)
+MiLoadImageSection(_Inout_ PSECTION *SectionPtr,
+                   _Out_ PVOID *ImageBase,
+                   _In_ PUNICODE_STRING FileName,
+                   _In_ BOOLEAN SessionLoad,
+                   _In_ PLDR_DATA_TABLE_ENTRY LdrEntry)
 {
-    PROS_SECTION_OBJECT Section = *SectionPtr;
+    PSECTION Section = *SectionPtr;
     NTSTATUS Status;
     PEPROCESS Process;
     PVOID Base = NULL;
@@ -158,7 +152,7 @@ MiLoadImageSection(IN OUT PVOID *SectionPtr,
     }
 
     /* Reserve system PTEs needed */
-    PteCount = ROUND_TO_PAGES(Section->ImageSection->ImageInformation.ImageFileSize) >> PAGE_SHIFT;
+    PteCount = ROUND_TO_PAGES(((PMM_IMAGE_SECTION_OBJECT)Section->Segment)->ImageInformation.ImageFileSize) >> PAGE_SHIFT;
     PointerPte = MiReserveSystemPtes(PteCount, SystemPteSpace);
     if (!PointerPte)
     {
@@ -188,14 +182,7 @@ MiLoadImageSection(IN OUT PVOID *SectionPtr,
         /* Some debug stuff */
         MI_SET_USAGE(MI_USAGE_DRIVER_PAGE);
 #if MI_TRACE_PFNS
-        if (FileName->Buffer)
-        {
-            PWCHAR pos = NULL;
-            ULONG len = 0;
-            pos = wcsrchr(FileName->Buffer, '\\');
-            len = wcslen(pos) * sizeof(WCHAR);
-            if (pos) snprintf(MI_PFN_CURRENT_PROCESS_NAME, min(16, len), "%S", pos);
-        }
+        MI_SET_PROCESS_USTR(FileName);
 #endif
 
         /* Grab a page */
@@ -227,43 +214,35 @@ MiLoadImageSection(IN OUT PVOID *SectionPtr,
     return Status;
 }
 
-PVOID
+#ifndef RVA
+#define RVA(m, b) ((PVOID)((ULONG_PTR)(b) + (ULONG_PTR)(m)))
+#endif
+
+USHORT
 NTAPI
-MiLocateExportName(IN PVOID DllBase,
-                   IN PCHAR ExportName)
+NameToOrdinal(
+    _In_ PCSTR ExportName,
+    _In_ PVOID ImageBase,
+    _In_ ULONG NumberOfNames,
+    _In_ PULONG NameTable,
+    _In_ PUSHORT OrdinalTable)
 {
-    PULONG NameTable;
-    PUSHORT OrdinalTable;
-    PIMAGE_EXPORT_DIRECTORY ExportDirectory;
-    LONG Low = 0, Mid = 0, High, Ret;
-    USHORT Ordinal;
-    PVOID Function;
-    ULONG ExportSize;
-    PULONG ExportTable;
-    PAGED_CODE();
+    LONG Low, Mid, High, Ret;
 
-    /* Get the export directory */
-    ExportDirectory = RtlImageDirectoryEntryToData(DllBase,
-                                                   TRUE,
-                                                   IMAGE_DIRECTORY_ENTRY_EXPORT,
-                                                   &ExportSize);
-    if (!ExportDirectory) return NULL;
-
-    /* Setup name tables */
-    NameTable = (PULONG)((ULONG_PTR)DllBase +
-                         ExportDirectory->AddressOfNames);
-    OrdinalTable = (PUSHORT)((ULONG_PTR)DllBase +
-                             ExportDirectory->AddressOfNameOrdinals);
+    /* Fail if no names */
+    if (!NumberOfNames)
+        return -1;
 
     /* Do a binary search */
-    High = ExportDirectory->NumberOfNames - 1;
+    Low = Mid = 0;
+    High = NumberOfNames - 1;
     while (High >= Low)
     {
         /* Get new middle value */
         Mid = (Low + High) >> 1;
 
         /* Compare name */
-        Ret = strcmp(ExportName, (PCHAR)DllBase + NameTable[Mid]);
+        Ret = strcmp(ExportName, (PCHAR)RVA(ImageBase, NameTable[Mid]));
         if (Ret < 0)
         {
             /* Update high */
@@ -282,47 +261,195 @@ MiLocateExportName(IN PVOID DllBase,
     }
 
     /* Check if we couldn't find it */
-    if (High < Low) return NULL;
+    if (High < Low)
+        return -1;
 
     /* Otherwise, this is the ordinal */
-    Ordinal = OrdinalTable[Mid];
+    return OrdinalTable[Mid];
+}
 
-    /* Resolve the address and write it */
-    ExportTable = (PULONG)((ULONG_PTR)DllBase +
-                           ExportDirectory->AddressOfFunctions);
-    Function = (PVOID)((ULONG_PTR)DllBase + ExportTable[Ordinal]);
+/**
+ * @brief
+ * ReactOS-only helper routine for RtlFindExportedRoutineByName(),
+ * that provides a finer granularity regarding the nature of the
+ * export, and the failure reasons.
+ *
+ * @param[in]   ImageBase
+ * The base address of the loaded image.
+ *
+ * @param[in]   ExportName
+ * The name of the export, given as an ANSI NULL-terminated string.
+ *
+ * @param[out]  Function
+ * The address of the named exported routine, or NULL if not found.
+ * If the export is a forwarder (see @p IsForwarder below), this
+ * address points to the forwarder name.
+ *
+ * @param[out]  IsForwarder
+ * An optional pointer to a BOOLEAN variable, that is set to TRUE
+ * if the found export is a forwarder, and FALSE otherwise.
+ *
+ * @param[in]   NotFoundStatus
+ * The status code to return in case the export could not be found
+ * (examples: STATUS_ENTRYPOINT_NOT_FOUND, STATUS_PROCEDURE_NOT_FOUND).
+ *
+ * @return
+ * A status code as follows:
+ * - STATUS_SUCCESS if the named exported routine is found;
+ * - The custom @p NotFoundStatus if the export could not be found;
+ * - STATUS_INVALID_PARAMETER if the image is invalid or does not
+ *   contain an Export Directory.
+ *
+ * @note
+ * See RtlFindExportedRoutineByName() for more remarks.
+ * Used by psmgr.c PspLookupSystemDllEntryPoint() as well.
+ **/
+NTSTATUS
+NTAPI
+RtlpFindExportedRoutineByName(
+    _In_ PVOID ImageBase,
+    _In_ PCSTR ExportName,
+    _Out_ PVOID* Function,
+    _Out_opt_ PBOOLEAN IsForwarder,
+    _In_ NTSTATUS NotFoundStatus)
+{
+    PIMAGE_EXPORT_DIRECTORY ExportDirectory;
+    PULONG NameTable;
+    PUSHORT OrdinalTable;
+    ULONG ExportSize;
+    USHORT Ordinal;
+    PULONG ExportTable;
+    ULONG_PTR FunctionAddress;
+
+    PAGED_CODE();
+
+    /* Get the export directory */
+    ExportDirectory = RtlImageDirectoryEntryToData(ImageBase,
+                                                   TRUE,
+                                                   IMAGE_DIRECTORY_ENTRY_EXPORT,
+                                                   &ExportSize);
+    if (!ExportDirectory)
+        return STATUS_INVALID_PARAMETER;
+
+    /* Setup name tables */
+    NameTable = (PULONG)RVA(ImageBase, ExportDirectory->AddressOfNames);
+    OrdinalTable = (PUSHORT)RVA(ImageBase, ExportDirectory->AddressOfNameOrdinals);
+
+    /* Get the ordinal */
+    Ordinal = NameToOrdinal(ExportName,
+                            ImageBase,
+                            ExportDirectory->NumberOfNames,
+                            NameTable,
+                            OrdinalTable);
+
+    /* Check if we couldn't find it */
+    if (Ordinal == -1)
+        return NotFoundStatus;
+
+    /* Validate the ordinal */
+    if (Ordinal >= ExportDirectory->NumberOfFunctions)
+        return NotFoundStatus;
+
+    /* Resolve the function's address */
+    ExportTable = (PULONG)RVA(ImageBase, ExportDirectory->AddressOfFunctions);
+    FunctionAddress = (ULONG_PTR)RVA(ImageBase, ExportTable[Ordinal]);
 
     /* Check if the function is actually a forwarder */
-    if (((ULONG_PTR)Function > (ULONG_PTR)ExportDirectory) &&
-        ((ULONG_PTR)Function < ((ULONG_PTR)ExportDirectory + ExportSize)))
+    if (IsForwarder)
     {
-        /* It is, fail */
+        *IsForwarder = FALSE;
+        if ((FunctionAddress > (ULONG_PTR)ExportDirectory) &&
+            (FunctionAddress < (ULONG_PTR)ExportDirectory + ExportSize))
+        {
+            /* It is, and points to the forwarder name */
+            *IsForwarder = TRUE;
+        }
+    }
+
+    /* We've found it */
+    *Function = (PVOID)FunctionAddress;
+    return STATUS_SUCCESS;
+}
+
+/**
+ * @brief
+ * Finds the address of a given named exported routine in a loaded image.
+ * Note that this function does not support forwarders.
+ *
+ * @param[in]   ImageBase
+ * The base address of the loaded image.
+ *
+ * @param[in]   ExportName
+ * The name of the export, given as an ANSI NULL-terminated string.
+ *
+ * @return
+ * The address of the named exported routine, or NULL if not found.
+ * If the export is a forwarder, this function returns NULL as well.
+ *
+ * @note
+ * This routine was originally named MiLocateExportName(), with a separate
+ * duplicated MiFindExportedRoutineByName() one (taking a PANSI_STRING)
+ * on Windows <= 2003. Both routines have been then merged and renamed
+ * to MiFindExportedRoutineByName() on Windows 8 (taking a PCSTR instead),
+ * and finally renamed and exported as RtlFindExportedRoutineByName() on
+ * Windows 10.
+ *
+ * @see https://www.geoffchappell.com/studies/windows/km/ntoskrnl/api/mm/sysload/mmgetsystemroutineaddress.htm
+ **/
+PVOID
+NTAPI
+RtlFindExportedRoutineByName(
+    _In_ PVOID ImageBase,
+    _In_ PCSTR ExportName)
+{
+    NTSTATUS Status;
+    BOOLEAN IsForwarder = FALSE;
+    PVOID Function;
+
+    PAGED_CODE();
+
+    /* Call the internal API */
+    Status = RtlpFindExportedRoutineByName(ImageBase,
+                                           ExportName,
+                                           &Function,
+                                           &IsForwarder,
+                                           STATUS_ENTRYPOINT_NOT_FOUND);
+    if (!NT_SUCCESS(Status))
+        return NULL;
+
+    /* If the export is actually a forwarder, log the error and fail */
+    if (IsForwarder)
+    {
+        DPRINT1("RtlFindExportedRoutineByName does not support forwarders!\n", FALSE);
         return NULL;
     }
 
-    /* We found it */
+    /* We've found the export */
     return Function;
 }
 
 NTSTATUS
 NTAPI
-MmCallDllInitialize(IN PLDR_DATA_TABLE_ENTRY LdrEntry,
-                    IN PLIST_ENTRY ListHead)
+MmCallDllInitialize(
+    _In_ PLDR_DATA_TABLE_ENTRY LdrEntry,
+    _In_ PLIST_ENTRY ModuleListHead)
 {
     UNICODE_STRING ServicesKeyName = RTL_CONSTANT_STRING(
         L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\");
     PMM_DLL_INITIALIZE DllInit;
     UNICODE_STRING RegPath, ImportName;
+    PCWCH Extension;
     NTSTATUS Status;
 
-    /* Try to see if the image exports a DllInitialize routine */
-    DllInit = (PMM_DLL_INITIALIZE)MiLocateExportName(LdrEntry->DllBase,
-                                                     "DllInitialize");
-    if (!DllInit) return STATUS_SUCCESS;
+    PAGED_CODE();
 
-    /* Do a temporary copy of BaseDllName called ImportName
-     * because we'll alter the length of the string
-     */
+    /* Try to see if the image exports a DllInitialize routine */
+    DllInit = (PMM_DLL_INITIALIZE)
+        RtlFindExportedRoutineByName(LdrEntry->DllBase, "DllInitialize");
+    if (!DllInit)
+        return STATUS_SUCCESS;
+
+    /* Make a temporary copy of BaseDllName because we will alter its length */
     ImportName.Length = LdrEntry->BaseDllName.Length;
     ImportName.MaximumLength = LdrEntry->BaseDllName.MaximumLength;
     ImportName.Buffer = LdrEntry->BaseDllName.Buffer;
@@ -335,7 +462,8 @@ MmCallDllInitialize(IN PLDR_DATA_TABLE_ENTRY LdrEntry,
                                            TAG_LDR_WSTR);
 
     /* Check if this allocation was unsuccessful */
-    if (!RegPath.Buffer) return STATUS_INSUFFICIENT_RESOURCES;
+    if (!RegPath.Buffer)
+        return STATUS_INSUFFICIENT_RESOURCES;
 
     /* Build and append the service name itself */
     RegPath.Length = ServicesKeyName.Length;
@@ -343,49 +471,53 @@ MmCallDllInitialize(IN PLDR_DATA_TABLE_ENTRY LdrEntry,
                   ServicesKeyName.Buffer,
                   ServicesKeyName.Length);
 
-    /* Check if there is a dot in the filename */
-    if (wcschr(ImportName.Buffer, L'.'))
-    {
-        /* Remove the extension */
-        ImportName.Length = (USHORT)(wcschr(ImportName.Buffer, L'.') -
-            ImportName.Buffer) * sizeof(WCHAR);
-    }
+    /* If the filename has an extension, remove it */
+    Extension = wcschr(ImportName.Buffer, L'.');
+    if (Extension)
+        ImportName.Length = (USHORT)(Extension - ImportName.Buffer) * sizeof(WCHAR);
 
-    /* Append service name (the basename without extension) */
+    /* Append the service name (base name without extension) */
     RtlAppendUnicodeStringToString(&RegPath, &ImportName);
 
-    /* Now call the DllInit func */
+    /* Now call DllInitialize */
     DPRINT("Calling DllInit(%wZ)\n", &RegPath);
     Status = DllInit(&RegPath);
 
     /* Clean up */
     ExFreePoolWithTag(RegPath.Buffer, TAG_LDR_WSTR);
 
-    /* Return status value which DllInitialize returned */
+    // TODO: This is for Driver Verifier support.
+    UNREFERENCED_PARAMETER(ModuleListHead);
+
+    /* Return the DllInitialize status value */
     return Status;
 }
 
 BOOLEAN
-NTAPI
-MiCallDllUnloadAndUnloadDll(IN PLDR_DATA_TABLE_ENTRY LdrEntry)
+MiCallDllUnloadAndUnloadDll(
+    _In_ PLDR_DATA_TABLE_ENTRY LdrEntry)
 {
     NTSTATUS Status;
-    PMM_DLL_UNLOAD Func;
+    PMM_DLL_UNLOAD DllUnload;
+
     PAGED_CODE();
 
-    /* Get the unload routine */
-    Func = (PMM_DLL_UNLOAD)MiLocateExportName(LdrEntry->DllBase, "DllUnload");
-    if (!Func) return FALSE;
+    /* Retrieve the DllUnload routine */
+    DllUnload = (PMM_DLL_UNLOAD)
+        RtlFindExportedRoutineByName(LdrEntry->DllBase, "DllUnload");
+    if (!DllUnload)
+        return FALSE;
 
     /* Call it and check for success */
-    Status = Func();
-    if (!NT_SUCCESS(Status)) return FALSE;
+    Status = DllUnload();
+    if (!NT_SUCCESS(Status))
+        return FALSE;
 
     /* Lie about the load count so we can unload the image */
     ASSERT(LdrEntry->LoadCount == 0);
     LdrEntry->LoadCount = 1;
 
-    /* Unload it and return true */
+    /* Unload it */
     MmUnloadSystemImage(LdrEntry);
     return TRUE;
 }
@@ -485,81 +617,6 @@ MiClearImports(IN PLDR_DATA_TABLE_ENTRY LdrEntry)
     LdrEntry->LoadedImports = MM_SYSLDR_BOOT_LOADED;
 }
 
-PVOID
-NTAPI
-MiFindExportedRoutineByName(IN PVOID DllBase,
-                            IN PANSI_STRING ExportName)
-{
-    PULONG NameTable;
-    PUSHORT OrdinalTable;
-    PIMAGE_EXPORT_DIRECTORY ExportDirectory;
-    LONG Low = 0, Mid = 0, High, Ret;
-    USHORT Ordinal;
-    PVOID Function;
-    ULONG ExportSize;
-    PULONG ExportTable;
-    PAGED_CODE();
-
-    /* Get the export directory */
-    ExportDirectory = RtlImageDirectoryEntryToData(DllBase,
-                                                   TRUE,
-                                                   IMAGE_DIRECTORY_ENTRY_EXPORT,
-                                                   &ExportSize);
-    if (!ExportDirectory) return NULL;
-
-    /* Setup name tables */
-    NameTable = (PULONG)((ULONG_PTR)DllBase +
-                         ExportDirectory->AddressOfNames);
-    OrdinalTable = (PUSHORT)((ULONG_PTR)DllBase +
-                             ExportDirectory->AddressOfNameOrdinals);
-
-    /* Do a binary search */
-    High = ExportDirectory->NumberOfNames - 1;
-    while (High >= Low)
-    {
-        /* Get new middle value */
-        Mid = (Low + High) >> 1;
-
-        /* Compare name */
-        Ret = strcmp(ExportName->Buffer, (PCHAR)DllBase + NameTable[Mid]);
-        if (Ret < 0)
-        {
-            /* Update high */
-            High = Mid - 1;
-        }
-        else if (Ret > 0)
-        {
-            /* Update low */
-            Low = Mid + 1;
-        }
-        else
-        {
-            /* We got it */
-            break;
-        }
-    }
-
-    /* Check if we couldn't find it */
-    if (High < Low) return NULL;
-
-    /* Otherwise, this is the ordinal */
-    Ordinal = OrdinalTable[Mid];
-
-    /* Validate the ordinal */
-    if (Ordinal >= ExportDirectory->NumberOfFunctions) return NULL;
-
-    /* Resolve the address and write it */
-    ExportTable = (PULONG)((ULONG_PTR)DllBase +
-                           ExportDirectory->AddressOfFunctions);
-    Function = (PVOID)((ULONG_PTR)DllBase + ExportTable[Ordinal]);
-
-    /* We found it! */
-    ASSERT((Function < (PVOID)ExportDirectory) ||
-           (Function > (PVOID)((ULONG_PTR)ExportDirectory + ExportSize)));
-
-    return Function;
-}
-
 VOID
 NTAPI
 MiProcessLoaderEntry(IN PLDR_DATA_TABLE_ENTRY LdrEntry,
@@ -586,9 +643,9 @@ MiProcessLoaderEntry(IN PLDR_DATA_TABLE_ENTRY LdrEntry,
     KeLeaveCriticalRegion();
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 MiUpdateThunks(IN PLOADER_PARAMETER_BLOCK LoaderBlock,
                IN PVOID OldBase,
                IN PVOID NewBase,
@@ -703,8 +760,6 @@ MiSnapThunk(IN PVOID DllBase,
     PUSHORT OrdinalTable;
     PIMAGE_IMPORT_BY_NAME NameImport;
     USHORT Hint;
-    ULONG Low = 0, Mid = 0, High;
-    LONG Ret;
     NTSTATUS Status;
     PCHAR MissingForwarder;
     CHAR NameBuffer[MAXIMUM_FILENAME_LENGTH];
@@ -718,6 +773,7 @@ MiSnapThunk(IN PVOID DllBase,
     PIMAGE_IMPORT_BY_NAME ForwardName;
     SIZE_T ForwardLength;
     IMAGE_THUNK_DATA ForwardThunk;
+
     PAGED_CODE();
 
     /* Check if this is an ordinal */
@@ -738,7 +794,7 @@ MiSnapThunk(IN PVOID DllBase,
         /* Copy the procedure name */
         RtlStringCbCopyA(*MissingApi,
                          MAXIMUM_FILENAME_LENGTH,
-                         (PCHAR)&NameImport->Name[0]);
+                         (PCHAR)NameImport->Name);
 
         /* Setup name tables */
         DPRINT("Import name: %s\n", NameImport->Name);
@@ -758,47 +814,25 @@ MiSnapThunk(IN PVOID DllBase,
         else
         {
             /* Do a binary search */
-            High = ExportDirectory->NumberOfNames - 1;
-            while (High >= Low)
-            {
-                /* Get new middle value */
-                Mid = (Low + High) >> 1;
-
-                /* Compare name */
-                Ret = strcmp((PCHAR)NameImport->Name, (PCHAR)DllBase + NameTable[Mid]);
-                if (Ret < 0)
-                {
-                    /* Update high */
-                    High = Mid - 1;
-                }
-                else if (Ret > 0)
-                {
-                    /* Update low */
-                    Low = Mid + 1;
-                }
-                else
-                {
-                    /* We got it */
-                    break;
-                }
-            }
+            Ordinal = NameToOrdinal((PCHAR)NameImport->Name,
+                                    DllBase,
+                                    ExportDirectory->NumberOfNames,
+                                    NameTable,
+                                    OrdinalTable);
 
             /* Check if we couldn't find it */
-            if (High < Low)
+            if (Ordinal == -1)
             {
                 DPRINT1("Warning: Driver failed to load, %s not found\n", NameImport->Name);
                 return STATUS_DRIVER_ENTRYPOINT_NOT_FOUND;
             }
-
-            /* Otherwise, this is the ordinal */
-            Ordinal = OrdinalTable[Mid];
         }
     }
 
-    /* Check if the ordinal is invalid */
+    /* Check if the ordinal is valid */
     if (Ordinal >= ExportDirectory->NumberOfFunctions)
     {
-        /* Fail */
+        /* It's not, fail */
         Status = STATUS_DRIVER_ORDINAL_NOT_FOUND;
     }
     else
@@ -816,7 +850,7 @@ MiSnapThunk(IN PVOID DllBase,
 
         /* Check if the function is actually a forwarder */
         if ((Address->u1.Function > (ULONG_PTR)ExportDirectory) &&
-            (Address->u1.Function < ((ULONG_PTR)ExportDirectory + ExportSize)))
+            (Address->u1.Function < (ULONG_PTR)ExportDirectory + ExportSize))
         {
             /* Now assume failure in case the forwarder doesn't exist */
             Status = STATUS_DRIVER_ENTRYPOINT_NOT_FOUND;
@@ -990,7 +1024,7 @@ MmUnloadSystemImage(IN PVOID ImageHandle)
 
     /* Release the system lock and return */
 Done:
-    KeReleaseMutant(&MmSystemLoadLock, 1, FALSE, FALSE);
+    KeReleaseMutant(&MmSystemLoadLock, MUTANT_INCREMENT, FALSE, FALSE);
     KeLeaveCriticalRegion();
     return STATUS_SUCCESS;
 }
@@ -1009,7 +1043,8 @@ MiResolveImageReferences(IN PVOID ImageBase,
     PIMAGE_IMPORT_DESCRIPTOR ImportDescriptor, CurrentImport;
     ULONG ImportSize, ImportCount = 0, LoadedImportsSize, ExportSize;
     PLOAD_IMPORTS LoadedImports, NewImports;
-    ULONG GdiLink, NormalLink, i;
+    ULONG i;
+    BOOLEAN GdiLink, NormalLink;
     BOOLEAN ReferenceNeeded, Loaded;
     ANSI_STRING TempString;
     UNICODE_STRING NameString, DllName;
@@ -1019,7 +1054,9 @@ MiResolveImageReferences(IN PVOID ImageBase,
     PIMAGE_EXPORT_DIRECTORY ExportDirectory;
     NTSTATUS Status;
     PIMAGE_THUNK_DATA OrigThunk, FirstThunk;
+
     PAGED_CODE();
+
     DPRINT("%s - ImageBase: %p. ImageFileDirectory: %wZ\n",
            __FUNCTION__, ImageBase, ImageFileDirectory);
 
@@ -1067,25 +1104,26 @@ MiResolveImageReferences(IN PVOID ImageBase,
     }
 
     /* Reset the import count and loop descriptors again */
-    ImportCount = GdiLink = NormalLink = 0;
+    GdiLink = NormalLink = FALSE;
+    ImportCount = 0;
     while ((ImportDescriptor->Name) && (ImportDescriptor->OriginalFirstThunk))
     {
         /* Get the name */
         ImportName = (PCHAR)((ULONG_PTR)ImageBase + ImportDescriptor->Name);
 
         /* Check if this is a GDI driver */
-        GdiLink = GdiLink |
+        GdiLink = GdiLink ||
                   !(_strnicmp(ImportName, "win32k", sizeof("win32k") - 1));
 
-        /* We can also allow dxapi (for Windows compat, allow IRT and coverage )*/
-        NormalLink = NormalLink |
+        /* We can also allow dxapi (for Windows compat, allow IRT and coverage) */
+        NormalLink = NormalLink ||
                      ((_strnicmp(ImportName, "win32k", sizeof("win32k") - 1)) &&
                       (_strnicmp(ImportName, "dxapi", sizeof("dxapi") - 1)) &&
                       (_strnicmp(ImportName, "coverage", sizeof("coverage") - 1)) &&
                       (_strnicmp(ImportName, "irt", sizeof("irt") - 1)));
 
         /* Check if this is a valid GDI driver */
-        if ((GdiLink) && (NormalLink))
+        if (GdiLink && NormalLink)
         {
             /* It's not, it's importing stuff it shouldn't be! */
             Status = STATUS_PROCEDURE_NOT_FOUND;
@@ -1444,9 +1482,9 @@ MiFreeInitializationCode(IN PVOID InitStart,
                                           NULL);
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 MiFindInitializationCode(OUT PVOID *StartVa,
                          OUT PVOID *EndVa)
 {
@@ -1465,8 +1503,14 @@ MiFindInitializationCode(OUT PVOID *StartVa,
     /* Assume failure */
     *StartVa = NULL;
 
-    /* Enter a critical region while we loop the list */
+    /* Acquire the necessary locks while we loop the list */
     KeEnterCriticalRegion();
+    KeWaitForSingleObject(&MmSystemLoadLock,
+                          WrVirtualMemory,
+                          KernelMode,
+                          FALSE,
+                          NULL);
+    ExAcquireResourceExclusiveLite(&PsLoadedModuleResource, TRUE);
 
     /* Loop all loaded modules */
     NextEntry = PsLoadedModuleList.Flink;
@@ -1614,7 +1658,9 @@ MiFindInitializationCode(OUT PVOID *StartVa,
         NextEntry = NextEntry->Flink;
     }
 
-    /* Leave the critical region and return */
+    /* Release the locks and return */
+    ExReleaseResourceLite(&PsLoadedModuleResource);
+    KeReleaseMutant(&MmSystemLoadLock, MUTANT_INCREMENT, FALSE, FALSE);
     KeLeaveCriticalRegion();
 }
 
@@ -1679,9 +1725,9 @@ MmFreeDriverInitialization(IN PLDR_DATA_TABLE_ENTRY LdrEntry)
     MiDeleteSystemPageableVm(StartPte, PageCount, 0, NULL);
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 MiReloadBootLoadedDrivers(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
     PLIST_ENTRY NextEntry;
@@ -1868,9 +1914,9 @@ MiReloadBootLoadedDrivers(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     }
 }
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 MiBuildImportsForBootDrivers(VOID)
 {
     PLIST_ENTRY NextEntry, NextEntry2;
@@ -2133,9 +2179,9 @@ MiBuildImportsForBootDrivers(VOID)
     return STATUS_SUCCESS;
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 MiLocateKernelSections(IN PLDR_DATA_TABLE_ENTRY LdrEntry)
 {
     ULONG_PTR DllBase;
@@ -2149,8 +2195,8 @@ MiLocateKernelSections(IN PLDR_DATA_TABLE_ENTRY LdrEntry)
     SectionHeader = IMAGE_FIRST_SECTION(NtHeaders);
 
     /* Loop all the sections */
-    Sections = NtHeaders->FileHeader.NumberOfSections;
-    while (Sections)
+    for (Sections = NtHeaders->FileHeader.NumberOfSections;
+         Sections > 0; --Sections, ++SectionHeader)
     {
         /* Grab the size of the section */
         Size = max(SectionHeader->SizeOfRawData, SectionHeader->Misc.VirtualSize);
@@ -2161,8 +2207,8 @@ MiLocateKernelSections(IN PLDR_DATA_TABLE_ENTRY LdrEntry)
             /* Remember the PTEs so we can modify them later */
             MiKernelResourceStartPte = MiAddressToPte(DllBase +
                                                       SectionHeader->VirtualAddress);
-            MiKernelResourceEndPte = MiKernelResourceStartPte +
-                                     BYTES_TO_PAGES(SectionHeader->VirtualAddress + Size);
+            MiKernelResourceEndPte = MiAddressToPte(ROUND_TO_PAGES(DllBase +
+                                                    SectionHeader->VirtualAddress + Size));
         }
         else if (*(PULONG)SectionHeader->Name == 'LOOP')
         {
@@ -2177,26 +2223,22 @@ MiLocateKernelSections(IN PLDR_DATA_TABLE_ENTRY LdrEntry)
             {
                 /* Found Mm* Pool code */
                 MmPoolCodeStart = DllBase + SectionHeader->VirtualAddress;
-                MmPoolCodeEnd = ExPoolCodeStart + Size;
+                MmPoolCodeEnd = MmPoolCodeStart + Size;
             }
         }
         else if ((*(PULONG)SectionHeader->Name == 'YSIM') &&
                  (*(PULONG)&SectionHeader->Name[4] == 'ETPS'))
         {
-            /* Found MISYSPTE (Mm System PTE code)*/
+            /* Found MISYSPTE (Mm System PTE code) */
             MmPteCodeStart = DllBase + SectionHeader->VirtualAddress;
-            MmPteCodeEnd = ExPoolCodeStart + Size;
+            MmPteCodeEnd = MmPteCodeStart + Size;
         }
-
-        /* Keep going */
-        Sections--;
-        SectionHeader++;
     }
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 MiInitializeLoadedModuleList(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
     PLDR_DATA_TABLE_ENTRY LdrEntry, NewEntry;
@@ -2284,6 +2326,60 @@ MiInitializeLoadedModuleList(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     return TRUE;
 }
 
+BOOLEAN
+NTAPI
+MmChangeKernelResourceSectionProtection(IN ULONG_PTR ProtectionMask)
+{
+    PMMPTE PointerPte;
+    MMPTE TempPte;
+
+    /* Don't do anything if the resource section is already writable */
+    if (MiKernelResourceStartPte == NULL || MiKernelResourceEndPte == NULL)
+        return FALSE;
+
+    /* If the resource section is physical, we cannot change its protection */
+    if (MI_IS_PHYSICAL_ADDRESS(MiPteToAddress(MiKernelResourceStartPte)))
+        return FALSE;
+
+    /* Loop the PTEs */
+    for (PointerPte = MiKernelResourceStartPte; PointerPte < MiKernelResourceEndPte; ++PointerPte)
+    {
+        /* Read the PTE */
+        TempPte = *PointerPte;
+
+        /* Update the protection */
+        MI_MAKE_HARDWARE_PTE_KERNEL(&TempPte, PointerPte, ProtectionMask, TempPte.u.Hard.PageFrameNumber);
+        MI_UPDATE_VALID_PTE(PointerPte, TempPte);
+    }
+
+    /* Only flush the current processor's TLB */
+    KeFlushCurrentTb();
+    return TRUE;
+}
+
+VOID
+NTAPI
+MmMakeKernelResourceSectionWritable(VOID)
+{
+    /* Don't do anything if the resource section is already writable */
+    if (MiKernelResourceStartPte == NULL || MiKernelResourceEndPte == NULL)
+        return;
+
+    /* If the resource section is physical, we cannot change its protection */
+    if (MI_IS_PHYSICAL_ADDRESS(MiPteToAddress(MiKernelResourceStartPte)))
+        return;
+
+    if (MmChangeKernelResourceSectionProtection(MM_READWRITE))
+    {
+        /*
+         * Invalidate the cached resource section PTEs
+         * so as to not change its protection again later.
+         */
+        MiKernelResourceStartPte = NULL;
+        MiKernelResourceEndPte = NULL;
+    }
+}
+
 LOGICAL
 NTAPI
 MiUseLargeDriverPage(IN ULONG NumberOfPtes,
@@ -2341,251 +2437,159 @@ MiUseLargeDriverPage(IN ULONG NumberOfPtes,
     return FALSE;
 }
 
-ULONG
+VOID
 NTAPI
-MiComputeDriverProtection(IN BOOLEAN SessionSpace,
-                          IN ULONG SectionProtection)
+MiSetSystemCodeProtection(
+    _In_ PMMPTE FirstPte,
+    _In_ PMMPTE LastPte,
+    _In_ ULONG Protection)
 {
-    ULONG Protection = MM_ZERO_ACCESS;
+    PMMPTE PointerPte;
+    MMPTE TempPte;
 
-    /* Check if the caller gave anything */
-    if (SectionProtection)
+    /* Loop the PTEs */
+    for (PointerPte = FirstPte; PointerPte <= LastPte; PointerPte++)
     {
-        /* Always turn on execute access */
-        SectionProtection |= IMAGE_SCN_MEM_EXECUTE;
+        /* Read the PTE */
+        TempPte = *PointerPte;
 
-        /* Check if the registry setting is on or not */
-        if (!MmEnforceWriteProtection)
+        /* Make sure it's valid */
+        if (TempPte.u.Hard.Valid != 1)
         {
-            /* Turn on write access too */
-            SectionProtection |= (IMAGE_SCN_MEM_WRITE | IMAGE_SCN_MEM_EXECUTE);
+            DPRINT1("CORE-16449: FirstPte=%p, LastPte=%p, Protection=%lx\n", FirstPte, LastPte, Protection);
+            DPRINT1("CORE-16449: PointerPte=%p, TempPte=%lx\n", PointerPte, TempPte.u.Long);
+            DPRINT1("CORE-16449: Please issue the 'mod' and 'bt' (KDBG) or 'lm' and 'kp' (WinDbg) commands. Then report this in Jira.\n");
+            ASSERT(TempPte.u.Hard.Valid == 1);
+            break;
         }
+
+        /* Update the protection */
+        TempPte.u.Hard.Write = BooleanFlagOn(Protection, IMAGE_SCN_MEM_WRITE);
+#if _MI_HAS_NO_EXECUTE
+        TempPte.u.Hard.NoExecute = !BooleanFlagOn(Protection, IMAGE_SCN_MEM_EXECUTE);
+#endif
+
+        MI_UPDATE_VALID_PTE(PointerPte, TempPte);
     }
 
-    /* Convert to internal PTE flags */
-    if (SectionProtection & IMAGE_SCN_MEM_EXECUTE) Protection |= MM_EXECUTE;
-    if (SectionProtection & IMAGE_SCN_MEM_READ) Protection |= MM_READONLY;
-
-    /* Check for write access */
-    if (SectionProtection & IMAGE_SCN_MEM_WRITE)
-    {
-        /* Session space is not supported */
-        if (SessionSpace)
-        {
-            DPRINT1("Session drivers not supported\n");
-            ASSERT(SessionSpace == FALSE);
-        }
-        else
-        {
-            /* Convert to internal PTE flag */
-            Protection = (Protection & MM_EXECUTE) ? MM_EXECUTE_READWRITE : MM_READWRITE;
-        }
-    }
-
-    /* If there's no access at all by now, convert to internal no access flag */
-    if (Protection == MM_ZERO_ACCESS) Protection = MM_NOACCESS;
-
-    /* Return the computed PTE protection */
-    return Protection;
+    /* Flush it all */
+    KeFlushEntireTb(TRUE, TRUE);
 }
 
 VOID
 NTAPI
-MiSetSystemCodeProtection(IN PMMPTE FirstPte,
-                          IN PMMPTE LastPte,
-                          IN ULONG ProtectionMask)
-{
-    /* I'm afraid to introduce regressions at the moment... */
-    return;
-}
-
-VOID
-NTAPI
-MiWriteProtectSystemImage(IN PVOID ImageBase)
+MiWriteProtectSystemImage(
+    _In_ PVOID ImageBase)
 {
     PIMAGE_NT_HEADERS NtHeaders;
-    PIMAGE_SECTION_HEADER Section;
-    PFN_NUMBER DriverPages;
-    ULONG CurrentProtection, SectionProtection, CombinedProtection = 0, ProtectionMask;
-    ULONG Sections, Size;
-    ULONG_PTR BaseAddress, CurrentAddress;
-    PMMPTE PointerPte, StartPte, LastPte, CurrentPte, ComboPte = NULL;
-    ULONG CurrentMask, CombinedMask = 0;
-    PAGED_CODE();
+    PIMAGE_SECTION_HEADER SectionHeaders, Section;
+    ULONG i;
+    PVOID SectionBase, SectionEnd;
+    ULONG SectionSize;
+    ULONG Protection;
+    PMMPTE FirstPte, LastPte;
 
-    /* No need to write protect physical memory-backed drivers (large pages) */
-    if (MI_IS_PHYSICAL_ADDRESS(ImageBase)) return;
+    /* Check if the registry setting is on or not */
+    if (MmEnforceWriteProtection == FALSE)
+    {
+        /* Ignore section protection */
+        return;
+    }
 
-    /* Get the image headers */
+    /* Large page mapped images are not supported */
+    NT_ASSERT(!MI_IS_PHYSICAL_ADDRESS(ImageBase));
+
+    /* Session images are not yet supported */
+    NT_ASSERT(!MI_IS_SESSION_ADDRESS(ImageBase));
+
+    /* Get the NT headers */
     NtHeaders = RtlImageNtHeader(ImageBase);
-    if (!NtHeaders) return;
-
-    /* Check if this is a session driver or not */
-    if (!MI_IS_SESSION_ADDRESS(ImageBase))
+    if (NtHeaders == NULL)
     {
-        /* Don't touch NT4 drivers */
-        if (NtHeaders->OptionalHeader.MajorOperatingSystemVersion < 5) return;
-        if (NtHeaders->OptionalHeader.MajorImageVersion < 5) return;
-    }
-    else
-    {
-        /* Not supported */
-        UNIMPLEMENTED_DBGBREAK("Session drivers not supported\n");
+        DPRINT1("Failed to get NT headers for image @ %p\n", ImageBase);
+        return;
     }
 
-    /* These are the only protection masks we care about */
-    ProtectionMask = IMAGE_SCN_MEM_WRITE | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_EXECUTE;
-
-    /* Calculate the number of pages this driver is occupying */
-    DriverPages = BYTES_TO_PAGES(NtHeaders->OptionalHeader.SizeOfImage);
-
-    /* Get the number of sections and the first section header */
-    Sections = NtHeaders->FileHeader.NumberOfSections;
-    ASSERT(Sections != 0);
-    Section = IMAGE_FIRST_SECTION(NtHeaders);
-
-    /* Loop all the sections */
-    CurrentAddress = (ULONG_PTR)ImageBase;
-    while (Sections)
+    /* Don't touch NT4 drivers */
+    if ((NtHeaders->OptionalHeader.MajorOperatingSystemVersion < 5) ||
+        (NtHeaders->OptionalHeader.MajorSubsystemVersion < 5))
     {
-        /* Get the section size */
-        Size = max(Section->SizeOfRawData, Section->Misc.VirtualSize);
+        DPRINT1("Skipping NT 4 driver @ %p\n", ImageBase);
+        return;
+    }
 
-        /* Get its virtual address */
-        BaseAddress = (ULONG_PTR)ImageBase + Section->VirtualAddress;
-        if (BaseAddress < CurrentAddress)
+    /* Get the section headers */
+    SectionHeaders = IMAGE_FIRST_SECTION(NtHeaders);
+
+    /* Get the base address of the first section */
+    SectionBase = Add2Ptr(ImageBase, SectionHeaders[0].VirtualAddress);
+
+    /* Start protecting the image header as R/W */
+    FirstPte = MiAddressToPte(ImageBase);
+    LastPte = MiAddressToPte(SectionBase) - 1;
+    Protection = IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE;
+    if (LastPte >= FirstPte)
+    {
+        MiSetSystemCodeProtection(FirstPte, LastPte, Protection);
+    }
+
+    /* Loop the sections */
+    for (i = 0; i < NtHeaders->FileHeader.NumberOfSections; i++)
+    {
+        /* Get the section base address and size */
+        Section = &SectionHeaders[i];
+        SectionBase = Add2Ptr(ImageBase, Section->VirtualAddress);
+        SectionSize = max(Section->SizeOfRawData, Section->Misc.VirtualSize);
+
+        /* Get the first PTE of this section */
+        FirstPte = MiAddressToPte(SectionBase);
+
+        /* Check for overlap with the previous range */
+        if (FirstPte == LastPte)
         {
-            /* Windows doesn't like these */
-            DPRINT1("Badly linked image!\n");
-            return;
+            /* Combine the old and new protection by ORing them */
+            Protection |= (Section->Characteristics & IMAGE_SCN_PROTECTION_MASK);
+
+            /* Update the protection for this PTE */
+            MiSetSystemCodeProtection(FirstPte, FirstPte, Protection);
+
+            /* Skip this PTE */
+            FirstPte++;
         }
 
-        /* Remember the current address */
-        CurrentAddress = BaseAddress + Size - 1;
+        /* There can not be gaps! */
+        NT_ASSERT(FirstPte == (LastPte + 1));
 
-        /* Next */
-        Sections--;
-        Section++;
-    }
+        /* Get the end of the section and the last PTE */
+        SectionEnd = Add2Ptr(SectionBase, SectionSize - 1);
+        NT_ASSERT(SectionEnd < Add2Ptr(ImageBase, NtHeaders->OptionalHeader.SizeOfImage));
+        LastPte = MiAddressToPte(SectionEnd);
 
-    /* Get the number of sections and the first section header */
-    Sections = NtHeaders->FileHeader.NumberOfSections;
-    ASSERT(Sections != 0);
-    Section = IMAGE_FIRST_SECTION(NtHeaders);
-
-    /* Set the address at the end to initialize the loop */
-    CurrentAddress = (ULONG_PTR)Section + Sections - 1;
-    CurrentProtection = IMAGE_SCN_MEM_WRITE | IMAGE_SCN_MEM_READ;
-
-    /* Set the PTE points for the image, and loop its sections */
-    StartPte = MiAddressToPte(ImageBase);
-    LastPte = StartPte + DriverPages;
-    while (Sections)
-    {
-        /* Get the section size */
-        Size = max(Section->SizeOfRawData, Section->Misc.VirtualSize);
-
-        /* Get its virtual address and PTE */
-        BaseAddress = (ULONG_PTR)ImageBase + Section->VirtualAddress;
-        PointerPte = MiAddressToPte(BaseAddress);
-
-        /* Check if we were already protecting a run, and found a new run */
-        if ((ComboPte) && (PointerPte > ComboPte))
+        /* If there are no more pages (after an overlap), skip this section */
+        if (LastPte < FirstPte)
         {
-            /* Compute protection */
-            CombinedMask = MiComputeDriverProtection(FALSE, CombinedProtection);
-
-            /* Set it */
-            MiSetSystemCodeProtection(ComboPte, ComboPte, CombinedMask);
-
-            /* Check for overlap */
-            if (ComboPte == StartPte) StartPte++;
-
-            /* One done, reset variables */
-            ComboPte = NULL;
-            CombinedProtection = 0;
-        }
-
-        /* Break out when needed */
-        if (PointerPte >= LastPte) break;
-
-        /* Get the requested protection from the image header */
-        SectionProtection = Section->Characteristics & ProtectionMask;
-        if (SectionProtection == CurrentProtection)
-        {
-            /* Same protection, so merge the request */
-            CurrentAddress = BaseAddress + Size - 1;
-
-            /* Next */
-            Sections--;
-            Section++;
+            NT_ASSERT(FirstPte == (LastPte + 1));
             continue;
         }
 
-        /* This is now a new section, so close up the old one */
-        CurrentPte = MiAddressToPte(CurrentAddress);
+        /* Get the section protection */
+        Protection = (Section->Characteristics & IMAGE_SCN_PROTECTION_MASK);
 
-        /* Check for overlap */
-        if (CurrentPte == PointerPte)
-        {
-            /* Skip the last PTE, since it overlaps with us */
-            CurrentPte--;
-
-            /* And set the PTE we will merge with */
-            ASSERT((ComboPte == NULL) || (ComboPte == PointerPte));
-            ComboPte = PointerPte;
-
-            /* Get the most flexible protection by merging both */
-            CombinedMask |= (SectionProtection | CurrentProtection);
-        }
-
-        /* Loop any PTEs left */
-        if (CurrentPte >= StartPte)
-        {
-            /* Sanity check */
-            ASSERT(StartPte < LastPte);
-
-            /* Make sure we don't overflow past the last PTE in the driver */
-            if (CurrentPte >= LastPte) CurrentPte = LastPte - 1;
-            ASSERT(CurrentPte >= StartPte);
-
-            /* Compute the protection and set it */
-            CurrentMask = MiComputeDriverProtection(FALSE, CurrentProtection);
-            MiSetSystemCodeProtection(StartPte, CurrentPte, CurrentMask);
-        }
-
-        /* Set new state */
-        StartPte = PointerPte;
-        CurrentAddress = BaseAddress + Size - 1;
-        CurrentProtection = SectionProtection;
-
-        /* Next */
-        Sections--;
-        Section++;
+        /* Update the protection for this section */
+        MiSetSystemCodeProtection(FirstPte, LastPte, Protection);
     }
 
-    /* Is there a leftover section to merge? */
-    if (ComboPte)
+    /* Image should end with the last section */
+    if (ALIGN_UP_POINTER_BY(SectionEnd, PAGE_SIZE) !=
+        Add2Ptr(ImageBase, NtHeaders->OptionalHeader.SizeOfImage))
     {
-        /* Compute and set the protection */
-        CombinedMask = MiComputeDriverProtection(FALSE, CombinedProtection);
-        MiSetSystemCodeProtection(ComboPte, ComboPte, CombinedMask);
-
-        /* Handle overlap */
-        if (ComboPte == StartPte) StartPte++;
-    }
-
-    /* Finally, handle the last section */
-    CurrentPte = MiAddressToPte(CurrentAddress);
-    if ((StartPte < LastPte) && (CurrentPte >= StartPte))
-    {
-        /* Handle overlap */
-        if (CurrentPte >= LastPte) CurrentPte = LastPte - 1;
-        ASSERT(CurrentPte >= StartPte);
-
-        /* Compute and set the protection */
-        CurrentMask = MiComputeDriverProtection(FALSE, CurrentProtection);
-        MiSetSystemCodeProtection(StartPte, CurrentPte, CurrentMask);
+        DPRINT1("ImageBase 0x%p ImageSize 0x%lx Section %u VA 0x%lx Raw 0x%lx virt 0x%lx\n",
+            ImageBase,
+            NtHeaders->OptionalHeader.SizeOfImage,
+            i,
+            Section->VirtualAddress,
+            Section->SizeOfRawData,
+            Section->Misc.VirtualSize);
     }
 }
 
@@ -2594,17 +2598,20 @@ NTAPI
 MiSetPagingOfDriver(IN PMMPTE PointerPte,
                     IN PMMPTE LastPte)
 {
+#ifdef ENABLE_MISETPAGINGOFDRIVER
     PVOID ImageBase;
     PETHREAD CurrentThread = PsGetCurrentThread();
     PFN_COUNT PageCount = 0;
     PFN_NUMBER PageFrameIndex;
     PMMPFN Pfn1;
+#endif // ENABLE_MISETPAGINGOFDRIVER
+
     PAGED_CODE();
 
+#ifndef ENABLE_MISETPAGINGOFDRIVER
     /* The page fault handler is broken and doesn't page back in! */
     DPRINT1("WARNING: MiSetPagingOfDriver() called, but paging is broken! ignoring!\n");
-    return;
-
+#else  // ENABLE_MISETPAGINGOFDRIVER
     /* Get the driver's base address */
     ImageBase = MiPteToAddress(PointerPte);
     ASSERT(MI_IS_SESSION_IMAGE_ADDRESS(ImageBase) == FALSE);
@@ -2642,6 +2649,7 @@ MiSetPagingOfDriver(IN PMMPTE PointerPte,
         /* Update counters */
         InterlockedExchangeAdd((PLONG)&MmTotalSystemDriverPages, PageCount);
     }
+#endif // ENABLE_MISETPAGINGOFDRIVER
 }
 
 VOID
@@ -2677,8 +2685,7 @@ MiEnablePagingOfDriver(IN PLDR_DATA_TABLE_ENTRY LdrEntry)
             {
                 /* Nope, setup the first PTE address */
                 PointerPte = MiAddressToPte(ROUND_TO_PAGES(ImageBase +
-                                                           Section->
-                                                           VirtualAddress));
+                                                           Section->VirtualAddress));
             }
 
             /* Compute the size */
@@ -2687,9 +2694,7 @@ MiEnablePagingOfDriver(IN PLDR_DATA_TABLE_ENTRY LdrEntry)
             /* Find the last PTE that maps this section */
             LastPte = MiAddressToPte(ImageBase +
                                      Section->VirtualAddress +
-                                     Alignment +
-                                     Size -
-                                     PAGE_SIZE);
+                                     Alignment + Size - PAGE_SIZE);
         }
         else
         {
@@ -2711,34 +2716,43 @@ MiEnablePagingOfDriver(IN PLDR_DATA_TABLE_ENTRY LdrEntry)
     if (PointerPte) MiSetPagingOfDriver(PointerPte, LastPte);
 }
 
+#ifdef CONFIG_SMP
+FORCEINLINE
 BOOLEAN
-NTAPI
-MmVerifyImageIsOkForMpUse(IN PVOID BaseAddress)
+MiVerifyImageIsOkForMpUse(
+    _In_ PIMAGE_NT_HEADERS NtHeaders)
 {
-    PIMAGE_NT_HEADERS NtHeader;
-    PAGED_CODE();
-
-    /* Get NT Headers */
-    NtHeader = RtlImageNtHeader(BaseAddress);
-    if (NtHeader)
+    /* Fail if we have more than one CPU, but the image is only safe for UP */
+    if ((KeNumberProcessors > 1) &&
+        (NtHeaders->FileHeader.Characteristics & IMAGE_FILE_UP_SYSTEM_ONLY))
     {
-        /* Check if this image is only safe for UP while we have 2+ CPUs */
-        if ((KeNumberProcessors > 1) &&
-            (NtHeader->FileHeader.Characteristics & IMAGE_FILE_UP_SYSTEM_ONLY))
-        {
-            /* Fail */
-            return FALSE;
-        }
+        return FALSE;
     }
-
-    /* Otherwise, it's safe */
+    /* Otherwise, it's safe to use */
     return TRUE;
 }
 
+BOOLEAN
+NTAPI
+MmVerifyImageIsOkForMpUse(
+    _In_ PVOID BaseAddress)
+{
+    PIMAGE_NT_HEADERS NtHeaders;
+    PAGED_CODE();
+
+    /* Get the NT headers. If none, suppose the image is safe
+     * to use on an MP system, otherwise invoke the helper. */
+    NtHeaders = RtlImageNtHeader(BaseAddress);
+    if (!NtHeaders)
+        return TRUE;
+    return MiVerifyImageIsOkForMpUse(NtHeaders);
+}
+#endif // CONFIG_SMP
+
 NTSTATUS
 NTAPI
-MmCheckSystemImage(IN HANDLE ImageHandle,
-                   IN BOOLEAN PurgeSection)
+MmCheckSystemImage(
+    _In_ HANDLE ImageHandle)
 {
     NTSTATUS Status;
     HANDLE SectionHandle;
@@ -2832,12 +2846,14 @@ MmCheckSystemImage(IN HANDLE ImageHandle,
             goto Fail;
         }
 
-        /* Check that it's a valid SMP image if we have more then one CPU */
-        if (!MmVerifyImageIsOkForMpUse(ViewBase))
+#ifdef CONFIG_SMP
+        /* Check that the image is safe to use if we have more than one CPU */
+        if (!MiVerifyImageIsOkForMpUse(NtHeaders))
         {
             /* Otherwise it's not the right image */
             Status = STATUS_IMAGE_MP_UP_MISMATCH;
         }
+#endif // CONFIG_SMP
     }
 
     /* Unmap the section, close the handle, and return status */
@@ -2846,6 +2862,86 @@ Fail:
     KeUnstackDetachProcess(&ApcState);
     ZwClose(SectionHandle);
     return Status;
+}
+
+
+PVOID
+NTAPI
+LdrpFetchAddressOfSecurityCookie(PVOID BaseAddress, ULONG SizeOfImage)
+{
+    PIMAGE_LOAD_CONFIG_DIRECTORY ConfigDir;
+    ULONG DirSize;
+    PULONG_PTR Cookie = NULL;
+
+    /* Get the pointer to the config directory */
+    ConfigDir = RtlImageDirectoryEntryToData(BaseAddress,
+                                             TRUE,
+                                             IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG,
+                                             &DirSize);
+
+    /* Check for sanity */
+    if (!ConfigDir ||
+        DirSize < RTL_SIZEOF_THROUGH_FIELD(IMAGE_LOAD_CONFIG_DIRECTORY, SecurityCookie))
+    {
+        /* Invalid directory*/
+        return NULL;
+    }
+
+    /* Now get the cookie */
+    Cookie = (PULONG_PTR)ConfigDir->SecurityCookie;
+
+    /* Check this cookie */
+    if ((PCHAR)Cookie <= (PCHAR)BaseAddress ||
+        (PCHAR)Cookie >= (PCHAR)BaseAddress + SizeOfImage - sizeof(*Cookie))
+    {
+        Cookie = NULL;
+    }
+
+    /* Return validated security cookie */
+    return Cookie;
+}
+
+PVOID
+NTAPI
+LdrpInitSecurityCookie(PLDR_DATA_TABLE_ENTRY LdrEntry)
+{
+    PULONG_PTR Cookie;
+    ULONG_PTR NewCookie;
+
+    /* Fetch address of the cookie */
+    Cookie = LdrpFetchAddressOfSecurityCookie(LdrEntry->DllBase, LdrEntry->SizeOfImage);
+
+    if (!Cookie)
+        return NULL;
+    
+    /* Check if it's a default one */
+    if ((*Cookie == DEFAULT_SECURITY_COOKIE) ||
+        (*Cookie == 0))
+    {
+        LARGE_INTEGER Counter = KeQueryPerformanceCounter(NULL);
+        /* The address should be unique */
+        NewCookie = (ULONG_PTR)Cookie;
+
+        /* We just need a simple tick, don't care about precision and whatnot */
+        NewCookie ^= (ULONG_PTR)Counter.LowPart;
+#ifdef _WIN64
+        /* Some images expect first 16 bits to be kept clean (like in default cookie) */
+        if (NewCookie > COOKIE_MAX)
+        {
+            NewCookie >>= 16;
+        }
+#endif
+        /* If the result is 0 or the same as we got, just add one to the default value */
+        if ((NewCookie == 0) || (NewCookie == *Cookie))
+        {
+            NewCookie = DEFAULT_SECURITY_COOKIE + 1;
+        }
+
+        /* Set the new cookie value */
+        *Cookie = NewCookie; 
+    }
+
+    return Cookie;
 }
 
 NTSTATUS
@@ -2863,19 +2959,19 @@ MmLoadSystemImage(IN PUNICODE_STRING FileName,
     OBJECT_ATTRIBUTES ObjectAttributes;
     IO_STATUS_BLOCK IoStatusBlock;
     PIMAGE_NT_HEADERS NtHeader;
-    UNICODE_STRING BaseName, BaseDirectory, PrefixName, UnicodeTemp;
+    UNICODE_STRING BaseName, BaseDirectory, PrefixName;
     PLDR_DATA_TABLE_ENTRY LdrEntry = NULL;
     ULONG EntrySize, DriverSize;
     PLOAD_IMPORTS LoadedImports = MM_SYSLDR_NO_IMPORTS;
     PCHAR MissingApiName, Buffer;
-    PWCHAR MissingDriverName;
+    PWCHAR MissingDriverName, PrefixedBuffer = NULL;
     HANDLE SectionHandle;
     ACCESS_MASK DesiredAccess;
-    PVOID Section = NULL;
+    PSECTION Section = NULL;
     BOOLEAN LockOwned = FALSE;
     PLIST_ENTRY NextEntry;
     IMAGE_INFO ImageInfo;
-    STRING AnsiTemp;
+
     PAGED_CODE();
 
     /* Detect session-load */
@@ -2890,7 +2986,9 @@ MmLoadSystemImage(IN PUNICODE_STRING FileName,
     }
 
     /* Allocate a buffer we'll use for names */
-    Buffer = ExAllocatePoolWithTag(NonPagedPool, MAX_PATH, TAG_LDR_WSTR);
+    Buffer = ExAllocatePoolWithTag(NonPagedPool,
+                                   MAXIMUM_FILENAME_LENGTH,
+                                   TAG_LDR_WSTR);
     if (!Buffer) return STATUS_INSUFFICIENT_RESOURCES;
 
     /* Check for a separator */
@@ -2930,7 +3028,52 @@ MmLoadSystemImage(IN PUNICODE_STRING FileName,
     PrefixName = *FileName;
 
     /* Check if we have a prefix */
-    if (NamePrefix) DPRINT1("Prefixed images are not yet supported!\n");
+    if (NamePrefix)
+    {
+        /* Check if "directory + prefix" is too long for the string */
+        Status = RtlUShortAdd(BaseDirectory.Length,
+                              NamePrefix->Length,
+                              &PrefixName.MaximumLength);
+        if (!NT_SUCCESS(Status))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            goto Quickie;
+        }
+
+        /* Check if "directory + prefix + basename" is too long for the string */
+        Status = RtlUShortAdd(PrefixName.MaximumLength,
+                              BaseName.Length,
+                              &PrefixName.MaximumLength);
+        if (!NT_SUCCESS(Status))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            goto Quickie;
+        }
+
+        /* Allocate the buffer exclusively used for prefixed name */
+        PrefixedBuffer = ExAllocatePoolWithTag(PagedPool,
+                                               PrefixName.MaximumLength,
+                                               TAG_LDR_WSTR);
+        if (!PrefixedBuffer)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            goto Quickie;
+        }
+
+        /* Clear out the prefixed name string */
+        PrefixName.Buffer = PrefixedBuffer;
+        PrefixName.Length = 0;
+
+        /* Concatenate the strings */
+        RtlAppendUnicodeStringToString(&PrefixName, &BaseDirectory);
+        RtlAppendUnicodeStringToString(&PrefixName, NamePrefix);
+        RtlAppendUnicodeStringToString(&PrefixName, &BaseName);
+
+        /* Now the base name of the image becomes the prefixed version */
+        BaseName.Buffer = &(PrefixName.Buffer[BaseDirectory.Length / sizeof(WCHAR)]);
+        BaseName.Length += NamePrefix->Length;
+        BaseName.MaximumLength = (PrefixName.MaximumLength - BaseDirectory.Length);
+    }
 
     /* Check if we already have a name, use it instead */
     if (LoadedName) BaseName = *LoadedName;
@@ -3004,7 +3147,7 @@ LoaderScan:
     else if (!Section)
     {
         /* It wasn't loaded, and we didn't have a previous attempt */
-        KeReleaseMutant(&MmSystemLoadLock, 1, FALSE, FALSE);
+        KeReleaseMutant(&MmSystemLoadLock, MUTANT_INCREMENT, FALSE, FALSE);
         KeLeaveCriticalRegion();
         LockOwned = FALSE;
 
@@ -3039,7 +3182,7 @@ LoaderScan:
         }
 
         /* Validate it */
-        Status = MmCheckSystemImage(FileHandle, FALSE);
+        Status = MmCheckSystemImage(FileHandle);
         if ((Status == STATUS_IMAGE_CHECKSUM_MISMATCH) ||
             (Status == STATUS_IMAGE_MP_UP_MISMATCH) ||
             (Status == STATUS_INVALID_IMAGE_PROTECT))
@@ -3086,7 +3229,7 @@ LoaderScan:
                                            SECTION_MAP_EXECUTE,
                                            MmSectionObjectType,
                                            KernelMode,
-                                           &Section,
+                                           (PVOID*)&Section,
                                            NULL);
         ZwClose(SectionHandle);
         if (!NT_SUCCESS(Status)) goto Quickie;
@@ -3117,7 +3260,7 @@ LoaderScan:
     ASSERT(Status != STATUS_ALREADY_COMMITTED);
 
     /* Get the size of the driver */
-    DriverSize = ((PROS_SECTION_OBJECT)Section)->ImageSection->ImageInformation.ImageFileSize;
+    DriverSize = ((PMM_IMAGE_SECTION_OBJECT)Section->Segment)->ImageInformation.ImageFileSize;
 
     /* Make sure we're not being loaded into session space */
     if (!Flags)
@@ -3291,6 +3434,9 @@ LoaderScan:
     /* Write-protect the system image */
     MiWriteProtectSystemImage(LdrEntry->DllBase);
 
+    /* Initialize the security cookie (Win7 is not doing this yet!) */
+    LdrpInitSecurityCookie(LdrEntry);
+
     /* Check if notifications are enabled */
     if (PsImageNotifyEnabled)
     {
@@ -3306,7 +3452,7 @@ LoaderScan:
         PspRunLoadImageNotifyRoutines(FileName, NULL, &ImageInfo);
     }
 
-#if defined(KDBG) || defined(_WINKD_)
+#ifdef __ROS_ROSSYM__
     /* MiCacheImageSymbols doesn't detect rossym */
     if (TRUE)
 #else
@@ -3314,6 +3460,9 @@ LoaderScan:
     if (MiCacheImageSymbols(LdrEntry->DllBase))
 #endif
     {
+        UNICODE_STRING UnicodeTemp;
+        STRING AnsiTemp;
+
         /* Check if the system root is present */
         if ((PrefixName.Length > (11 * sizeof(WCHAR))) &&
             !(_wcsnicmp(PrefixName.Buffer, L"\\SystemRoot", 11)))
@@ -3322,18 +3471,20 @@ LoaderScan:
             UnicodeTemp = PrefixName;
             UnicodeTemp.Buffer += 11;
             UnicodeTemp.Length -= (11 * sizeof(WCHAR));
-            sprintf_nt(Buffer,
-                       "%ws%wZ",
-                       &SharedUserData->NtSystemRoot[2],
-                       &UnicodeTemp);
+            RtlStringCbPrintfA(Buffer,
+                               MAXIMUM_FILENAME_LENGTH,
+                               "%ws%wZ",
+                               &SharedUserData->NtSystemRoot[2],
+                               &UnicodeTemp);
         }
         else
         {
             /* Build the name */
-            sprintf_nt(Buffer, "%wZ", &BaseName);
+            RtlStringCbPrintfA(Buffer, MAXIMUM_FILENAME_LENGTH,
+                               "%wZ", &BaseName);
         }
 
-        /* Setup the ansi string */
+        /* Setup the ANSI string */
         RtlInitString(&AnsiTemp, Buffer);
 
         /* Notify the debugger */
@@ -3356,7 +3507,7 @@ Quickie:
     if (LockOwned)
     {
         /* Release the lock */
-        KeReleaseMutant(&MmSystemLoadLock, 1, FALSE, FALSE);
+        KeReleaseMutant(&MmSystemLoadLock, MUTANT_INCREMENT, FALSE, FALSE);
         KeLeaveCriticalRegion();
         LockOwned = FALSE;
     }
@@ -3364,8 +3515,8 @@ Quickie:
     /* If we have a file handle, close it */
     if (FileHandle) ZwClose(FileHandle);
 
-    /* Check if we had a prefix (not supported yet - PrefixName == *FileName now) */
-    /* if (NamePrefix) ExFreePool(PrefixName.Buffer); */
+    /* If we have allocated a prefixed name buffer, free it */
+    if (PrefixedBuffer) ExFreePoolWithTag(PrefixedBuffer, TAG_LDR_WSTR);
 
     /* Free the name buffer and return status */
     ExFreePoolWithTag(Buffer, TAG_LDR_WSTR);
@@ -3473,7 +3624,7 @@ MmGetSystemRoutineAddress(IN PUNICODE_STRING SystemRoutineName)
     UNICODE_STRING HalName = RTL_CONSTANT_STRING(L"hal.dll");
     ULONG Modules = 0;
 
-    /* Convert routine to ansi name */
+    /* Convert routine to ANSI name */
     Status = RtlUnicodeStringToAnsiString(&AnsiRoutineName,
                                           SystemRoutineName,
                                           TRUE);
@@ -3510,8 +3661,8 @@ MmGetSystemRoutineAddress(IN PUNICODE_STRING SystemRoutineName)
         if (Found)
         {
             /* Find the procedure name */
-            ProcAddress = MiFindExportedRoutineByName(LdrEntry->DllBase,
-                                                      &AnsiRoutineName);
+            ProcAddress = RtlFindExportedRoutineByName(LdrEntry->DllBase,
+                                                       AnsiRoutineName.Buffer);
 
             /* Break out if we found it or if we already tried both modules */
             if (ProcAddress) break;

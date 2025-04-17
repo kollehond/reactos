@@ -13,10 +13,6 @@
 #define NDEBUG
 #include <debug.h>
 
-#if defined (ALLOC_PRAGMA)
-#pragma alloc_text(INIT, ExpInitializeMutantImplementation)
-#endif
-
 /* DATA **********************************************************************/
 
 POBJECT_TYPE ExMutantObjectType = NULL;
@@ -32,7 +28,7 @@ GENERIC_MAPPING ExpMutantMapping =
 static const INFORMATION_CLASS_INFO ExMutantInfoClass[] =
 {
      /* MutantBasicInformation */
-    ICI_SQ_SAME( sizeof(MUTANT_BASIC_INFORMATION), sizeof(ULONG), ICIF_QUERY),
+    IQS_SAME(MUTANT_BASIC_INFORMATION, ULONG, ICIF_QUERY),
 };
 
 /* FUNCTIONS *****************************************************************/
@@ -50,8 +46,8 @@ ExpDeleteMutant(PVOID ObjectBody)
                     FALSE);
 }
 
+CODE_SEG("INIT")
 BOOLEAN
-INIT_FUNCTION
 NTAPI
 ExpInitializeMutantImplementation(VOID)
 {
@@ -243,6 +239,7 @@ NtQueryMutant(IN HANDLE MutantHandle,
                                          ExMutantInfoClass,
                                          sizeof(ExMutantInfoClass) /
                                          sizeof(ExMutantInfoClass[0]),
+                                         ICIF_PROBE_READ_WRITE,
                                          MutantInformation,
                                          MutantInformationLength,
                                          ResultLength,

@@ -3,6 +3,7 @@
  * LICENSE:     GPL-2.0+ (https://spdx.org/licenses/GPL-2.0+)
  * PURPOSE:     zipfldr entrypoint
  * COPYRIGHT:   Copyright 2017 Mark Jansen (mark.jansen@reactos.org)
+ *              Copyright 2023 Katayama Hirofumi MZ (katayama.hirofumi.mz@gmail.com)
  */
 
 #include "precomp.h"
@@ -31,6 +32,7 @@ public:
 BEGIN_OBJECT_MAP(ObjectMap)
     OBJECT_ENTRY(CLSID_ZipFolderStorageHandler, CZipFolder)
     OBJECT_ENTRY(CLSID_ZipFolderContextMenu, CZipFolder)
+    OBJECT_ENTRY(CLSID_ZipFolderSendTo, CSendToZip)
 END_OBJECT_MAP()
 
 CZipFldrModule gModule;
@@ -44,6 +46,67 @@ zlib_filefunc64_def g_FFunc;
 static void init_zlib()
 {
     fill_win32_filefunc64W(&g_FFunc);
+}
+
+static BOOL
+CreateEmptyFile(PCWSTR pszFile)
+{
+    HANDLE hFile;
+    hFile = CreateFileW(pszFile, GENERIC_WRITE, FILE_SHARE_READ, NULL,
+                        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile != INVALID_HANDLE_VALUE)
+    {
+        CloseHandle(hFile);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static HRESULT
+CreateSendToZip(PCWSTR pszSendTo)
+{
+    WCHAR szTarget[MAX_PATH], szSendToFile[MAX_PATH];
+
+    LoadStringW(g_hModule, IDS_FRIENDLYNAME, szTarget, _countof(szTarget));
+
+    StringCbCopyW(szSendToFile, sizeof(szSendToFile), pszSendTo);
+    PathAppendW(szSendToFile, szTarget);
+    StringCbCatW(szSendToFile, sizeof(szSendToFile), L".ZFSendToTarget");
+    if (!CreateEmptyFile(szSendToFile))
+    {
+        DPRINT1("CreateEmptyFile('%ls')\n", szSendToFile);
+        return E_FAIL;
+    }
+    return S_OK;
+}
+
+static HRESULT
+GetDefaultUserSendTo(PWSTR pszPath)
+{
+    return SHGetFolderPathW(NULL, CSIDL_SENDTO, INVALID_HANDLE_VALUE,
+                            SHGFP_TYPE_DEFAULT, pszPath);
+}
+
+UINT GetZipCodePage(BOOL bUnZip)
+{
+    WCHAR szValue[16];
+    DWORD dwType, cbValue = sizeof(szValue);
+    UINT nDefaultCodePage = (bUnZip ? CP_ACP : CP_UTF8);
+
+    LONG error = SHGetValueW(HKEY_CURRENT_USER, L"Software\\ReactOS",
+                             (bUnZip ? L"UnZipCodePage" : L"ZipCodePage"),
+                             &dwType, szValue, &cbValue);
+    if (error != ERROR_SUCCESS)
+        return nDefaultCodePage;
+
+    if (cbValue == sizeof(DWORD) && (dwType == REG_DWORD || dwType == REG_BINARY))
+        return *(DWORD*)szValue;
+
+    if (dwType != REG_SZ && dwType != REG_EXPAND_SZ)
+        return nDefaultCodePage;
+
+    szValue[_countof(szValue) - 1] = UNICODE_NULL;
+    return (UINT)wcstol(szValue, NULL, 0);
 }
 
 EXTERN_C
@@ -86,6 +149,11 @@ STDAPI DllRegisterServer()
     if (FAILED(hr))
         return hr;
 
+    WCHAR szSendTo[MAX_PATH];
+    hr = GetDefaultUserSendTo(szSendTo);
+    if (SUCCEEDED(hr))
+        CreateSendToZip(szSendTo);
+
     return S_OK;
 }
 
@@ -106,16 +174,17 @@ STDAPI DllUnregisterServer()
 
 EXTERN_C
 BOOL WINAPI
-RouteTheCall(
-    IN HWND hWndOwner,
-    IN HINSTANCE hInstance,
-    IN LPCSTR lpStringArg,
-    IN INT Show)
+RouteTheCallW(IN HWND hWndOwner, IN HINSTANCE hInstance, IN PCWSTR lpStringArg, IN INT Show)
 {
     CStringW path = lpStringArg;
     PathRemoveBlanksW(path.GetBuffer());
     path.ReleaseBuffer();
     path = L"\"" + path + L"\"";
-    ShellExecuteW(NULL, L"open", L"explorer.exe", path.GetString(), NULL, SW_SHOWNORMAL);
+
+    WCHAR app[MAX_PATH];
+    GetWindowsDirectoryW(app, _countof(app));
+    PathAppendW(app, L"explorer.exe");
+
+    ShellExecuteW(NULL, L"open", app, path.GetString(), NULL, Show ? Show : SW_SHOWNORMAL);
     return TRUE;
 }

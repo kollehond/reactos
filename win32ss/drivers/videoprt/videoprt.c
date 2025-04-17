@@ -23,6 +23,7 @@
 
 #include <stdio.h>
 #include <ndk/exfuncs.h>
+#include <ndk/obfuncs.h>
 #include <ndk/rtlfuncs.h>
 
 #define NDEBUG
@@ -30,10 +31,17 @@
 
 /* GLOBAL VARIABLES ***********************************************************/
 
-ULONG CsrssInitialized = FALSE;
-PKPROCESS Csrss = NULL;
-ULONG VideoPortDeviceNumber = 0;
+ULONG VideoDebugLevel = 0;
+
+BOOLEAN VpBaseVideo = FALSE;
+BOOLEAN VpNoVesa = FALSE;
+
+PKPROCESS CsrProcess = NULL;
+static ULONG VideoPortMaxObjectNumber = -1;
+BOOLEAN VideoPortUseNewKey = FALSE;
 KMUTEX VideoPortInt10Mutex;
+KSPIN_LOCK HwResetAdaptersLock;
+RTL_STATIC_LIST_HEAD(HwResetAdaptersList);
 
 /* PRIVATE FUNCTIONS **********************************************************/
 
@@ -43,6 +51,70 @@ DriverEntry(
     IN PVOID Context1,
     IN PVOID Context2)
 {
+    return STATUS_SUCCESS;
+}
+
+static
+NTSTATUS
+IntVideoPortAddDeviceMapLink(
+    PVIDEO_PORT_DEVICE_EXTENSION DeviceExtension)
+{
+    PUNICODE_STRING RegistryPath;
+    WCHAR DeviceBuffer[20];
+    UNICODE_STRING DeviceName;
+    WCHAR SymlinkBuffer[20];
+    UNICODE_STRING SymlinkName;
+    ULONG DeviceNumber;
+    NTSTATUS Status;
+
+    /* Create a unicode device name. */
+    DeviceNumber = DeviceExtension->DeviceNumber;
+    swprintf(DeviceBuffer, L"\\Device\\Video%lu", DeviceNumber);
+
+    if (VideoPortUseNewKey)
+        RegistryPath = &DeviceExtension->NewRegistryPath;
+    else
+        RegistryPath = &DeviceExtension->RegistryPath;
+
+    /* Add entry to DEVICEMAP\VIDEO key in registry. */
+    Status = RtlWriteRegistryValue(RTL_REGISTRY_DEVICEMAP,
+                                   L"VIDEO",
+                                   DeviceBuffer,
+                                   REG_SZ,
+                                   RegistryPath->Buffer,
+                                   RegistryPath->Length + sizeof(UNICODE_NULL));
+    if (!NT_SUCCESS(Status))
+    {
+        ERR_(VIDEOPRT, "Failed to create DEVICEMAP registry entry: 0x%X\n", Status);
+        return Status;
+    }
+
+    Status = RtlWriteRegistryValue(RTL_REGISTRY_DEVICEMAP,
+                                   L"VIDEO",
+                                   L"MaxObjectNumber",
+                                   REG_DWORD,
+                                   &DeviceNumber,
+                                   sizeof(DeviceNumber));
+    if (!NT_SUCCESS(Status))
+    {
+        ERR_(VIDEOPRT, "Failed to write MaxObjectNumber: 0x%X\n", Status);
+        return Status;
+    }
+
+    /* Create symbolic link "\??\DISPLAYx" */
+    swprintf(SymlinkBuffer, L"\\??\\DISPLAY%lu", DeviceNumber + 1);
+    RtlInitUnicodeString(&SymlinkName, SymlinkBuffer);
+    RtlInitUnicodeString(&DeviceName, DeviceBuffer);
+    Status = IoCreateSymbolicLink(&SymlinkName, &DeviceName);
+    if (!NT_SUCCESS(Status))
+    {
+        ERR_(VIDEOPRT, "Failed to create symbolic link: 0x%X\n", Status);
+        return Status;
+    }
+
+    /* Update MaxObjectNumber */
+    VideoPortMaxObjectNumber = DeviceNumber;
+
     return STATUS_SUCCESS;
 }
 
@@ -85,10 +157,12 @@ IntVideoPortDeferredRoutine(
 NTSTATUS
 NTAPI
 IntVideoPortCreateAdapterDeviceObject(
-    IN PDRIVER_OBJECT DriverObject,
-    IN PVIDEO_PORT_DRIVER_EXTENSION DriverExtension,
-    IN PDEVICE_OBJECT PhysicalDeviceObject,
-    OUT PDEVICE_OBJECT *DeviceObject  OPTIONAL)
+   _In_ PDRIVER_OBJECT DriverObject,
+   _In_ PVIDEO_PORT_DRIVER_EXTENSION DriverExtension,
+   _In_opt_ PDEVICE_OBJECT PhysicalDeviceObject,
+   _In_ USHORT AdapterNumber,
+   _In_ USHORT DisplayNumber,
+   _Out_opt_ PDEVICE_OBJECT *DeviceObject)
 {
     PVIDEO_PORT_DEVICE_EXTENSION DeviceExtension;
     ULONG DeviceNumber;
@@ -107,8 +181,8 @@ IntVideoPortCreateAdapterDeviceObject(
      * Find the first free device number that can be used for video device
      * object names and symlinks.
      */
-    DeviceNumber = VideoPortDeviceNumber;
-    if (DeviceNumber == 0xFFFFFFFF)
+    DeviceNumber = VideoPortMaxObjectNumber + 1;
+    if (DeviceNumber == (ULONG)-1)
     {
         WARN_(VIDEOPRT, "Can't find free device number\n");
         return STATUS_UNSUCCESSFUL;
@@ -158,18 +232,19 @@ IntVideoPortCreateAdapterDeviceObject(
     DeviceExtension->FunctionalDeviceObject = *DeviceObject;
     DeviceExtension->DriverExtension = DriverExtension;
     DeviceExtension->SessionId = -1;
+    DeviceExtension->AdapterNumber = AdapterNumber;
+    DeviceExtension->DisplayNumber = DisplayNumber;
 
     InitializeListHead(&DeviceExtension->ChildDeviceList);
 
     /* Get the registry path associated with this device. */
     Status = IntCreateRegistryPath(&DriverExtension->RegistryPath,
+                                   DeviceExtension->AdapterNumber,
                                    &DeviceExtension->RegistryPath);
     if (!NT_SUCCESS(Status))
     {
         WARN_(VIDEOPRT, "IntCreateRegistryPath() call failed with status 0x%08x\n", Status);
-        IoDeleteDevice(*DeviceObject);
-        *DeviceObject = NULL;
-        return Status;
+        goto Failure;
     }
 
     if (PhysicalDeviceObject != NULL)
@@ -228,19 +303,111 @@ IntVideoPortCreateAdapterDeviceObject(
     KeInitializeMutex(&DeviceExtension->DeviceLock, 0);
 
     /* Attach the device. */
-    if (PhysicalDeviceObject != NULL)
+    if ((PhysicalDeviceObject != NULL) && (DisplayNumber == 0))
         DeviceExtension->NextDeviceObject = IoAttachDeviceToDeviceStack(
                                                 *DeviceObject,
                                                 PhysicalDeviceObject);
 
-    IntCreateNewRegistryPath(DeviceExtension);
+    Status = IntCreateNewRegistryPath(DeviceExtension);
+    if (!NT_SUCCESS(Status))
+    {
+        ERR_(VIDEOPRT, "IntCreateNewRegistryPath() failed with status 0x%08x\n", Status);
+        goto Failure;
+    }
+
     IntSetupDeviceSettingsKey(DeviceExtension);
 
-    /* Remove the initailizing flag */
+    /* Remove the initializing flag */
     (*DeviceObject)->Flags &= ~DO_DEVICE_INITIALIZING;
+
+    /* Set up the VIDEO/DEVICEMAP registry keys */
+    Status = IntVideoPortAddDeviceMapLink(DeviceExtension);
+    if (!NT_SUCCESS(Status))
+    {
+        ERR_(VIDEOPRT, "IntVideoPortAddDeviceMapLink() failed with status 0x%08x\n", Status);
+        goto Failure;
+    }
+
+    if (DisplayNumber == 0)
+    {
+        DriverExtension->InitializationData.StartingDeviceNumber++;
+    }
+
+    return STATUS_SUCCESS;
+
+Failure:
+    if (DeviceExtension->NextDeviceObject)
+        IoDetachDevice(DeviceExtension->NextDeviceObject);
+    IoDeleteDevice(*DeviceObject);
+    *DeviceObject = NULL;
+    return Status;
+}
+
+/**
+ * @brief
+ * A PIO_QUERY_DEVICE_ROUTINE callback for IoQueryDeviceDescription()
+ * to return success when an enumerated bus has been found.
+ **/
+static NTSTATUS
+NTAPI
+IntVideoPortEnumBusCallback(
+    _In_ PVOID Context,
+    _In_ PUNICODE_STRING PathName,
+    _In_ INTERFACE_TYPE BusType,
+    _In_ ULONG BusNumber,
+    _In_ PKEY_VALUE_FULL_INFORMATION* BusInformation,
+    _In_ CONFIGURATION_TYPE ControllerType,
+    _In_ ULONG ControllerNumber,
+    _In_ PKEY_VALUE_FULL_INFORMATION* ControllerInformation,
+    _In_ CONFIGURATION_TYPE PeripheralType,
+    _In_ ULONG PeripheralNumber,
+    _In_ PKEY_VALUE_FULL_INFORMATION* PeripheralInformation)
+{
+    UNREFERENCED_PARAMETER(Context);
+    UNREFERENCED_PARAMETER(PathName);
+    UNREFERENCED_PARAMETER(BusType);
+    UNREFERENCED_PARAMETER(BusNumber);
+    UNREFERENCED_PARAMETER(BusInformation);
+    UNREFERENCED_PARAMETER(ControllerType);
+    UNREFERENCED_PARAMETER(ControllerNumber);
+    UNREFERENCED_PARAMETER(ControllerInformation);
+    UNREFERENCED_PARAMETER(PeripheralType);
+    UNREFERENCED_PARAMETER(PeripheralNumber);
+    UNREFERENCED_PARAMETER(PeripheralInformation);
+
+    /* The bus has been found */
     return STATUS_SUCCESS;
 }
 
+/**
+ * @brief
+ * Enumerates all supported buses on the system.
+ **/
+static NTSTATUS
+IntVideoPortEnumBuses(
+    _In_ INTERFACE_TYPE AdapterInterfaceType,
+    _Inout_ PULONG BusNumber)
+{
+    // TODO: Forward-compatibility with Windows 7+:
+    // In case AdapterInterfaceType == PCIBus, check for the
+    // \Registry\HARDWARE\DESCRIPTION\System\VideoAdapterBusses
+    // key (created by pci.sys) that enumerates the PCI buses that
+    // are known to have video display adapters on them.
+    // This is a handy shortcut for videoprt, that would otherwise
+    // have to enumerate all the PCI buses (PCI_MAX_BRIDGE_NUMBER)
+    // to locate any video adapter.
+    // Otherwise, fall back to the usual method done below.
+
+    /* Find the next bus of the given type */
+    return IoQueryDeviceDescription(&AdapterInterfaceType,
+                                    BusNumber,
+                                    NULL,
+                                    NULL,
+                                    NULL,
+                                    NULL,
+                                    IntVideoPortEnumBusCallback,
+                                    NULL);
+}
 
 NTSTATUS
 NTAPI
@@ -249,21 +416,15 @@ IntVideoPortFindAdapter(
     IN PVIDEO_PORT_DRIVER_EXTENSION DriverExtension,
     IN PDEVICE_OBJECT DeviceObject)
 {
-    WCHAR DeviceVideoBuffer[20];
     PVIDEO_PORT_DEVICE_EXTENSION DeviceExtension;
     NTSTATUS Status;
+    VP_STATUS vpStatus;
     VIDEO_PORT_CONFIG_INFO ConfigInfo;
     SYSTEM_BASIC_INFORMATION SystemBasicInfo;
     UCHAR Again = FALSE;
-    WCHAR DeviceBuffer[20];
-    UNICODE_STRING DeviceName;
-    WCHAR SymlinkBuffer[20];
-    UNICODE_STRING SymlinkName;
     BOOL LegacyDetection = FALSE;
-    ULONG DeviceNumber;
 
     DeviceExtension = (PVIDEO_PORT_DEVICE_EXTENSION)DeviceObject->DeviceExtension;
-    DeviceNumber = DeviceExtension->DeviceNumber;
 
     /* Setup a ConfigInfo structure that we will pass to HwFindAdapter. */
     RtlZeroMemory(&ConfigInfo, sizeof(VIDEO_PORT_CONFIG_INFO));
@@ -289,6 +450,8 @@ IntVideoPortFindAdapter(
                                       SystemBasicInfo.PageSize;
     }
 
+    // FIXME: Check the adapter key and update VideoDebugLevel variable.
+
     /*
      * Call miniport HwVidFindAdapter entry point to detect if
      * particular device is present. There are two possible code
@@ -303,12 +466,23 @@ IntVideoPortFindAdapter(
 
     if (LegacyDetection)
     {
-        ULONG BusNumber, MaxBuses;
+        ULONG BusNumber;
 
-        MaxBuses = DeviceExtension->AdapterInterfaceType == PCIBus ? PCI_MAX_BRIDGE_NUMBER : 1;
+        /* Suppose first we may not find any suitable device */
+        vpStatus = ERROR_DEV_NOT_EXIST; // ERROR_NO_MORE_DEVICES;
 
-        for (BusNumber = 0; BusNumber < MaxBuses; BusNumber++)
+        /* Enumerate all buses of the given type, call HwFindAdapter for each
+         * to find whether a video adapter is recognized there. Stop when an
+         * adapter has been found. */
+        for (BusNumber = 0;
+             (BusNumber < MAXULONG) &&
+             NT_SUCCESS(IntVideoPortEnumBuses(DeviceExtension->AdapterInterfaceType,
+                                              &BusNumber));
+             ++BusNumber)
         {
+            DPRINT("Bus Type %lu, Number %lu\n",
+                   DeviceExtension->AdapterInterfaceType, BusNumber);
+
             DeviceExtension->SystemIoBusNumber =
                 ConfigInfo.SystemIoBusNumber = BusNumber;
 
@@ -316,32 +490,28 @@ IntVideoPortFindAdapter(
                           DriverExtension->InitializationData.HwDeviceExtensionSize);
 
             /* FIXME: Need to figure out what string to pass as param 3. */
-            Status = DriverExtension->InitializationData.HwFindAdapter(
+            // FIXME: Handle the 'Again' parameter for legacy detection.
+            vpStatus = DriverExtension->InitializationData.HwFindAdapter(
                          &DeviceExtension->MiniPortDeviceExtension,
                          DriverExtension->HwContext,
                          NULL,
                          &ConfigInfo,
                          &Again);
 
-            if (Status == ERROR_DEV_NOT_EXIST)
+            if (vpStatus == ERROR_DEV_NOT_EXIST)
             {
                 continue;
             }
-            else if (Status == NO_ERROR)
-            {
-                break;
-            }
             else
             {
-                ERR_(VIDEOPRT, "HwFindAdapter call failed with error 0x%X\n", Status);
-                goto Failure;
+                break;
             }
         }
     }
     else
     {
         /* FIXME: Need to figure out what string to pass as param 3. */
-        Status = DriverExtension->InitializationData.HwFindAdapter(
+        vpStatus = DriverExtension->InitializationData.HwFindAdapter(
                      &DeviceExtension->MiniPortDeviceExtension,
                      DriverExtension->HwContext,
                      NULL,
@@ -349,9 +519,10 @@ IntVideoPortFindAdapter(
                      &Again);
     }
 
-    if (Status != NO_ERROR)
+    if (vpStatus != NO_ERROR)
     {
-        ERR_(VIDEOPRT, "HwFindAdapter call failed with error 0x%X\n", Status);
+        ERR_(VIDEOPRT, "HwFindAdapter call failed with error 0x%X\n", vpStatus);
+        Status = STATUS_UNSUCCESSFUL;
         goto Failure;
     }
 
@@ -359,33 +530,6 @@ IntVideoPortFindAdapter(
      * Now we know the device is present, so let's do all additional tasks
      * such as creating symlinks or setting up interrupts and timer.
      */
-
-    /* Create a unicode device name. */
-    swprintf(DeviceBuffer, L"\\Device\\Video%lu", DeviceNumber);
-    RtlInitUnicodeString(&DeviceName, DeviceBuffer);
-
-    /* Create symbolic link "\??\DISPLAYx" */
-    swprintf(SymlinkBuffer, L"\\??\\DISPLAY%lu", DeviceNumber + 1);
-    RtlInitUnicodeString(&SymlinkName, SymlinkBuffer);
-    IoCreateSymbolicLink(&SymlinkName, &DeviceName);
-
-    /* Add entry to DEVICEMAP\VIDEO key in registry. */
-    swprintf(DeviceVideoBuffer, L"\\Device\\Video%d", DeviceNumber);
-    RtlWriteRegistryValue(
-        RTL_REGISTRY_DEVICEMAP,
-        L"VIDEO",
-        DeviceVideoBuffer,
-        REG_SZ,
-        DeviceExtension->RegistryPath.Buffer,
-        DeviceExtension->RegistryPath.Length + sizeof(UNICODE_NULL));
-
-    RtlWriteRegistryValue(
-        RTL_REGISTRY_DEVICEMAP,
-        L"VIDEO",
-        L"MaxObjectNumber",
-        REG_DWORD,
-        &DeviceNumber,
-        sizeof(DeviceNumber));
 
     /* FIXME: Allocate hardware resources for device. */
 
@@ -406,8 +550,14 @@ IntVideoPortFindAdapter(
         goto Failure;
     }
 
-    /* Query children of the device. */
-    VideoPortEnumerateChildren(&DeviceExtension->MiniPortDeviceExtension, NULL);
+    /* If the device can be reset, insert it in the list of resettable adapters */
+    InitializeListHead(&DeviceExtension->HwResetListEntry);
+    if (DriverExtension->InitializationData.HwResetHw != NULL)
+    {
+        ExInterlockedInsertTailList(&HwResetAdaptersList,
+                                    &DeviceExtension->HwResetListEntry,
+                                    &HwResetAdaptersLock);
+    }
 
     INFO_(VIDEOPRT, "STATUS_SUCCESS\n");
     return STATUS_SUCCESS;
@@ -427,9 +577,9 @@ IntAttachToCSRSS(
     PKAPC_STATE ApcState)
 {
     *CallingProcess = (PKPROCESS)PsGetCurrentProcess();
-    if (*CallingProcess != Csrss)
+    if (*CallingProcess != CsrProcess)
     {
-        KeStackAttachProcess(Csrss, ApcState);
+        KeStackAttachProcess(CsrProcess, ApcState);
     }
 }
 
@@ -439,10 +589,145 @@ IntDetachFromCSRSS(
     PKPROCESS *CallingProcess,
     PKAPC_STATE ApcState)
 {
-    if (*CallingProcess != Csrss)
+    if (*CallingProcess != CsrProcess)
     {
         KeUnstackDetachProcess(ApcState);
     }
+}
+
+VOID
+FASTCALL
+IntLoadRegistryParameters(VOID)
+{
+    NTSTATUS Status;
+    HANDLE KeyHandle;
+    UNICODE_STRING UseNewKeyPath = RTL_CONSTANT_STRING(L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\GraphicsDrivers\\UseNewKey");
+    UNICODE_STRING Path = RTL_CONSTANT_STRING(L"\\Registry\\Machine\\System\\CurrentControlSet\\Control");
+    UNICODE_STRING ValueName = RTL_CONSTANT_STRING(L"SystemStartOptions");
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    PKEY_VALUE_PARTIAL_INFORMATION KeyInfo;
+    ULONG Length, NewLength;
+
+    /* Check if we need to use new registry */
+    InitializeObjectAttributes(&ObjectAttributes,
+                               &UseNewKeyPath,
+                               OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+                               NULL,
+                               NULL);
+    Status = ZwOpenKey(&KeyHandle,
+                       GENERIC_READ | GENERIC_WRITE,
+                       &ObjectAttributes);
+    if (NT_SUCCESS(Status))
+    {
+        VideoPortUseNewKey = TRUE;
+        ZwClose(KeyHandle);
+    }
+
+    /* Initialize object attributes with the path we want */
+    InitializeObjectAttributes(&ObjectAttributes,
+                               &Path,
+                               OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+                               NULL,
+                               NULL);
+
+    /* Open the key */
+    Status = ZwOpenKey(&KeyHandle,
+                       KEY_QUERY_VALUE,
+                       &ObjectAttributes);
+    if (!NT_SUCCESS(Status))
+    {
+        VideoPortDebugPrint(Error, "ZwOpenKey failed (0x%x)\n", Status);
+        return;
+    }
+
+    /* Find out how large our buffer should be */
+    Status = ZwQueryValueKey(KeyHandle,
+                             &ValueName,
+                             KeyValuePartialInformation,
+                             NULL,
+                             0,
+                             &Length);
+    if (Status != STATUS_BUFFER_OVERFLOW && Status != STATUS_BUFFER_TOO_SMALL)
+    {
+        VideoPortDebugPrint(Error, "ZwQueryValueKey failed (0x%x)\n", Status);
+        ObCloseHandle(KeyHandle, KernelMode);
+        return;
+    }
+
+    /* Allocate it */
+    KeyInfo = ExAllocatePoolWithTag(PagedPool, Length, TAG_VIDEO_PORT);
+    if (!KeyInfo)
+    {
+        VideoPortDebugPrint(Error, "Out of memory\n");
+        ObCloseHandle(KeyHandle, KernelMode);
+        return;
+    }
+
+    /* Now for real this time */
+    Status = ZwQueryValueKey(KeyHandle,
+                             &ValueName,
+                             KeyValuePartialInformation,
+                             KeyInfo,
+                             Length,
+                             &NewLength);
+    ObCloseHandle(KeyHandle, KernelMode);
+
+    if (!NT_SUCCESS(Status))
+    {
+        VideoPortDebugPrint(Error, "ZwQueryValueKey failed (0x%x)\n", Status);
+        ExFreePoolWithTag(KeyInfo, TAG_VIDEO_PORT);
+        return;
+    }
+
+    /* Sanity check */
+    if (KeyInfo->Type != REG_SZ)
+    {
+        VideoPortDebugPrint(Error, "Invalid type for SystemStartOptions\n");
+        ExFreePoolWithTag(KeyInfo, TAG_VIDEO_PORT);
+        return;
+    }
+
+    /* Check if BASEVIDEO or NOVESA is present in the start options */
+    if (wcsstr((PWCHAR)KeyInfo->Data, L"BASEVIDEO"))
+        VpBaseVideo = TRUE;
+    if (wcsstr((PWCHAR)KeyInfo->Data, L"NOVESA"))
+        VpNoVesa = TRUE;
+
+    ExFreePoolWithTag(KeyInfo, TAG_VIDEO_PORT);
+
+    /* FIXME: Old ReactOS-compatibility... */
+    if (VpBaseVideo) VpNoVesa = TRUE;
+
+    if (VpNoVesa)
+        VideoPortDebugPrint(Info, "VESA mode disabled\n");
+    else
+        VideoPortDebugPrint(Info, "VESA mode enabled\n");
+
+    /* If we are in BASEVIDEO, create the volatile registry key for Win32k */
+    if (VpBaseVideo)
+    {
+        RtlInitUnicodeString(&Path, L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\GraphicsDrivers\\BaseVideo");
+
+        InitializeObjectAttributes(&ObjectAttributes,
+                                   &Path,
+                                   OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+                                   NULL,
+                                   NULL);
+
+        Status = ZwCreateKey(&KeyHandle,
+                             READ_CONTROL, // Non-0 placeholder: no use for this handle.
+                             &ObjectAttributes,
+                             0,
+                             NULL,
+                             REG_OPTION_VOLATILE,
+                             NULL);
+        if (NT_SUCCESS(Status))
+            ObCloseHandle(KeyHandle, KernelMode);
+        else
+            ERR_(VIDEOPRT, "Failed to create the BaseVideo key (0x%x)\n", Status);
+    }
+
+    return;
 }
 
 /* PUBLIC FUNCTIONS ***********************************************************/
@@ -463,14 +748,16 @@ VideoPortInitialize(
     NTSTATUS Status;
     PVIDEO_PORT_DRIVER_EXTENSION DriverExtension;
     BOOLEAN PnpDriver = FALSE, LegacyDetection = FALSE;
-    static BOOLEAN Int10MutexInitialized;
+    static BOOLEAN FirstInitialization;
 
     TRACE_(VIDEOPRT, "VideoPortInitialize\n");
 
-    if (!Int10MutexInitialized)
+    if (!FirstInitialization)
     {
+        FirstInitialization = TRUE;
         KeInitializeMutex(&VideoPortInt10Mutex, 0);
-        Int10MutexInitialized = TRUE;
+        KeInitializeSpinLock(&HwResetAdaptersLock);
+        IntLoadRegistryParameters();
     }
 
     /* As a first thing do parameter checks. */
@@ -490,10 +777,10 @@ VideoPortInitialize(
 
     switch (HwInitializationData->HwInitDataSize)
     {
-            /*
-             * NT4 drivers are special case, because we must use legacy method
-             * of detection instead of the Plug & Play one.
-             */
+        /*
+         * NT4 drivers are special case, because we must use legacy method
+         * of detection instead of the Plug & Play one.
+         */
         case SIZE_OF_NT4_VIDEO_HW_INITIALIZATION_DATA:
             INFO_(VIDEOPRT, "We were loaded by a Windows NT miniport driver.\n");
             break;
@@ -507,7 +794,11 @@ VideoPortInitialize(
             break;
 
         default:
-            ERR_(VIDEOPRT, "Invalid HwInitializationData size.\n");
+            ERR_(VIDEOPRT, "Invalid HwInitializationData size %lu (expected %lu, %lu or %lu)\n",
+                 HwInitializationData->HwInitDataSize,
+                 SIZE_OF_NT4_VIDEO_HW_INITIALIZATION_DATA,
+                 SIZE_OF_W2K_VIDEO_HW_INITIALIZATION_DATA,
+                 sizeof(VIDEO_HW_INITIALIZATION_DATA));
             return STATUS_UNSUCCESSFUL;
     }
 
@@ -516,10 +807,8 @@ VideoPortInitialize(
     DriverObject->MajorFunction[IRP_MJ_CLOSE] = IntVideoPortDispatchClose;
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] =
         IntVideoPortDispatchDeviceControl;
-    DriverObject->MajorFunction[IRP_MJ_INTERNAL_DEVICE_CONTROL] =
+    DriverObject->MajorFunction[IRP_MJ_SHUTDOWN] =
         IntVideoPortDispatchDeviceControl;
-    DriverObject->MajorFunction[IRP_MJ_WRITE] =
-        IntVideoPortDispatchWrite; // ReactOS-specific hack
     DriverObject->DriverUnload = IntVideoPortUnload;
 
     /* Determine type of the miniport driver */
@@ -585,6 +874,14 @@ VideoPortInitialize(
             }
 
             RtlCopyUnicodeString(&DriverExtension->RegistryPath, RegistryPath);
+
+            /* There is a bug in Spice guest agent, which searches 'System' case-sensitively.
+             * Replace 'SYSTEM' by 'System' to fix that.
+             * Probably for similar reason, Windows also replaces 'MACHINE' by 'Machine'.
+             */
+            wcsncpy(wcsstr(DriverExtension->RegistryPath.Buffer, L"\\SYSTEM\\"), L"\\System\\", ARRAYSIZE(L"\\SYSTEM\\") - 1);
+            wcsncpy(wcsstr(DriverExtension->RegistryPath.Buffer, L"\\MACHINE\\"), L"\\Machine\\", ARRAYSIZE(L"\\MACHINE\\") - 1);
+
             INFO_(VIDEOPRT, "RegistryPath: %wZ\n", &DriverExtension->RegistryPath);
         }
         else
@@ -608,8 +905,8 @@ VideoPortInitialize(
     DriverExtension->HwContext = HwContext;
 
     /*
-     * Plug & Play drivers registers the device in AddDevice routine. For
-     * legacy drivers we must do it now.
+     * Plug & Play drivers registers the device in AddDevice routine.
+     * For legacy drivers we must do it now.
      */
     if (LegacyDetection)
     {
@@ -617,13 +914,15 @@ VideoPortInitialize(
 
         if (HwInitializationData->HwInitDataSize != SIZE_OF_NT4_VIDEO_HW_INITIALIZATION_DATA)
         {
-            /* power management */
+            /* Power management */
             DriverObject->MajorFunction[IRP_MJ_POWER] = IntVideoPortDispatchPower;
         }
 
         Status = IntVideoPortCreateAdapterDeviceObject(DriverObject,
                                                        DriverExtension,
                                                        NULL,
+                                                       DriverExtension->InitializationData.StartingDeviceNumber,
+                                                       0,
                                                        &DeviceObject);
         if (!NT_SUCCESS(Status))
         {
@@ -632,9 +931,7 @@ VideoPortInitialize(
         }
 
         Status = IntVideoPortFindAdapter(DriverObject, DriverExtension, DeviceObject);
-        if (NT_SUCCESS(Status))
-            VideoPortDeviceNumber++;
-        else
+        if (!NT_SUCCESS(Status))
             ERR_(VIDEOPRT, "IntVideoPortFindAdapter returned 0x%x\n", Status);
 
         return Status;
@@ -660,6 +957,9 @@ VideoPortDebugPrint(
     ...)
 {
     va_list ap;
+
+    if (VideoDebugLevel >= DebugPrintLevel)
+        DebugPrintLevel = Error;
 
     va_start(ap, DebugMessage);
     vDbgPrintEx(DPFLTR_IHVVIDEO_ID, DebugPrintLevel, DebugMessage, ap);
@@ -905,7 +1205,7 @@ VideoPortScanRom(
     IN ULONG RomLength,
     IN PUCHAR String)
 {
-    ULONG StringLength;
+    SIZE_T StringLength;
     BOOLEAN Found;
     PUCHAR SearchLocation;
 
@@ -913,7 +1213,6 @@ VideoPortScanRom(
 
     StringLength = strlen((PCHAR)String);
     Found = FALSE;
-    SearchLocation = RomBase;
     for (SearchLocation = RomBase;
             !Found && SearchLocation < RomBase + RomLength - StringLength;
             SearchLocation++)
@@ -981,11 +1280,10 @@ VideoPortSynchronizeExecution(
 /*
  * @implemented
  */
-VP_STATUS
-NTAPI
-VideoPortEnumerateChildren(
-    IN PVOID HwDeviceExtension,
-    IN PVOID Reserved)
+NTSTATUS NTAPI
+IntVideoPortEnumerateChildren(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp)
 {
     PVIDEO_PORT_DEVICE_EXTENSION DeviceExtension;
     ULONG Status;
@@ -998,17 +1296,17 @@ VideoPortEnumerateChildren(
     PVIDEO_PORT_CHILD_EXTENSION ChildExtension;
 
     INFO_(VIDEOPRT, "Starting child device probe\n");
-    DeviceExtension = VIDEO_PORT_GET_DEVICE_EXTENSION(HwDeviceExtension);
+    DeviceExtension = DeviceObject->DeviceExtension;
     if (DeviceExtension->DriverExtension->InitializationData.HwGetVideoChildDescriptor == NULL)
     {
         WARN_(VIDEOPRT, "Miniport's HwGetVideoChildDescriptor is NULL!\n");
-        return NO_ERROR;
+        return STATUS_SUCCESS;
     }
 
     if (!IsListEmpty(&DeviceExtension->ChildDeviceList))
     {
         ERR_(VIDEOPRT, "FIXME: Support calling VideoPortEnumerateChildren again!\n");
-        return NO_ERROR;
+        return STATUS_SUCCESS;
     }
 
     /* Enumerate the children */
@@ -1050,7 +1348,7 @@ VideoPortEnumerateChildren(
 
         INFO_(VIDEOPRT, "Probing child: %d\n", ChildEnumInfo.ChildIndex);
         Status = DeviceExtension->DriverExtension->InitializationData.HwGetVideoChildDescriptor(
-                     HwDeviceExtension,
+                     DeviceExtension->MiniPortDeviceExtension,
                      &ChildEnumInfo,
                      &ChildExtension->ChildType,
                      ChildExtension->ChildDescriptor,
@@ -1142,8 +1440,25 @@ VideoPortEnumerateChildren(
                        &ChildExtension->ListEntry);
     }
 
-    /* Trigger reenumeration by the PnP manager */
-    IoInvalidateDeviceRelations(DeviceExtension->PhysicalDeviceObject, BusRelations);
+    return STATUS_SUCCESS;
+}
+
+VP_STATUS
+NTAPI
+VideoPortEnumerateChildren(
+    IN PVOID HwDeviceExtension,
+    IN PVOID Reserved)
+{
+    PVIDEO_PORT_DEVICE_EXTENSION DeviceExtension;
+
+    DeviceExtension = VIDEO_PORT_GET_DEVICE_EXTENSION(HwDeviceExtension);
+    ASSERT(DeviceExtension);
+
+    if (DeviceExtension->PhysicalDeviceObject)
+    {
+        /* Trigger reenumeration by the PnP manager */
+        IoInvalidateDeviceRelations(DeviceExtension->PhysicalDeviceObject, BusRelations);
+    }
 
     return NO_ERROR;
 }
@@ -1158,8 +1473,44 @@ VideoPortCreateSecondaryDisplay(
     IN OUT PVOID *SecondaryDeviceExtension,
     IN ULONG Flag)
 {
-    UNIMPLEMENTED;
-    return ERROR_DEV_NOT_EXIST;
+    PDEVICE_OBJECT DeviceObject;
+    PVIDEO_PORT_DEVICE_EXTENSION FirstDeviceExtension, DeviceExtension;
+    NTSTATUS Status;
+
+    ASSERT(SecondaryDeviceExtension);
+
+    if (Flag != 0)
+    {
+        UNIMPLEMENTED;
+    }
+
+    FirstDeviceExtension = VIDEO_PORT_GET_DEVICE_EXTENSION(HwDeviceExtension);
+
+    if (FirstDeviceExtension->DisplayNumber != 0)
+    {
+        DPRINT1("Calling VideoPortCreateSecondaryDisplay for InstanceId %lu\n",
+                FirstDeviceExtension->DisplayNumber);
+    }
+
+    Status = IntVideoPortCreateAdapterDeviceObject(FirstDeviceExtension->DriverObject,
+                                                   FirstDeviceExtension->DriverExtension,
+                                                   FirstDeviceExtension->PhysicalDeviceObject,
+                                                   FirstDeviceExtension->AdapterNumber,
+                                                   FirstDeviceExtension->NumberOfSecondaryDisplays + 1,
+                                                   &DeviceObject);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("IntVideoPortCreateAdapterDeviceObject() failed with status 0x%08x\n", Status);
+        return ERROR_DEV_NOT_EXIST;
+    }
+
+    DeviceExtension = DeviceObject->DeviceExtension;
+
+    /* Increment secondary display count */
+    FirstDeviceExtension->NumberOfSecondaryDisplays++;
+
+    *SecondaryDeviceExtension = DeviceExtension->MiniPortDeviceExtension;
+    return NO_ERROR;
 }
 
 /*
@@ -1334,13 +1685,10 @@ VideoPortAcquireDeviceLock(
     IN PVOID  HwDeviceExtension)
 {
     PVIDEO_PORT_DEVICE_EXTENSION DeviceExtension;
-    NTSTATUS Status;
-    (void)Status;
 
     TRACE_(VIDEOPRT, "VideoPortAcquireDeviceLock\n");
     DeviceExtension = VIDEO_PORT_GET_DEVICE_EXTENSION(HwDeviceExtension);
-    Status = KeWaitForMutexObject(&DeviceExtension->DeviceLock, Executive,
-                                  KernelMode, FALSE, NULL);
+    KeWaitForMutexObject(&DeviceExtension->DeviceLock, Executive, KernelMode, FALSE, NULL);
     // ASSERT(Status == STATUS_SUCCESS);
 }
 
@@ -1353,12 +1701,10 @@ VideoPortReleaseDeviceLock(
     IN PVOID HwDeviceExtension)
 {
     PVIDEO_PORT_DEVICE_EXTENSION DeviceExtension;
-    LONG Status;
-    (void)Status;
 
     TRACE_(VIDEOPRT, "VideoPortReleaseDeviceLock\n");
     DeviceExtension = VIDEO_PORT_GET_DEVICE_EXTENSION(HwDeviceExtension);
-    Status = KeReleaseMutex(&DeviceExtension->DeviceLock, FALSE);
+    KeReleaseMutex(&DeviceExtension->DeviceLock, FALSE);
     //ASSERT(Status == STATUS_SUCCESS);
 }
 
@@ -1385,7 +1731,6 @@ VideoPortAllocateContiguousMemory(
     IN PHYSICAL_ADDRESS HighestAcceptableAddress
 )
 {
-
     return MmAllocateContiguousMemory(NumberOfBytes, HighestAcceptableAddress);
 }
 
@@ -1396,92 +1741,5 @@ BOOLEAN
 NTAPI
 VideoPortIsNoVesa(VOID)
 {
-    NTSTATUS Status;
-    HANDLE KeyHandle;
-    UNICODE_STRING Path = RTL_CONSTANT_STRING(L"\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\Control");
-    UNICODE_STRING ValueName = RTL_CONSTANT_STRING(L"SystemStartOptions");
-    OBJECT_ATTRIBUTES ObjectAttributes;
-    PKEY_VALUE_PARTIAL_INFORMATION KeyInfo;
-    ULONG Length, NewLength;
-
-    /* Initialize object attributes with the path we want */
-    InitializeObjectAttributes(&ObjectAttributes,
-                               &Path,
-                               OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
-                               NULL,
-                               NULL);
-
-    /* Open the key */
-    Status = ZwOpenKey(&KeyHandle,
-                       KEY_QUERY_VALUE,
-                       &ObjectAttributes);
-
-    if (!NT_SUCCESS(Status))
-    {
-        VideoPortDebugPrint(Error, "ZwOpenKey failed (0x%x)\n", Status);
-        return FALSE;
-    }
-
-    /* Find out how large our buffer should be */
-    Status = ZwQueryValueKey(KeyHandle,
-                             &ValueName,
-                             KeyValuePartialInformation,
-                             NULL,
-                             0,
-                             &Length);
-    if (Status != STATUS_BUFFER_OVERFLOW && Status != STATUS_BUFFER_TOO_SMALL)
-    {
-        VideoPortDebugPrint(Error, "ZwQueryValueKey failed (0x%x)\n", Status);
-        ZwClose(KeyHandle);
-        return FALSE;
-    }
-
-    /* Allocate it */
-    KeyInfo = ExAllocatePool(PagedPool, Length);
-    if (!KeyInfo)
-    {
-        VideoPortDebugPrint(Error, "Out of memory\n");
-        ZwClose(KeyHandle);
-        return FALSE;
-    }
-
-    /* Now for real this time */
-    Status = ZwQueryValueKey(KeyHandle,
-                             &ValueName,
-                             KeyValuePartialInformation,
-                             KeyInfo,
-                             Length,
-                             &NewLength);
-
-    ZwClose(KeyHandle);
-
-    if (!NT_SUCCESS(Status))
-    {
-        VideoPortDebugPrint(Error, "ZwQueryValueKey failed (0x%x)\n", Status);
-        ExFreePool(KeyInfo);
-        return FALSE;
-    }
-
-    /* Sanity check */
-    if (KeyInfo->Type != REG_SZ)
-    {
-        VideoPortDebugPrint(Error, "Invalid type for SystemStartOptions\n");
-        ExFreePool(KeyInfo);
-        return FALSE;
-    }
-
-    /* Check if NOVESA or BASEVIDEO is present in the start options */
-    if (wcsstr((PWCHAR)KeyInfo->Data, L"NOVESA") ||
-            wcsstr((PWCHAR)KeyInfo->Data, L"BASEVIDEO"))
-    {
-        VideoPortDebugPrint(Info, "VESA mode disabled\n");
-        ExFreePool(KeyInfo);
-        return TRUE;
-    }
-
-    ExFreePool(KeyInfo);
-
-    VideoPortDebugPrint(Info, "VESA mode enabled\n");
-
-    return FALSE;
+    return VpNoVesa;
 }

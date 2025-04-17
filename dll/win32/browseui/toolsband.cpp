@@ -24,10 +24,6 @@ Implements the toolbar band of a cabinet window
 
 #include "precomp.h"
 
-/* FIXME, I can't include windowsx because it conflicts with some #defines */
-#define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
-#define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
-
 class CToolsBand :
     public CWindowImpl<CToolsBand, CWindow, CControlWinTraits>,
     public CComObjectRootEx<CComMultiThreadModelNoCS>,
@@ -45,34 +41,34 @@ public:
     virtual ~CToolsBand();
 public:
     // *** IDeskBand methods ***
-    virtual HRESULT STDMETHODCALLTYPE GetBandInfo(DWORD dwBandID, DWORD dwViewMode, DESKBANDINFO* pdbi);
+    STDMETHOD(GetBandInfo)(DWORD dwBandID, DWORD dwViewMode, DESKBANDINFO* pdbi) override;
 
     // *** IObjectWithSite methods ***
-    virtual HRESULT STDMETHODCALLTYPE SetSite(IUnknown* pUnkSite);
-    virtual HRESULT STDMETHODCALLTYPE GetSite(REFIID riid, void **ppvSite);
+    STDMETHOD(SetSite)(IUnknown* pUnkSite) override;
+    STDMETHOD(GetSite)(REFIID riid, void **ppvSite) override;
 
     // *** IOleWindow methods ***
-    virtual HRESULT STDMETHODCALLTYPE GetWindow(HWND *lphwnd);
-    virtual HRESULT STDMETHODCALLTYPE ContextSensitiveHelp(BOOL fEnterMode);
+    STDMETHOD(GetWindow)(HWND *lphwnd) override;
+    STDMETHOD(ContextSensitiveHelp)(BOOL fEnterMode) override;
 
     // *** IDockingWindow methods ***
-    virtual HRESULT STDMETHODCALLTYPE CloseDW(DWORD dwReserved);
-    virtual HRESULT STDMETHODCALLTYPE ResizeBorderDW(const RECT* prcBorder, IUnknown* punkToolbarSite, BOOL fReserved);
-    virtual HRESULT STDMETHODCALLTYPE ShowDW(BOOL fShow);
+    STDMETHOD(CloseDW)(DWORD dwReserved) override;
+    STDMETHOD(ResizeBorderDW)(const RECT* prcBorder, IUnknown* punkToolbarSite, BOOL fReserved) override;
+    STDMETHOD(ShowDW)(BOOL fShow) override;
 
     // *** IInputObject methods ***
-    virtual HRESULT STDMETHODCALLTYPE HasFocusIO();
-    virtual HRESULT STDMETHODCALLTYPE TranslateAcceleratorIO(LPMSG lpMsg);
-    virtual HRESULT STDMETHODCALLTYPE UIActivateIO(BOOL fActivate, LPMSG lpMsg);
+    STDMETHOD(HasFocusIO)() override;
+    STDMETHOD(TranslateAcceleratorIO)(LPMSG lpMsg) override;
+    STDMETHOD(UIActivateIO)(BOOL fActivate, LPMSG lpMsg) override;
 
     // *** IPersist methods ***
-    virtual HRESULT STDMETHODCALLTYPE GetClassID(CLSID *pClassID);
+    STDMETHOD(GetClassID)(CLSID *pClassID) override;
 
     // *** IPersistStream methods ***
-    virtual HRESULT STDMETHODCALLTYPE IsDirty();
-    virtual HRESULT STDMETHODCALLTYPE Load(IStream *pStm);
-    virtual HRESULT STDMETHODCALLTYPE Save(IStream *pStm, BOOL fClearDirty);
-    virtual HRESULT STDMETHODCALLTYPE GetSizeMax(ULARGE_INTEGER *pcbSize);
+    STDMETHOD(IsDirty)() override;
+    STDMETHOD(Load)(IStream *pStm) override;
+    STDMETHOD(Save)(IStream *pStm, BOOL fClearDirty) override;
+    STDMETHOD(GetSizeMax)(ULARGE_INTEGER *pcbSize) override;
 
     // message handlers
     LRESULT OnGetButtonInfo(UINT idControl, NMHDR *pNMHDR, BOOL &bHandled);
@@ -293,12 +289,12 @@ HRESULT STDMETHODCALLTYPE CToolsBand::SetSite(IUnknown* pUnkSite){
     SendMessage(TB_SETMAXTEXTROWS, 1, 0);
     SendMessage(TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_HIDECLIPPEDBUTTONS | TBSTYLE_EX_MIXEDBUTTONS | TBSTYLE_EX_DRAWDDARROWS);
 
-    m_himlNormal = ImageList_LoadImageW(_AtlBaseModule.GetResourceInstance(), 
-                                        MAKEINTRESOURCE(IDB_SHELL_EXPLORER_LG),
+    m_himlNormal = ImageList_LoadImageW(_AtlBaseModule.GetResourceInstance(),
+                                        MAKEINTRESOURCEW(IDB_SHELL_EXPLORER_LG),
                                         0, 0, RGB(255, 0, 255), IMAGE_BITMAP, LR_DEFAULTSIZE | LR_CREATEDIBSECTION);
 
-    m_himlHot = ImageList_LoadImageW(_AtlBaseModule.GetResourceInstance(), 
-                                     MAKEINTRESOURCE(IDB_SHELL_EXPLORER_LG_HOT),
+    m_himlHot = ImageList_LoadImageW(_AtlBaseModule.GetResourceInstance(),
+                                     MAKEINTRESOURCEW(IDB_SHELL_EXPLORER_LG_HOT),
                                      0, 0, RGB(255, 0, 255), IMAGE_BITMAP, LR_DEFAULTSIZE | LR_CREATEDIBSECTION);
 
     SendMessage(TB_SETIMAGELIST, 0, (LPARAM) m_himlNormal);
@@ -342,7 +338,7 @@ HRESULT STDMETHODCALLTYPE CToolsBand::CloseDW(DWORD dwReserved)
 
     if (m_himlNormal)
         ImageList_Destroy(m_himlNormal);
-    
+
     if (m_himlHot)
         ImageList_Destroy(m_himlHot);
 

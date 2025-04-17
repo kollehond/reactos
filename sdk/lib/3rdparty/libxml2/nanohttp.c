@@ -16,10 +16,9 @@
 
 #ifdef LIBXML_HTTP_ENABLED
 #include <string.h>
-
-#ifdef HAVE_STDLIB_H
 #include <stdlib.h>
-#endif
+#include <errno.h>
+
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
@@ -47,9 +46,6 @@
 #ifdef HAVE_FCNTL_H
 #include <fcntl.h>
 #endif
-#ifdef HAVE_ERRNO_H
-#include <errno.h>
-#endif
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -60,10 +56,7 @@
 #else
 #include <poll.h>
 #endif
-#ifdef HAVE_STRINGS_H
-#include <strings.h>
-#endif
-#ifdef HAVE_ZLIB_H
+#ifdef LIBXML_ZLIB_ENABLED
 #include <zlib.h>
 #endif
 
@@ -73,7 +66,7 @@
 #define XML_SOCKLEN_T unsigned int
 #endif
 
-#if defined(_WIN32) && !defined(__CYGWIN__)
+#if defined(_WIN32)
 #include <wsockcompat.h>
 #endif
 
@@ -145,7 +138,7 @@ typedef struct xmlNanoHTTPCtxt {
     char *authHeader;	/* contents of {WWW,Proxy}-Authenticate header */
     char *encoding;	/* encoding extracted from the contentType */
     char *mimeType;	/* Mime-Type extracted from the contentType */
-#ifdef HAVE_ZLIB_H
+#ifdef LIBXML_ZLIB_ENABLED
     z_stream *strm;	/* Zlib stream object */
     int usesGzip;	/* "Content-Encoding: gzip" was detected */
 #endif
@@ -160,7 +153,7 @@ static int xmlNanoHTTPFetchContent( void * ctx, char ** ptr, int * len );
 
 /**
  * xmlHTTPErrMemory:
- * @extra:  extra informations
+ * @extra:  extra information
  *
  * Handle an out of memory condition
  */
@@ -213,7 +206,7 @@ int have_ipv6(void) {
  * xmlNanoHTTPInit:
  *
  * Initialize the HTTP protocol layer.
- * Currently it just checks for proxy informations
+ * Currently it just checks for proxy information
  */
 
 void
@@ -344,7 +337,7 @@ xmlNanoHTTPScanURL(xmlNanoHTTPCtxtPtr ctxt, const char *URL) {
  * (Re)Initialize the HTTP Proxy context by parsing the URL and finding
  * the protocol host port it indicates.
  * Should be like http://myproxy/ or http://myproxy:3128/
- * A NULL URL cleans up proxy informations.
+ * A NULL URL cleans up proxy information.
  */
 
 void
@@ -434,7 +427,7 @@ xmlNanoHTTPFreeCtxt(xmlNanoHTTPCtxtPtr ctxt) {
     if (ctxt->mimeType != NULL) xmlFree(ctxt->mimeType);
     if (ctxt->location != NULL) xmlFree(ctxt->location);
     if (ctxt->authHeader != NULL) xmlFree(ctxt->authHeader);
-#ifdef HAVE_ZLIB_H
+#ifdef LIBXML_ZLIB_ENABLED
     if (ctxt->strm != NULL) {
 	inflateEnd(ctxt->strm);
 	xmlFree(ctxt->strm);
@@ -650,7 +643,7 @@ xmlNanoHTTPRecv(xmlNanoHTTPCtxtPtr ctxt)
  * @ctxt:  an HTTP context
  *
  * Read one line in the HTTP server output, usually for extracting
- * the HTTP protocol informations from the answer header.
+ * the HTTP protocol information from the answer header.
  *
  * Returns a newly allocated string with a copy of the line, or NULL
  *         which indicate the end of the input.
@@ -693,7 +686,7 @@ xmlNanoHTTPReadLine(xmlNanoHTTPCtxtPtr ctxt) {
  * @ctxt:  an HTTP context
  * @line:  an HTTP header line
  *
- * Try to extract useful informations from the server answer.
+ * Try to extract useful information from the server answer.
  * We currently parse and process:
  *  - The HTTP revision/ return code
  *  - The Content-Type, Mime-Type and charset used
@@ -817,7 +810,7 @@ xmlNanoHTTPScanAnswer(xmlNanoHTTPCtxtPtr ctxt, const char *line) {
 	if (ctxt->authHeader != NULL)
 	    xmlFree(ctxt->authHeader);
 	ctxt->authHeader = xmlMemStrdup(cur);
-#ifdef HAVE_ZLIB_H
+#ifdef LIBXML_ZLIB_ENABLED
     } else if ( !xmlStrncasecmp( BAD_CAST line, BAD_CAST"Content-Encoding:", 17) ) {
 	cur += 17;
 	while ((*cur == ' ') || (*cur == '\t')) cur++;
@@ -1143,12 +1136,12 @@ xmlNanoHTTPConnectHost(const char *host, int port)
 
 	    switch (h_errno) {
 		case HOST_NOT_FOUND:
-		    h_err_txt = "Authoritive host not found";
+		    h_err_txt = "Authoritative host not found";
 		    break;
 
 		case TRY_AGAIN:
 		    h_err_txt =
-			"Non-authoritive host not found or server failure.";
+			"Non-authoritative host not found or server failure.";
 		    break;
 
 		case NO_RECOVERY:
@@ -1273,7 +1266,7 @@ xmlNanoHTTPOpenRedir(const char *URL, char **contentType, char **redir) {
 int
 xmlNanoHTTPRead(void *ctx, void *dest, int len) {
     xmlNanoHTTPCtxtPtr ctxt = (xmlNanoHTTPCtxtPtr) ctx;
-#ifdef HAVE_ZLIB_H
+#ifdef LIBXML_ZLIB_ENABLED
     int bytes_read = 0;
     int orig_avail_in;
     int z_ret;
@@ -1283,7 +1276,7 @@ xmlNanoHTTPRead(void *ctx, void *dest, int len) {
     if (dest == NULL) return(-1);
     if (len <= 0) return(0);
 
-#ifdef HAVE_ZLIB_H
+#ifdef LIBXML_ZLIB_ENABLED
     if (ctxt->usesGzip == 1) {
         if (ctxt->strm == NULL) return(0);
 
@@ -1424,7 +1417,7 @@ retry:
 	/* 1 for '?' */
 	blen += strlen(ctxt->query) + 1;
     blen += strlen(method) + strlen(ctxt->path) + 24;
-#ifdef HAVE_ZLIB_H
+#ifdef LIBXML_ZLIB_ENABLED
     /* reserve for possible 'Accept-Encoding: gzip' string */
     blen += 23;
 #endif
@@ -1468,7 +1461,7 @@ retry:
 		    ctxt->hostname, ctxt->port);
     }
 
-#ifdef HAVE_ZLIB_H
+#ifdef LIBXML_ZLIB_ENABLED
     p += snprintf(p, blen - (p - bp), "Accept-Encoding: gzip\r\n");
 #endif
 
@@ -1625,7 +1618,7 @@ xmlNanoHTTPMethod(const char *URL, const char *method, const char *input,
  * This function try to fetch the indicated resource via HTTP GET
  * and save it's content in the file.
  *
- * Returns -1 in case of failure, 0 incase of success. The contentType,
+ * Returns -1 in case of failure, 0 in case of success. The contentType,
  *     if provided must be freed by the caller
  */
 int
@@ -1675,7 +1668,7 @@ xmlNanoHTTPFetch(const char *URL, const char *filename, char **contentType) {
  * This function saves the output of the HTTP transaction to a file
  * It closes and free the context at the end
  *
- * Returns -1 in case of failure, 0 incase of success.
+ * Returns -1 in case of failure, 0 in case of success.
  */
 int
 xmlNanoHTTPSave(void *ctxt, const char *filename) {
@@ -1895,5 +1888,3 @@ int main(int argc, char **argv) {
 }
 #endif /* STANDALONE */
 #endif /* LIBXML_HTTP_ENABLED */
-#define bottom_nanohttp
-#include "elfgcchack.h"

@@ -24,7 +24,7 @@ const DWORD dwSpoolerMinorVersion = 0;
 
 const WCHAR wszDefaultDocumentName[] = L"Local Downlevel Document";
 
-PWSTR wszPrintProviderInfo[3] = {
+PCWSTR wszPrintProviderInfo[3] = {
     L"Windows NT Local Print Providor",     // Name
     L"Locally connected Printers",          // Comment
     L"Windows NT Local Printers"            // Description
@@ -41,10 +41,10 @@ static const PRINTPROVIDOR _PrintProviderFunctions = {
     NULL,                                       // fpSetPrinter
     LocalGetPrinter,                            // fpGetPrinter
     LocalEnumPrinters,                          // fpEnumPrinters
-    NULL,                                       // fpAddPrinterDriver
-    NULL,                                       // fpEnumPrinterDrivers
-    NULL,                                       // fpGetPrinterDriver
-    NULL,                                       // fpGetPrinterDriverDirectory
+    LocalAddPrinterDriver,                      // fpAddPrinterDriver
+    LocalEnumPrinterDrivers,                    // fpEnumPrinterDrivers
+    LocalGetPrinterDriver,                      // fpGetPrinterDriver
+    LocalGetPrinterDriverDirectory,             // fpGetPrinterDriverDirectory
     NULL,                                       // fpDeletePrinterDriver
     NULL,                                       // fpAddPrintProcessor
     LocalEnumPrintProcessors,                   // fpEnumPrintProcessors
@@ -64,34 +64,34 @@ static const PRINTPROVIDOR _PrintProviderFunctions = {
     LocalSetPrinterData,                        // fpSetPrinterData
     NULL,                                       // fpWaitForPrinterChange
     LocalClosePrinter,                          // fpClosePrinter
-    NULL,                                       // fpAddForm
-    NULL,                                       // fpDeleteForm
-    NULL,                                       // fpGetForm
-    NULL,                                       // fpSetForm
-    NULL,                                       // fpEnumForms
+    LocalAddForm,                               // fpAddForm
+    LocalDeleteForm,                            // fpDeleteForm
+    LocalGetForm,                               // fpGetForm
+    LocalSetForm,                               // fpSetForm
+    LocalEnumForms,                             // fpEnumForms
     LocalEnumMonitors,                          // fpEnumMonitors
     LocalEnumPorts,                             // fpEnumPorts
-    NULL,                                       // fpAddPort
-    NULL,                                       // fpConfigurePort
-    NULL,                                       // fpDeletePort
+    LocalAddPort,                               // fpAddPort
+    LocalConfigurePort,                         // fpConfigurePort
+    LocalDeletePort,                            // fpDeletePort
     NULL,                                       // fpCreatePrinterIC
     NULL,                                       // fpPlayGdiScriptOnPrinterIC
     NULL,                                       // fpDeletePrinterIC
     NULL,                                       // fpAddPrinterConnection
     NULL,                                       // fpDeletePrinterConnection
-    NULL,                                       // fpPrinterMessageBox
-    NULL,                                       // fpAddMonitor
-    NULL,                                       // fpDeleteMonitor
+    LocalPrinterMessageBox,                     // fpPrinterMessageBox
+    LocalAddMonitor,                            // fpAddMonitor
+    LocalDeleteMonitor,                         // fpDeleteMonitor
     NULL,                                       // fpResetPrinter
-    NULL,                                       // fpGetPrinterDriverEx
+    LocalGetPrinterDriverEx,                    // fpGetPrinterDriverEx
     NULL,                                       // fpFindFirstPrinterChangeNotification
     NULL,                                       // fpFindClosePrinterChangeNotification
-    NULL,                                       // fpAddPortEx
+    LocalAddPortEx,                             // fpAddPortEx
     NULL,                                       // fpShutDown
     NULL,                                       // fpRefreshPrinterChangeNotification
     NULL,                                       // fpOpenPrinterEx
     NULL,                                       // fpAddPrinterEx
-    NULL,                                       // fpSetPort
+    LocalSetPort,                               // fpSetPort
     NULL,                                       // fpEnumPrinterData
     NULL,                                       // fpDeletePrinterData
     NULL,                                       // fpClusterSplOpen
@@ -108,13 +108,13 @@ static const PRINTPROVIDOR _PrintProviderFunctions = {
     NULL,                                       // fpAddPerMachineConnection
     NULL,                                       // fpDeletePerMachineConnection
     NULL,                                       // fpEnumPerMachineConnections
-    NULL,                                       // fpXcvData
-    NULL,                                       // fpAddPrinterDriverEx
+    LocalXcvData,                               // fpXcvData
+    LocalAddPrinterDriverEx,                    // fpAddPrinterDriverEx
     NULL,                                       // fpSplReadPrinter
     NULL,                                       // fpDriverUnloadComplete
-    NULL,                                       // fpGetSpoolFileInfo
-    NULL,                                       // fpCommitSpoolData
-    NULL,                                       // fpCloseSpoolFileHandle
+    LocalGetSpoolFileInfo,                      // fpGetSpoolFileInfo
+    LocalCommitSpoolData,                       // fpCommitSpoolData
+    LocalCloseSpoolFileHandle,                  // fpCloseSpoolFileHandle
     NULL,                                       // fpFlushPrinter
     NULL,                                       // fpSendRecvBidiData
     NULL,                                       // fpAddDriverCatalog
@@ -138,7 +138,7 @@ _InitializeLocalSpooler(void)
     // On startup, always create a volatile symbolic link in the registry if it doesn't exist yet.
     //   "SYSTEM\CurrentControlSet\Control\Print\Printers" -> "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Print\Printers"
     //
-    // According to https://social.technet.microsoft.com/Forums/windowsserver/en-US/a683ab54-c43c-4ebe-af8f-1f7a65af2a51
+    // According to https://learn.microsoft.com/en-us/archive/msdn-technet-forums/a683ab54-c43c-4ebe-af8f-1f7a65af2a51
     // this is needed when having >900 printers to work around a size limit of the SYSTEM registry hive.
     dwErrorCode = (DWORD)RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\Print\\Printers", 0, NULL, REG_OPTION_VOLATILE | REG_OPTION_CREATE_LINK, KEY_CREATE_LINK | KEY_SET_VALUE, NULL, &hKey, NULL);
     if (dwErrorCode == ERROR_SUCCESS)
@@ -216,6 +216,12 @@ _InitializeLocalSpooler(void)
         goto Cleanup;
 
     if (!InitializeGlobalJobList())
+        goto Cleanup;
+
+    if (!InitializeFormList())
+        goto Cleanup;
+
+    if (!InitializePrinterDrivers())
         goto Cleanup;
 
     // Local Spooler Initialization finished successfully!

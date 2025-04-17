@@ -294,10 +294,10 @@ PreloadGlobalMessageTable(IN PVOID ImageBase)
     TotalLength = 0;
     for (MessageId = 1; MessageId != SAC_MAX_MESSAGES; MessageId++)
     {
-        /* Find this message ID in the string table*/
+        /* Find this message in the message table */
         Status2 = RtlFindMessage(ImageBase,
-                                 11,
-                                 LANG_NEUTRAL,
+                                 RT_MESSAGETABLE,
+                                 MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
                                  MessageId,
                                  &MessageEntry);
         if (NT_SUCCESS(Status2))
@@ -339,10 +339,10 @@ PreloadGlobalMessageTable(IN PVOID ImageBase)
     /* Now loop over our entries again */
     for (i = 0, MessageId = 1; MessageId != SAC_MAX_MESSAGES; MessageId++)
     {
-        /* Make sure the message is still there...! */
+        /* Make sure the message is still there! */
         Status2 = RtlFindMessage(ImageBase,
-                                 11,
-                                 LANG_NEUTRAL,
+                                 RT_MESSAGETABLE,
+                                 MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
                                  MessageId,
                                  &MessageEntry);
         if (NT_SUCCESS(Status2))
@@ -403,10 +403,10 @@ GetRegistryValueBuffer(IN PCWSTR KeyName,
     CHECK_PARAMETER2(ValueName);
 
     /* Open the specified key */
-    RtlInitUnicodeString(&DestinationString, KeyName); 
+    RtlInitUnicodeString(&DestinationString, KeyName);
     InitializeObjectAttributes(&ObjectAttributes,
                                &DestinationString,
-                               OBJ_CASE_INSENSITIVE,
+                               OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
                                NULL,
                                NULL);
     Status = ZwOpenKey(&Handle,
@@ -427,7 +427,8 @@ GetRegistryValueBuffer(IN PCWSTR KeyName,
                              NULL,
                              0,
                              &ResultLength);
-    if (!ResultLength) return Status;
+    if (!ResultLength)
+        goto Quit;
 
     /* Allocate the buffer for the partial info structure and our integer data */
     ResultLength += sizeof(ULONG);
@@ -435,7 +436,7 @@ GetRegistryValueBuffer(IN PCWSTR KeyName,
     if (!*Buffer)
     {
         SAC_DBG(SAC_DBG_ENTRY_EXIT, "SAC GetRegistryValueBuffer: failed allocation\n");
-        return Status;
+        goto Quit;
     }
 
     /* Now read the data */
@@ -452,8 +453,10 @@ GetRegistryValueBuffer(IN PCWSTR KeyName,
         SacFreePool(*Buffer);
     }
 
-    /* Return the result */
-    SAC_DBG(SAC_DBG_ENTRY_EXIT, "SAC SetRegistryValue: Exiting.\n");
+Quit:
+    /* Close the handle and exit */
+    ZwClose(Handle);
+    SAC_DBG(SAC_DBG_ENTRY_EXIT, "SAC GetRegistryValueBuffer: Exiting.\n");
     return Status;
 }
 
@@ -475,10 +478,10 @@ SetRegistryValue(IN PCWSTR KeyName,
     CHECK_PARAMETER4(Data);
 
     /* Open the specified key */
-    RtlInitUnicodeString(&DestinationString, KeyName); 
+    RtlInitUnicodeString(&DestinationString, KeyName);
     InitializeObjectAttributes(&ObjectAttributes,
                                &DestinationString,
-                               OBJ_CASE_INSENSITIVE,
+                               OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
                                NULL,
                                NULL);
     Status = ZwOpenKey(&Handle,
@@ -501,7 +504,7 @@ SetRegistryValue(IN PCWSTR KeyName,
     }
 
     /* Close the handle and exit */
-    NtClose(Handle);
+    ZwClose(Handle);
     SAC_DBG(SAC_DBG_ENTRY_EXIT, "SAC SetRegistryValue: Exiting.\n");
     return Status;
 }
@@ -1083,7 +1086,7 @@ InitializeCmdEventInfo(VOID)
         }
     }
 
-    /* Claer everything */ 
+    /* Claer everything */
     RequestSacCmdEventObjectBody = NULL;
     RequestSacCmdEventWaitObjectBody = NULL;
     RequestSacCmdSuccessEventObjectBody = NULL;

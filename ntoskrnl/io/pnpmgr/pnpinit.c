@@ -14,15 +14,25 @@
 
 /* GLOBALS ********************************************************************/
 
-typedef struct _IOPNP_DEVICE_EXTENSION
-{
-    PWCHAR CompatibleIdList;
-    ULONG CompatibleIdListSize;
-} IOPNP_DEVICE_EXTENSION, *PIOPNP_DEVICE_EXTENSION;
-
 PUNICODE_STRING PiInitGroupOrderTable;
 USHORT PiInitGroupOrderTableCount;
 INTERFACE_TYPE PnpDefaultInterfaceType;
+BOOLEAN PnPBootDriversLoaded = FALSE;
+BOOLEAN PnPBootDriversInitialized = FALSE;
+
+ARBITER_INSTANCE IopRootBusNumberArbiter;
+ARBITER_INSTANCE IopRootIrqArbiter;
+ARBITER_INSTANCE IopRootDmaArbiter;
+ARBITER_INSTANCE IopRootMemArbiter;
+ARBITER_INSTANCE IopRootPortArbiter;
+
+extern KEVENT PiEnumerationFinished;
+
+NTSTATUS NTAPI IopPortInitialize(VOID);
+NTSTATUS NTAPI IopMemInitialize(VOID);
+NTSTATUS NTAPI IopDmaInitialize(VOID);
+NTSTATUS NTAPI IopIrqInitialize(VOID);
+NTSTATUS NTAPI IopBusNumberInitialize(VOID);
 
 /* FUNCTIONS ******************************************************************/
 
@@ -38,13 +48,49 @@ NTSTATUS
 NTAPI
 IopInitializeArbiters(VOID)
 {
-     /* FIXME: TODO */
-    return STATUS_SUCCESS;
+    NTSTATUS Status;
+
+    Status = IopPortInitialize();
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("IopPortInitialize() return %X\n", Status);
+        return Status;
+    }
+
+    Status = IopMemInitialize();
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("IopMemInitialize() return %X\n", Status);
+        return Status;
+    }
+
+    Status = IopDmaInitialize();
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("IopDmaInitialize() return %X\n", Status);
+        return Status;
+    }
+
+    Status = IopIrqInitialize();
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("IopIrqInitialize() return %X\n", Status);
+        return Status;
+    }
+
+    Status = IopBusNumberInitialize();
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("IopBusNumberInitialize() return %X\n", Status);
+    }
+
+    return Status;
 }
 
+
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 PiInitCacheGroupInformation(VOID)
 {
     HANDLE KeyHandle;
@@ -55,17 +101,6 @@ PiInitCacheGroupInformation(VOID)
     UNICODE_STRING GroupString =
         RTL_CONSTANT_STRING(L"\\Registry\\Machine\\System\\CurrentControlSet"
                             L"\\Control\\ServiceGroupOrder");
-
-    /* ReactOS HACK for SETUPLDR */
-    if (KeLoaderBlock->SetupLdrBlock)
-    {
-        DPRINT1("WARNING!! In PiInitCacheGroupInformation, using ReactOS HACK for SETUPLDR!!\n");
-
-        /* Bogus data */
-        PiInitGroupOrderTableCount = 0;
-        PiInitGroupOrderTable = (PVOID)(ULONG_PTR)0xBABEB00BBABEB00BULL;
-        return STATUS_SUCCESS;
-    }
 
     /* Open the registry key */
     Status = IopOpenRegistryKeyEx(&KeyHandle,
@@ -246,148 +281,9 @@ Quickie:
     return i;
 }
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-PipCallDriverAddDevice(IN PDEVICE_NODE DeviceNode,
-                       IN BOOLEAN LoadDriver,
-                       IN PDRIVER_OBJECT DriverObject)
-{
-    NTSTATUS Status;
-    HANDLE EnumRootKey, SubKey;
-    HANDLE ControlKey, ClassKey = NULL, PropertiesKey;
-    UNICODE_STRING ClassGuid, Properties;
-    UNICODE_STRING EnumRoot = RTL_CONSTANT_STRING(ENUM_ROOT);
-    UNICODE_STRING ControlClass =
-    RTL_CONSTANT_STRING(L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Class");
-    PKEY_VALUE_FULL_INFORMATION KeyValueInformation = NULL;
-    PWCHAR Buffer;
-
-    /* Open enumeration root key */
-    Status = IopOpenRegistryKeyEx(&EnumRootKey,
-                                  NULL,
-                                  &EnumRoot,
-                                  KEY_READ);
-    if (!NT_SUCCESS(Status))
-    {
-        DPRINT1("IopOpenRegistryKeyEx() failed for '%wZ' with status 0x%lx\n",
-                &EnumRoot, Status);
-        return Status;
-    }
-
-    /* Open instance subkey */
-    Status = IopOpenRegistryKeyEx(&SubKey,
-                                  EnumRootKey,
-                                  &DeviceNode->InstancePath,
-                                  KEY_READ);
-    ZwClose(EnumRootKey);
-    if (!NT_SUCCESS(Status))
-    {
-        DPRINT1("IopOpenRegistryKeyEx() failed for '%wZ' with status 0x%lx\n",
-                &DeviceNode->InstancePath, Status);
-        return Status;
-    }
-
-    /* Get class GUID */
-    Status = IopGetRegistryValue(SubKey,
-                                 REGSTR_VAL_CLASSGUID,
-                                 &KeyValueInformation);
-    if (NT_SUCCESS(Status))
-    {
-        /* Convert to unicode string */
-        Buffer = (PVOID)((ULONG_PTR)KeyValueInformation + KeyValueInformation->DataOffset);
-        PnpRegSzToString(Buffer, KeyValueInformation->DataLength, &ClassGuid.Length);
-        ClassGuid.MaximumLength = (USHORT)KeyValueInformation->DataLength;
-        ClassGuid.Buffer = Buffer;
-
-        /* Open the key */
-        Status = IopOpenRegistryKeyEx(&ControlKey,
-                                      NULL,
-                                      &ControlClass,
-                                      KEY_READ);
-        if (!NT_SUCCESS(Status))
-        {
-            /* No class key */
-            DPRINT1("IopOpenRegistryKeyEx() failed for '%wZ' with status 0x%lx\n",
-                    &ControlClass, Status);
-        }
-        else
-        {
-            /* Open the class key */
-            Status = IopOpenRegistryKeyEx(&ClassKey,
-                                          ControlKey,
-                                          &ClassGuid,
-                                          KEY_READ);
-            ZwClose(ControlKey);
-            if (!NT_SUCCESS(Status))
-            {
-                /* No class key */
-                DPRINT1("IopOpenRegistryKeyEx() failed for '%wZ' with status 0x%lx\n",
-                        &ClassGuid, Status);
-            }
-        }
-
-        /* Check if we made it till here */
-        if (ClassKey)
-        {
-            /* Get the device properties */
-            RtlInitUnicodeString(&Properties, REGSTR_KEY_DEVICE_PROPERTIES);
-            Status = IopOpenRegistryKeyEx(&PropertiesKey,
-                                          ClassKey,
-                                          &Properties,
-                                          KEY_READ);
-            if (!NT_SUCCESS(Status))
-            {
-                /* No properties */
-                DPRINT("IopOpenRegistryKeyEx() failed for '%wZ' with status 0x%lx\n",
-                       &Properties, Status);
-                PropertiesKey = NULL;
-            }
-            else
-            {
-                ZwClose(PropertiesKey);
-            }
-        }
-
-        /* Free the registry data */
-        ExFreePool(KeyValueInformation);
-    }
-
-    /* Do ReactOS-style setup */
-    Status = IopAttachFilterDrivers(DeviceNode, SubKey, ClassKey, TRUE);
-    if (!NT_SUCCESS(Status))
-    {
-        IopRemoveDevice(DeviceNode);
-        goto Exit;
-    }
-
-    Status = IopInitializeDevice(DeviceNode, DriverObject);
-    if (!NT_SUCCESS(Status))
-    {
-        goto Exit;
-    }
-
-    Status = IopAttachFilterDrivers(DeviceNode, SubKey, ClassKey, FALSE);
-    if (!NT_SUCCESS(Status))
-    {
-        IopRemoveDevice(DeviceNode);
-        goto Exit;
-    }
-
-    Status = IopStartDevice(DeviceNode);
-
-Exit:
-    /* Close keys and return status */
-    ZwClose(SubKey);
-    if (ClassKey != NULL)
-    {
-        ZwClose(ClassKey);
-    }
-    return Status;
-}
-
-NTSTATUS
-NTAPI
-INIT_FUNCTION
 IopInitializePlugPlayServices(VOID)
 {
     NTSTATUS Status;
@@ -401,6 +297,7 @@ IopInitializePlugPlayServices(VOID)
     KeInitializeSpinLock(&IopDeviceTreeLock);
     KeInitializeSpinLock(&IopDeviceActionLock);
     InitializeListHead(&IopDeviceActionRequestList);
+    KeInitializeEvent(&PiEnumerationFinished, NotificationEvent, TRUE);
 
     /* Get the default interface */
     PnpDefaultInterfaceType = IopDetermineDefaultInterfaceType();
@@ -509,7 +406,7 @@ IopInitializePlugPlayServices(VOID)
 
     /* Create the root PDO */
     Status = IoCreateDevice(IopRootDriverObject,
-                            sizeof(IOPNP_DEVICE_EXTENSION),
+                            0,
                             NULL,
                             FILE_DEVICE_CONTROLLER,
                             0,
@@ -528,30 +425,31 @@ IopInitializePlugPlayServices(VOID)
     IopRootDeviceNode = PipAllocateDeviceNode(Pdo);
 
     /* Set flags */
-    IopRootDeviceNode->Flags |= DNF_STARTED + DNF_PROCESSED + DNF_ENUMERATED +
-                                DNF_MADEUP + DNF_NO_RESOURCE_REQUIRED +
-                                DNF_ADDED;
+    IopRootDeviceNode->Flags |= DNF_MADEUP | DNF_ENUMERATED |
+                                DNF_IDS_QUERIED | DNF_NO_RESOURCE_REQUIRED;
 
     /* Create instance path */
-    RtlCreateUnicodeString(&IopRootDeviceNode->InstancePath,
-                           REGSTR_VAL_ROOT_DEVNODE);
+    if (!RtlCreateUnicodeString(&IopRootDeviceNode->InstancePath, REGSTR_VAL_ROOT_DEVNODE))
+    {
+        DPRINT1("RtlCreateUnicodeString() failed\n");
+        KeBugCheckEx(PHASE1_INITIALIZATION_FAILED, Status, 0, 0, 0);
+    }
 
-    /* Call the add device routine */
-    IopRootDriverObject->DriverExtension->AddDevice(IopRootDriverObject,
-                                                    IopRootDeviceNode->PhysicalDeviceObject);
+    PnpRootInitializeDevExtension();
+
+    PiSetDevNodeState(IopRootDeviceNode, DeviceNodeStarted);
 
     /* Initialize PnP-Event notification support */
     Status = IopInitPlugPlayEvents();
     if (!NT_SUCCESS(Status)) return Status;
 
-    /* Report the device to the user-mode pnp manager */
-    IopQueueTargetDeviceEvent(&GUID_DEVICE_ARRIVAL,
-                              &IopRootDeviceNode->InstancePath);
-
     /* Initialize the Bus Type GUID List */
     PnpBusTypeGuidList = ExAllocatePool(PagedPool, sizeof(IO_BUS_TYPE_GUID_LIST));
     RtlZeroMemory(PnpBusTypeGuidList, sizeof(IO_BUS_TYPE_GUID_LIST));
     ExInitializeFastMutex(&PnpBusTypeGuidList->Lock);
+
+    /* Initialize PnP root relations (this is a syncronous operation) */
+    PiQueueDeviceAction(Pdo, PiActionEnumRootDevices, NULL, NULL);
 
     /* Launch the firmware mapper */
     Status = IopUpdateRootKey();
@@ -559,6 +457,9 @@ IopInitializePlugPlayServices(VOID)
 
     /* Close the handle to the control set */
     NtClose(KeyHandle);
+
+    /* Initialize PnP root relations (this is a syncronous operation) */
+    PiQueueDeviceAction(Pdo, PiActionEnumRootDevices, NULL, NULL);
 
     /* We made it */
     return STATUS_SUCCESS;

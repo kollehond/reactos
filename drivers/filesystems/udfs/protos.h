@@ -468,7 +468,7 @@ IN PVCB         Vcb);
 *************************************************************************/
 
 extern NTSTATUS NTAPI UDFFSControl(
-PDEVICE_OBJECT      DeviceObject,       
+PDEVICE_OBJECT      DeviceObject,
 PIRP                Irp);
 
 extern NTSTATUS NTAPI UDFCommonFSControl(
@@ -657,13 +657,13 @@ UDFReadRegKeys(
     BOOLEAN UseCfg);
 
 extern ULONG UDFGetRegParameter(
-    IN PVCB Vcb, 
+    IN PVCB Vcb,
     IN PCWSTR Name,
     IN ULONG DefValue = 0);
 
 extern ULONG
 UDFGetCfgParameter(
-    IN PVCB Vcb, 
+    IN PVCB Vcb,
     IN PCWSTR Name,
     IN ULONG DefValue
     );
@@ -784,7 +784,7 @@ extern OSSTATUS UDFDoDismountSequence(IN PVCB Vcb,
 #define UDFReadSectors(Vcb, Translate, Lba, BCount, Direct, Buffer, ReadBytes)                 \
     (( WCacheIsInitialized__(&((Vcb)->FastCache)) && (KeGetCurrentIrql() < DISPATCH_LEVEL)) ?              \
         (WCacheReadBlocks__(&((Vcb)->FastCache), Vcb, Buffer, Lba, BCount, ReadBytes, Direct)) : \
-        (UDFTRead(Vcb, Buffer, (BCount)<<((Vcb)->BlockSizeBits), Lba, ReadBytes, 0)))
+        (UDFTRead(Vcb, Buffer, ((SIZE_T)(BCount))<<((Vcb)->BlockSizeBits), Lba, ReadBytes, 0)))
 
 
 // read data inside physical sector
@@ -983,7 +983,7 @@ UDFDebugAcquireResourceExclusiveLite(
       ULONG         BugCheckId,
       ULONG         Line);
 
-extern VOID 
+extern VOID
 UDFDebugReleaseResourceForThreadLite(
     IN PERESOURCE  Resource,
     IN ERESOURCE_THREAD  ResourceThreadId,

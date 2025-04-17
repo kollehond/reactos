@@ -369,7 +369,7 @@ NTAPI
 FltpClientPortDelete(PVOID Object)
 {
     PFLT_PORT_OBJECT PortObject = (PFLT_PORT_OBJECT)Object;
-    ObfDereferenceObject(PortObject->ServerPort);
+    ObDereferenceObject(PortObject->ServerPort);
 }
 
 
@@ -447,14 +447,14 @@ Quit:
         if (ClientPortObjectType)
         {
             ObMakeTemporaryObject(ClientPortObjectType);
-            ObfDereferenceObject(ClientPortObjectType);
+            ObDereferenceObject(ClientPortObjectType);
             ClientPortObjectType = NULL;
         }
 
         if (ServerPortObjectType)
         {
             ObMakeTemporaryObject(ServerPortObjectType);
-            ObfDereferenceObject(ServerPortObjectType);
+            ObDereferenceObject(ServerPortObjectType);
             ServerPortObjectType = NULL;
         }
     }
@@ -699,10 +699,12 @@ CreateClientPort(_In_ PFILE_OBJECT FileObject,
         goto Quit;
     }
 
-    /* Now insert the new client port into the object manager*/
-    Status = ObInsertObject(ClientPortObject, 0, FLT_PORT_ALL_ACCESS, 1, 0, (PHANDLE)&PortHandle);
+    /* Now insert the new client port into the object manager */
+    Status = ObInsertObject(ClientPortObject, NULL, FLT_PORT_ALL_ACCESS, 1, NULL, (PHANDLE)&PortHandle);
     if (!NT_SUCCESS(Status))
     {
+        /* ObInsertObject() failed and already dereferenced ClientPortObject */
+        ClientPortObject = NULL;
         goto Quit;
     }
 
@@ -737,7 +739,7 @@ Quit:
     {
         if (ClientPortObject)
         {
-            ObfDereferenceObject(ClientPortObject);
+            ObDereferenceObject(ClientPortObject);
         }
 
         if (PortHandle)
@@ -747,7 +749,7 @@ Quit:
         else if (ServerPortObject)
         {
             InterlockedDecrement(&ServerPortObject->NumberOfConnections);
-            ObfDereferenceObject(ServerPortObject);
+            ObDereferenceObject(ServerPortObject);
         }
 
         if (PortCCB)

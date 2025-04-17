@@ -1,10 +1,8 @@
 /*
  * PROJECT:     ReactOS trace route utility
- * LICENSE:     GPL - See COPYING in the top level directory
- * FILE:        base/applications/network/tracert/tracert.cpp
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
  * PURPOSE:     Trace network paths through networks
  * COPYRIGHT:   Copyright 2018 Ged Murphy <gedmurphy@reactos.org>
- *
  */
 
 #ifdef __REACTOS__
@@ -256,7 +254,7 @@ PrintHopInfo(_In_ PVOID Buffer)
     Status = GetNameInfoW(SockAddr,
                           Size,
                           IpAddress,
-                          NI_MAXHOST,
+                          MAX_IPADDRESS,
                           NULL,
                           0,
                           NI_NUMERICHOST);
@@ -275,15 +273,13 @@ PrintHopInfo(_In_ PVOID Buffer)
     return (Status == 0);
 }
 
-static bool
-DecodeResponse(
+static ULONG
+GetResponseStats(
     _In_ PVOID ReplyBuffer,
-    _In_ bool OutputHopAddress,
-    _Out_ bool& FoundTarget
+    _Out_ ULONG& RoundTripTime,
+    _Out_ PVOID& AddressInfo
 )
 {
-    ULONG RoundTripTime;
-    PVOID AddressInfo;
     ULONG Status;
 
     if (Info.Family == AF_INET6)
@@ -296,12 +292,33 @@ DecodeResponse(
     }
     else
     {
+#ifdef _WIN64
+        PICMP_ECHO_REPLY32 EchoReplyV4;
+        EchoReplyV4 = (PICMP_ECHO_REPLY32)ReplyBuffer;
+#else
         PICMP_ECHO_REPLY EchoReplyV4;
         EchoReplyV4 = (PICMP_ECHO_REPLY)ReplyBuffer;
+#endif
         Status = EchoReplyV4->Status;
         RoundTripTime = EchoReplyV4->RoundTripTime;
         AddressInfo = &EchoReplyV4->Address;
     }
+
+    return Status;
+}
+
+static bool
+DecodeResponse(
+    _In_ PVOID ReplyBuffer,
+    _In_ PVOID LastGoodResponse,
+    _In_ bool OutputHopAddress,
+    _Out_ bool& GoodResponse,
+    _Out_ bool& FoundTarget
+)
+{
+    ULONG RoundTripTime;
+    PVOID AddressInfo;
+    ULONG Status = GetResponseStats(ReplyBuffer, RoundTripTime, AddressInfo);
 
     switch (Status)
     {
@@ -315,6 +332,7 @@ DecodeResponse(
         {
             OutputText(IDS_HOP_ZERO);
         }
+        GoodResponse = true;
         break;
 
     case IP_DEST_HOST_UNREACHABLE:
@@ -347,6 +365,10 @@ DecodeResponse(
 
     if (OutputHopAddress)
     {
+        if (Status == IP_REQ_TIMED_OUT && LastGoodResponse)
+        {
+            Status = GetResponseStats(LastGoodResponse, RoundTripTime, AddressInfo);
+        }
         if (Status == IP_SUCCESS)
         {
             FoundTarget = true;
@@ -369,37 +391,40 @@ static bool
 RunTraceRoute()
 {
     bool Success = false;
+    PVOID ReplyBuffer = NULL, LastGoodResponse = NULL;
+    DWORD ReplySize;
+
+    HANDLE heap = GetProcessHeap();
+    bool Quit = false;
+    ULONG HopCount = 1;
+    bool FoundTarget = false;
+
     Success = ResolveTarget();
     if (!Success)
     {
         OutputText(IDS_UNABLE_RESOLVE, Info.HostName);
-        return false;
+        goto Cleanup;
     }
 
-    BYTE SendBuffer[PACKET_SIZE];
-    ICMPV6_ECHO_REPLY ReplyBufferv6;
-#ifdef _WIN64
-    ICMP_ECHO_REPLY32 ReplyBufferv432;
-#else
-    ICMP_ECHO_REPLY ReplyBufferv4;
-#endif
-    PVOID ReplyBuffer;
-
-    DWORD ReplySize = PACKET_SIZE + SIZEOF_ICMP_ERROR + SIZEOF_IO_STATUS_BLOCK;
+    ReplySize = PACKET_SIZE + SIZEOF_ICMP_ERROR + SIZEOF_IO_STATUS_BLOCK;
     if (Info.Family == AF_INET6)
     {
-        ReplyBuffer = &ReplyBufferv6;
         ReplySize += sizeof(ICMPV6_ECHO_REPLY);
     }
     else
     {
 #ifdef _WIN64
-        ReplyBuffer = &ReplyBufferv432;
         ReplySize += sizeof(ICMP_ECHO_REPLY32);
 #else
-        ReplyBuffer = &ReplyBufferv4;
         ReplySize += sizeof(ICMP_ECHO_REPLY);
 #endif
+    }
+
+    ReplyBuffer = HeapAlloc(heap, HEAP_ZERO_MEMORY, ReplySize);
+    if (ReplyBuffer == NULL)
+    {
+        Success = false;
+        goto Cleanup;
     }
 
     if (Info.Family == AF_INET6)
@@ -412,8 +437,8 @@ RunTraceRoute()
     }
     if (Info.hIcmpFile == INVALID_HANDLE_VALUE)
     {
-        FreeAddrInfoW(Info.Target);
-        return false;
+        Success = false;
+        goto Cleanup;
     }
 
     OutputText(IDS_TRACE_INFO, Info.HostName, Info.TargetIP, Info.MaxHops);
@@ -421,15 +446,21 @@ RunTraceRoute()
     IP_OPTION_INFORMATION IpOptionInfo;
     ZeroMemory(&IpOptionInfo, sizeof(IpOptionInfo));
 
-    bool Quit = false;
-    ULONG HopCount = 1;
-    bool FoundTarget = false;
     while ((HopCount <= Info.MaxHops) && (FoundTarget == false) && (Quit == false))
     {
         OutputText(IDS_HOP_COUNT, HopCount);
 
+        if (LastGoodResponse)
+        {
+            HeapFree(heap, 0, LastGoodResponse);
+            LastGoodResponse = NULL;
+        }
+
         for (int Ping = 1; Ping <= NUM_OF_PINGS; Ping++)
         {
+            BYTE SendBuffer[PACKET_SIZE];
+            bool GoodResponse = false;
+
             IpOptionInfo.Ttl = static_cast<UCHAR>(HopCount);
 
             if (Info.Family == AF_INET6)
@@ -467,7 +498,11 @@ RunTraceRoute()
                                      Info.Timeout);
             }
 
-            if (DecodeResponse(ReplyBuffer, (Ping == NUM_OF_PINGS), FoundTarget) == false)
+            if (DecodeResponse(ReplyBuffer,
+                               LastGoodResponse,
+                               (Ping == NUM_OF_PINGS),
+                               GoodResponse,
+                               FoundTarget) == false)
             {
                 Quit = true;
                 break;
@@ -478,6 +513,21 @@ RunTraceRoute()
                 Success = true;
                 break;
             }
+
+            if (GoodResponse)
+            {
+                if (LastGoodResponse)
+                {
+                    HeapFree(heap, 0, LastGoodResponse);
+                }
+                LastGoodResponse = HeapAlloc(heap, HEAP_ZERO_MEMORY, ReplySize);
+                if (LastGoodResponse == NULL)
+                {
+                    Success = false;
+                    goto Cleanup;
+                }
+                CopyMemory(LastGoodResponse, ReplyBuffer, ReplySize);
+            }
         }
 
         HopCount++;
@@ -486,7 +536,19 @@ RunTraceRoute()
 
     OutputText(IDS_TRACE_COMPLETE);
 
-    FreeAddrInfoW(Info.Target);
+Cleanup:
+    if (ReplyBuffer)
+    {
+        HeapFree(heap, 0, ReplyBuffer);
+    }
+    if (LastGoodResponse)
+    {
+        HeapFree(heap, 0, LastGoodResponse);
+    }
+    if (Info.Target)
+    {
+        FreeAddrInfoW(Info.Target);
+    }
     if (Info.hIcmpFile)
     {
         IcmpCloseHandle(Info.hIcmpFile);

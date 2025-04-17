@@ -24,6 +24,8 @@
 #include <winreg.h>
 #include <uxundoc.h>
 
+DWORD gdwErrorInfoTlsIndex = TLS_OUT_OF_INDEXES;
+
 /***********************************************************************
  * Defines and global variables
  */
@@ -473,7 +475,7 @@ static void UXTHEME_RestoreSystemMetrics(void)
 /* Make system settings persistent, so they're in effect even w/o uxtheme 
  * loaded.
  * For efficiency reasons, only the last SystemParametersInfoW sets
- * SPIF_SENDWININICHANGE */
+ * SPIF_SENDCHANGE */
 static void UXTHEME_SaveSystemMetrics(void)
 {
     const struct BackupSysParam* bsp = backupSysParams;
@@ -588,6 +590,19 @@ void UXTHEME_InitSystem(HINSTANCE hInst)
 
     RtlInitializeHandleTable(0xFFF, sizeof(UXTHEME_HANDLE), &g_UxThemeHandleTable);
     g_cHandles = 0;
+
+    gdwErrorInfoTlsIndex = TlsAlloc();
+}
+
+/***********************************************************************
+ *      UXTHEME_UnInitSystem
+ */
+void UXTHEME_UnInitSystem(HINSTANCE hInst)
+{
+    UXTHEME_DeleteParseErrorInfo();
+
+    TlsFree(gdwErrorInfoTlsIndex);
+    gdwErrorInfoTlsIndex = TLS_OUT_OF_INDEXES;
 }
 
 /***********************************************************************

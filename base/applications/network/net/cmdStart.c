@@ -23,6 +23,7 @@ EnumerateRunningServices(VOID)
     INT i;
     INT nError = 0;
     DWORD dwError = ERROR_SUCCESS;
+    BOOL ret;
 
     hManager = OpenSCManagerW(NULL,
                               SERVICES_ACTIVE_DATABASE,
@@ -34,14 +35,22 @@ EnumerateRunningServices(VOID)
         goto done;
     }
 
-    EnumServicesStatusW(hManager,
-                        SERVICE_WIN32,
-                        SERVICE_ACTIVE,
-                        NULL,
-                        0,
-                        &dwBufferSize,
-                        &dwServiceCount,
-                        &dwResumeHandle);
+    ret = EnumServicesStatusW(hManager,
+                              SERVICE_WIN32,
+                              SERVICE_ACTIVE,
+                              NULL,
+                              0,
+                              &dwBufferSize,
+                              &dwServiceCount,
+                              &dwResumeHandle);
+    if (ret)
+    {
+        /* Nothing to enumerate ?! */
+        goto done;
+    }
+    dwError = GetLastError();
+    if (dwError != ERROR_INSUFFICIENT_BUFFER)
+        goto done;
 
     if (dwBufferSize != 0)
     {
@@ -57,7 +66,7 @@ EnumerateRunningServices(VOID)
                                     &dwServiceCount,
                                     &dwResumeHandle))
             {
-                ConPuts(StdOut, L"The following services hav been started:\n\n");
+                ConPuts(StdOut, L"The following services have been started:\n\n");
 
                 for (i = 0; i < dwServiceCount; i++)
                 {
@@ -173,11 +182,10 @@ cmdStart(INT argc, WCHAR **argv)
     {
         if (_wcsicmp(argv[i], L"/help") == 0)
         {
-            ConResPuts(StdOut, IDS_GENERIC_SYNTAX);
-            ConResPuts(StdOut, IDS_START_SYNTAX);
-            ConResPuts(StdOut, IDS_START_HELP_1);
-            ConResPuts(StdOut, IDS_START_HELP_2);
-            ConResPuts(StdOut, IDS_START_HELP_3);
+            PrintMessageString(4381);
+            ConPuts(StdOut, L"\n");
+            PrintNetMessage(MSG_START_SYNTAX);
+            PrintNetMessage(MSG_START_HELP);
             return 1;
         }
     }

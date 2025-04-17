@@ -1,10 +1,10 @@
 /*
  * PROJECT:     ReactOS Application compatibility module
- * LICENSE:     GPL-2.0+ (https://spdx.org/licenses/GPL-2.0+)
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
  * PURPOSE:     Shim matching / data (un)packing
  * COPYRIGHT:   Copyright 2011 André Hentschel
  *              Copyright 2013 Mislav Blaževic
- *              Copyright 2015-2018 Mark Jansen (mark.jansen@reactos.org)
+ *              Copyright 2015-2019 Mark Jansen (mark.jansen@reactos.org)
  */
 
 #define WIN32_NO_STATUS
@@ -29,7 +29,7 @@ typedef struct _ShimData
 } ShimData;
 
 #define SHIMDATA_MAGIC  0xAC0DEDAB
-
+#define REACTOS_COMPATVERSION_IGNOREMANIFEST 0xffffffff
 
 C_ASSERT(SHIMDATA_MAGIC == REACTOS_SHIMDATA_MAGIC);
 C_ASSERT(sizeof(ShimData) == sizeof(ReactOS_ShimData));
@@ -84,7 +84,7 @@ static BOOL SdbpMatchFileAttributes(PDB pdb, TAGID matching_file, PATTRINFO attr
                     break;
                 case TAG_TYPE_STRINGREF:
                     lpval = SdbGetStringTagPtr(pdb, child);
-                    if (!lpval || wcsicmp(attr->lpattr, lpval))
+                    if (!lpval || _wcsicmp(attr->lpattr, lpval))
                         return FALSE;
                     break;
                 case TAG_TYPE_QWORD:
@@ -99,7 +99,7 @@ static BOOL SdbpMatchFileAttributes(PDB pdb, TAGID matching_file, PATTRINFO attr
             }
         }
         if (n == attr_count)
-            SHIM_WARN("Unhandled tag %ws in MACHING_FILE\n", SdbTagToString(tag));
+            SHIM_WARN("Unhandled tag %ws in MATCHING_FILE\n", SdbTagToString(tag));
     }
     return TRUE;
 }
@@ -416,8 +416,11 @@ HSDB WINAPI SdbInitDatabase(DWORD flags, LPCWSTR path)
  */
 void WINAPI SdbReleaseDatabase(HSDB hsdb)
 {
-    SdbCloseDatabase(hsdb->pdb);
-    SdbFree(hsdb);
+    if (hsdb)
+    {
+        SdbCloseDatabase(hsdb->pdb);
+        SdbFree(hsdb);
+    }
 }
 
 /**
@@ -471,7 +474,7 @@ BOOL WINAPI SdbGetMatchingExe(HSDB hsdb, LPCWSTR path, LPCWSTR module_name,
     RtlInitBuffer(&DosApplicationName.ByteBuffer, (PUCHAR)DosPathBuffer, sizeof(DosPathBuffer));
     if (!NT_SUCCESS(RtlEnsureBufferSize(RTL_SKIP_BUFFER_COPY, &DosApplicationName.ByteBuffer, DosApplicationName.String.MaximumLength)))
     {
-        SHIM_ERR("Failed to convert allocate buffer.");
+        SHIM_ERR("Failed to convert allocate buffer.\n");
         goto Cleanup;
     }
     /* Update the internal buffer to contain the string */
@@ -482,7 +485,7 @@ BOOL WINAPI SdbGetMatchingExe(HSDB hsdb, LPCWSTR path, LPCWSTR module_name,
 
     if (!NT_SUCCESS(RtlNtPathNameToDosPathName(0, &DosApplicationName, &PathType, NULL)))
     {
-        SHIM_ERR("Failed to convert %S to DOS Path.", path);
+        SHIM_ERR("Failed to convert %S to DOS Path.\n", path);
         goto Cleanup;
     }
 
@@ -491,7 +494,7 @@ BOOL WINAPI SdbGetMatchingExe(HSDB hsdb, LPCWSTR path, LPCWSTR module_name,
     file_name = wcsrchr(DosApplicationName.String.Buffer, '\\');
     if (!file_name)
     {
-        SHIM_ERR("Failed to find Exe name in %wZ.", &DosApplicationName.String);
+        SHIM_ERR("Failed to find Exe name in %wZ.\n", &DosApplicationName.String);
         goto Cleanup;
     }
 
@@ -516,7 +519,7 @@ BOOL WINAPI SdbGetMatchingExe(HSDB hsdb, LPCWSTR path, LPCWSTR module_name,
         name = SdbFindFirstTag(pdb, iter, TAG_NAME);
         /* If this is a malformed DB, (no TAG_NAME), we should not crash. */
         foundName = SdbGetStringTagPtr(pdb, name);
-        if (foundName && !wcsicmp(foundName, file_name))
+        if (foundName && !_wcsicmp(foundName, file_name))
         {
             /* Get information about executable required to match it with database entry */
             if (!attribs)
@@ -736,7 +739,8 @@ BOOL WINAPI SdbPackAppCompatData(HSDB hsdb, PSDBQUERYRESULT pQueryResult, PVOID*
         if (SdbQueryData(hsdb, pQueryResult->atrLayers[n], L"SHIMVERSIONNT", &dwType, &dwValue, &dwValueSize) == ERROR_SUCCESS &&
             dwType == REG_DWORD && dwValueSize == sizeof(dwValue))
         {
-            dwValue = (dwValue % 100) | ((dwValue / 100) << 8);
+            if (dwValue != REACTOS_COMPATVERSION_IGNOREMANIFEST)
+                dwValue = (dwValue % 100) | ((dwValue / 100) << 8);
             if (dwValue > pData->dwRosProcessCompatVersion)
                 pData->dwRosProcessCompatVersion = dwValue;
         }

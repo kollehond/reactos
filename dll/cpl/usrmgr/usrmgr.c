@@ -5,6 +5,7 @@
  * PURPOSE:         Main functions
  *
  * PROGRAMMERS:     Eric Kohl
+ *                  Katayama Hirofumi MZ <katayama.hirofumi.mz@gmail.com>
  */
 
 #include "usrmgr.h"
@@ -14,6 +15,24 @@
 static LONG APIENTRY UsrmgrApplet(HWND hwnd, UINT uMsg, LPARAM wParam, LPARAM lParam);
 
 HINSTANCE hApplet = 0;
+
+LPTSTR GetDlgItemTextAlloc(HWND hwndDlg, INT nDlgItem)
+{
+    INT nLength = GetWindowTextLength(GetDlgItem(hwndDlg, nDlgItem));
+    LPTSTR psz = HeapAlloc(GetProcessHeap(), 0, (nLength + 1) * sizeof(TCHAR));
+    if (psz)
+        GetDlgItemText(hwndDlg, nDlgItem, psz, nLength + 1);
+    return psz;
+}
+
+LPTSTR GetComboBoxLBTextAlloc(HWND hwndDlg, INT nDlgItem, INT nIndex)
+{
+    INT nLength = (INT)SendDlgItemMessage(hwndDlg, nDlgItem, CB_GETLBTEXTLEN, nIndex, 0);
+    LPTSTR psz = HeapAlloc(GetProcessHeap(), 0, (nLength + 1) * sizeof(TCHAR));
+    if (psz)
+        SendDlgItemMessage(hwndDlg, nDlgItem, CB_GETLBTEXT, nIndex, (LPARAM)psz);
+    return psz;
+}
 
 /* Applets */
 APPLET Applets[NUM_APPLETS] =
@@ -26,7 +45,6 @@ APPLET Applets[NUM_APPLETS] =
     }
 };
 
-
 static VOID
 InitPropSheetPage(PROPSHEETPAGE *psp, WORD idDlg, DLGPROC DlgProc)
 {
@@ -38,6 +56,22 @@ InitPropSheetPage(PROPSHEETPAGE *psp, WORD idDlg, DLGPROC DlgProc)
     psp->pfnDlgProc = DlgProc;
 }
 
+static int CALLBACK
+PropSheetProc(HWND hwndDlg, UINT uMsg, LPARAM lParam)
+{
+    // NOTE: This callback is needed to set large icon correctly.
+    HICON hIcon;
+    switch (uMsg)
+    {
+        case PSCB_INITIALIZED:
+        {
+            hIcon = LoadIconW(hApplet, MAKEINTRESOURCEW(IDI_USRMGR_ICON));
+            SendMessageW(hwndDlg, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+            break;
+        }
+    }
+    return 0;
+}
 
 /* Display Applet */
 static LONG APIENTRY
@@ -45,24 +79,22 @@ UsrmgrApplet(HWND hwnd, UINT uMsg, LPARAM wParam, LPARAM lParam)
 {
     PROPSHEETPAGE psp[2];
     PROPSHEETHEADER psh;
-    TCHAR Caption[1024];
 
     UNREFERENCED_PARAMETER(lParam);
     UNREFERENCED_PARAMETER(wParam);
     UNREFERENCED_PARAMETER(uMsg);
 
-    LoadString(hApplet, IDS_CPLNAME, Caption, sizeof(Caption) / sizeof(TCHAR));
-
     ZeroMemory(&psh, sizeof(PROPSHEETHEADER));
     psh.dwSize = sizeof(PROPSHEETHEADER);
-    psh.dwFlags =  PSH_PROPSHEETPAGE;
+    psh.dwFlags =  PSH_PROPSHEETPAGE | PSH_USEICONID | PSH_USECALLBACK;
     psh.hwndParent = hwnd;
     psh.hInstance = hApplet;
-    psh.hIcon = LoadIcon(hApplet, MAKEINTRESOURCE(IDI_USRMGR_ICON));
-    psh.pszCaption = Caption;
+    psh.pszIcon = MAKEINTRESOURCEW(IDI_USRMGR_ICON);
+    psh.pszCaption = MAKEINTRESOURCEW(IDS_CPLNAME);
     psh.nPages = sizeof(psp) / sizeof(PROPSHEETPAGE);
     psh.nStartPage = 0;
     psh.ppsp = psp;
+    psh.pfnCallback = PropSheetProc;
 
     InitPropSheetPage(&psp[0], IDD_USERS, UsersPageProc);
     InitPropSheetPage(&psp[1], IDD_GROUPS, GroupsPageProc);
@@ -76,7 +108,7 @@ UsrmgrApplet(HWND hwnd, UINT uMsg, LPARAM wParam, LPARAM lParam)
 LONG CALLBACK
 CPlApplet(HWND hwndCPl, UINT uMsg, LPARAM lParam1, LPARAM lParam2)
 {
-    int i = (int)lParam1;
+    UINT i = (UINT)lParam1;
 
     switch (uMsg)
     {
@@ -87,6 +119,7 @@ CPlApplet(HWND hwndCPl, UINT uMsg, LPARAM lParam1, LPARAM lParam2)
             return NUM_APPLETS;
 
         case CPL_INQUIRE:
+            if (i < NUM_APPLETS)
             {
                 CPLINFO *CPlInfo = (CPLINFO*)lParam2;
                 CPlInfo->lData = 0;
@@ -94,10 +127,17 @@ CPlApplet(HWND hwndCPl, UINT uMsg, LPARAM lParam1, LPARAM lParam2)
                 CPlInfo->idName = Applets[i].idName;
                 CPlInfo->idInfo = Applets[i].idDescription;
             }
+            else
+            {
+                return TRUE;
+            }
             break;
 
         case CPL_DBLCLK:
-            Applets[i].AppletProc(hwndCPl, uMsg, lParam1, lParam2);
+            if (i < NUM_APPLETS)
+                Applets[i].AppletProc(hwndCPl, uMsg, lParam1, lParam2);
+            else
+                return TRUE;
             break;
     }
 

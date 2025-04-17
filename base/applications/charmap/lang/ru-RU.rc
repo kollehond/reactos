@@ -7,7 +7,7 @@ FONT 8, "MS Shell Dlg", 0, 0
 STYLE DS_SHELLFONT | WS_CHILD | WS_VISIBLE
 BEGIN
     LTEXT "&Шрифт:", IDC_STATIC, 6, 7, 27, 9
-    COMBOBOX IDC_FONTCOMBO, 36, 5, 210, 210, WS_CHILD | WS_VISIBLE |
+    COMBOBOX IDC_FONTCOMBO, 36, 5, 210, 210, WS_CHILD | WS_VISIBLE | WS_TABSTOP |
              WS_VSCROLL | CBS_DROPDOWNLIST | CBS_SORT | CBS_HASSTRINGS
     PUSHBUTTON "&Справка", IDC_CMHELP, 249, 5, 35, 13
     CONTROL "", IDC_FONTMAP, "FontMapWnd", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
@@ -53,4 +53,6 @@ BEGIN
     IDS_LICENSE "Эта программа является свободно распространяемой; Вы можете распространять ее повторно и (или) изменять, соблюдая условия Открытого лицензионного соглашения GNU, опубликованного Фондом свободно распространяемого программного обеспечения; либо редакции 2 Соглашения, либо (на ваше усмотрение) любой редакции, выпущенной позже.\r\n\r\nЭта программа распространяется в надежде на то, что она окажется полезной, но БЕЗ КАКИХ-ЛИБО ГАРАНТИЙ, включая подразумеваемую гарантию КАЧЕСТВА либо ПРИГОДНОСТИ ДЛЯ ОПРЕДЕЛЕННЫХ ЦЕЛЕЙ. Подробности содержатся в Открытом лицензионном соглашении GNU.\r\n\r\nВместе с этой программой должен распространяться экземпляр Открытого лицензионного соглашения GNU, если он отсутствует, сообщите об этом в Фонд свободно распространяемого программного обеспечения (Free Software Foundation, Inc.), 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA."
     IDS_ABOUT "&О программе..."
     IDS_TITLE "Таблица символов"
+    IDS_UNICODE "Unicode"
+    IDS_ALL "Все"
 END

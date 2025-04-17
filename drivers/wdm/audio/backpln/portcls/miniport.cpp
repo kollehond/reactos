@@ -8,11 +8,37 @@
 
 #include "private.hpp"
 
-#ifndef YDEBUG
 #define NDEBUG
-#endif
-
 #include <debug.h>
+
+PVOID
+__cdecl
+operator new(
+    size_t Size,
+    POOL_TYPE PoolType,
+    ULONG Tag)
+{
+    PVOID P = ExAllocatePoolWithTag(PoolType, Size, Tag);
+    if (P)
+        RtlZeroMemory(P, Size);
+    return P;
+}
+
+void
+__cdecl
+operator delete(
+    PVOID ptr)
+{
+    ExFreePool(ptr);
+}
+
+void
+__cdecl
+operator delete(
+    PVOID ptr, UINT_PTR)
+{
+    ExFreePool(ptr);
+}
 
 NTSTATUS
 NTAPI
@@ -50,4 +76,3 @@ PcNewMiniport(
     DPRINT("PcNewMiniport Status %x\n", Status);
     return Status;
 }
-

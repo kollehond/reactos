@@ -1,5 +1,4 @@
 
-set_cpp()
 
 remove_definitions(-D_WIN32_WINNT=0x502)
 add_definitions(-D_WIN32_WINNT=0x600)
@@ -46,21 +45,23 @@ list(APPEND SOURCE
     service_group.cpp
     undoc.cpp
     unregister.cpp
-    version.cpp
-    private.hpp)
+    version.cpp)
 
-add_library(portcls SHARED
+list(APPEND PCH_SKIP_SOURCE
+    guid.cpp)
+
+add_library(portcls MODULE
     ${SOURCE}
-    guid.cpp
+    ${PCH_SKIP_SOURCE}
     portcls.rc
     ${CMAKE_CURRENT_BINARY_DIR}/portcls.def)
 
-if(USE_CLANG_CL)
-    add_target_compile_flags(portcls "-Wno-missing-braces")
+if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(portcls PRIVATE "-Wno-missing-braces")
 endif()
 
 target_link_libraries(portcls libcntpr ${PSEH_LIB})
 set_module_type(portcls kernelmodedriver ENTRYPOINT 0 )
-add_pch(portcls private.hpp SOURCE)
+add_pch(portcls private.hpp "${PCH_SKIP_SOURCE}")
 add_importlibs(portcls ntoskrnl ks drmk hal)
 add_cd_file(TARGET portcls DESTINATION reactos/system32/drivers FOR all)

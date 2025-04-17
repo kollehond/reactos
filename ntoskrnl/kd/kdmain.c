@@ -1,506 +1,488 @@
 /*
- * COPYRIGHT:       See COPYING in the top level directory
- * PROJECT:         ReactOS Kernel
- * FILE:            ntoskrnl/kd/kdmain.c
- * PURPOSE:         Kernel Debugger Initialization
- *
- * PROGRAMMERS:     Alex Ionescu (alex@relsoft.net)
+ * PROJECT:     ReactOS Kernel
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
+ * PURPOSE:     Kernel Debugger Initialization
+ * COPYRIGHT:   Copyright 2005 Alex Ionescu <alex.ionescu@reactos.org>
+ *              Copyright 2020 Hervé Poussineau <hpoussin@reactos.org>
+ *              Copyright 2023 Hermès Bélusca-Maïto <hermes.belusca-maito@reactos.org>
  */
 
 #include <ntoskrnl.h>
+#include "kd.h"
+#include "kdterminal.h"
+
 #define NDEBUG
 #include <debug.h>
 
-/* VARIABLES ***************************************************************/
-
-BOOLEAN KdDebuggerEnabled = FALSE;
-BOOLEAN KdEnteredDebugger = FALSE;
-BOOLEAN KdDebuggerNotPresent = TRUE;
-BOOLEAN KdBreakAfterSymbolLoad = FALSE;
-BOOLEAN KdpBreakPending = FALSE;
-BOOLEAN KdPitchDebugger = TRUE;
-BOOLEAN KdIgnoreUmExceptions = FALSE;
-KD_CONTEXT KdpContext;
-ULONG Kd_WIN2000_Mask;
-VOID NTAPI PspDumpThreads(BOOLEAN SystemThreads);
-
-typedef struct
-{
-    ULONG ComponentId;
-    ULONG Level;
-} KD_COMPONENT_DATA;
-#define MAX_KD_COMPONENT_TABLE_ENTRIES 128
-KD_COMPONENT_DATA KdComponentTable[MAX_KD_COMPONENT_TABLE_ENTRIES];
-ULONG KdComponentTableEntries = 0;
-
-ULONG Kd_DEFAULT_MASK = 1 << DPFLTR_ERROR_LEVEL;
-
-/* PRIVATE FUNCTIONS *********************************************************/
-
-ULONG
-NTAPI
-KdpServiceDispatcher(ULONG Service,
-                     PVOID Buffer1,
-                     ULONG Buffer1Length,
-                     KPROCESSOR_MODE PreviousMode)
-{
-    ULONG Result = 0;
-
-    switch (Service)
-    {
-        case BREAKPOINT_PRINT: /* DbgPrint */
-            Result = KdpPrintString(Buffer1, Buffer1Length, PreviousMode);
-            break;
-
-#if DBG
-        case ' soR': /* ROS-INTERNAL */
-        {
-            switch ((ULONG_PTR)Buffer1)
-            {
-                case DumpAllThreads:
-                    PspDumpThreads(TRUE);
-                    break;
-
-                case DumpUserThreads:
-                    PspDumpThreads(FALSE);
-                    break;
-
-                case KdSpare3:
-                    MmDumpArmPfnDatabase(FALSE);
-                    break;
-
-                default:
-                    break;
-            }
-            break;
-        }
-
-#if defined(_M_IX86) && !defined(_WINKD_) // See ke/i386/traphdlr.c
-        /* Register a debug callback */
-        case 'CsoR':
-        {
-            switch (Buffer1Length)
-            {
-                case ID_Win32PreServiceHook:
-                    KeWin32PreServiceHook = Buffer1;
-                    break;
-
-                case ID_Win32PostServiceHook:
-                    KeWin32PostServiceHook = Buffer1;
-                    break;
-
-            }
-            break;
-        }
-#endif
-
-        /* Special  case for stack frame dumps */
-        case 'DsoR':
-        {
-            KeRosDumpStackFrames((PULONG)Buffer1, Buffer1Length);
-            break;
-        }
-
-#if defined(KDBG)
-        /* Register KDBG CLI callback */
-        case 'RbdK':
-        {
-            Result = KdbRegisterCliCallback(Buffer1, Buffer1Length);
-            break;
-        }
-#endif /* KDBG */
-#endif /* DBG */
-        default:
-            DPRINT1("Invalid debug service call!\n");
-            HalDisplayString("Invalid debug service call!\r\n");
-            break;
-    }
-
-    return Result;
-}
-
-BOOLEAN
-NTAPI
-KdpEnterDebuggerException(IN PKTRAP_FRAME TrapFrame,
-                          IN PKEXCEPTION_FRAME ExceptionFrame,
-                          IN PEXCEPTION_RECORD ExceptionRecord,
-                          IN PCONTEXT Context,
-                          IN KPROCESSOR_MODE PreviousMode,
-                          IN BOOLEAN SecondChance)
-{
-    KD_CONTINUE_TYPE Return = kdHandleException;
-    ULONG ExceptionCommand = ExceptionRecord->ExceptionInformation[0];
-
-    /* Check if this was a breakpoint due to DbgPrint or Load/UnloadSymbols */
-    if ((ExceptionRecord->ExceptionCode == STATUS_BREAKPOINT) &&
-        (ExceptionRecord->NumberParameters > 0) &&
-        ((ExceptionCommand == BREAKPOINT_LOAD_SYMBOLS) ||
-         (ExceptionCommand == BREAKPOINT_UNLOAD_SYMBOLS) ||
-         (ExceptionCommand == BREAKPOINT_COMMAND_STRING) ||
-         (ExceptionCommand == BREAKPOINT_PRINT) ||
-         (ExceptionCommand == BREAKPOINT_PROMPT)))
-    {
-        /* Check if this is a debug print */
-        if (ExceptionCommand == BREAKPOINT_PRINT)
-        {
-            /* Print the string */
-            KdpServiceDispatcher(BREAKPOINT_PRINT,
-                                 (PVOID)ExceptionRecord->ExceptionInformation[1],
-                                 ExceptionRecord->ExceptionInformation[2],
-                                 PreviousMode);
-
-            /* Return success */
-            KeSetContextReturnRegister(Context, STATUS_SUCCESS);
-        }
-#ifdef KDBG
-        else if (ExceptionCommand == BREAKPOINT_LOAD_SYMBOLS)
-        {
-            PKD_SYMBOLS_INFO SymbolsInfo;
-            KD_SYMBOLS_INFO CapturedSymbolsInfo;
-            PLDR_DATA_TABLE_ENTRY LdrEntry;
-
-            SymbolsInfo = (PKD_SYMBOLS_INFO)ExceptionRecord->ExceptionInformation[2];
-            if (PreviousMode != KernelMode)
-            {
-                _SEH2_TRY
-                {
-                    ProbeForRead(SymbolsInfo,
-                                 sizeof(*SymbolsInfo),
-                                 1);
-                    RtlCopyMemory(&CapturedSymbolsInfo,
-                                  SymbolsInfo,
-                                  sizeof(*SymbolsInfo));
-                    SymbolsInfo = &CapturedSymbolsInfo;
-                }
-                _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
-                {
-                    SymbolsInfo = NULL;
-                }
-                _SEH2_END;
-            }
-
-            if (SymbolsInfo != NULL)
-            {
-                /* Load symbols. Currently implemented only for KDBG! */
-                if (KdbpSymFindModule(SymbolsInfo->BaseOfDll, NULL, -1, &LdrEntry))
-                {
-                    KdbSymProcessSymbols(LdrEntry);
-                }
-            }
-        }
-        else if (ExceptionCommand == BREAKPOINT_PROMPT)
-        {
-            ULONG ReturnValue;
-            LPSTR OutString;
-            USHORT OutStringLength;
-
-            /* Get the response string  and length */
-            OutString = (LPSTR)Context->Ebx;
-            OutStringLength = (USHORT)Context->Edi;
-
-            /* Call KDBG */
-            ReturnValue = KdpPrompt((LPSTR)ExceptionRecord->
-                                    ExceptionInformation[1],
-                                    (USHORT)ExceptionRecord->
-                                    ExceptionInformation[2],
-                                    OutString,
-                                    OutStringLength,
-                                    PreviousMode);
-
-            /* Return the number of characters that we received */
-            Context->Eax = ReturnValue;
-        }
-#endif
-
-        /* This we can handle: simply bump the Program Counter */
-        KeSetContextPc(Context, KeGetContextPc(Context) + KD_BREAKPOINT_SIZE);
-        return TRUE;
-    }
-
-#ifdef KDBG
-    /* Check if this is an assertion failure */
-    if (ExceptionRecord->ExceptionCode == STATUS_ASSERTION_FAILURE)
-    {
-        /* Bump EIP to the instruction following the int 2C */
-        Context->Eip += 2;
-    }
-#endif
-
-    /* Get out of here if the Debugger isn't connected */
-    if (KdDebuggerNotPresent) return FALSE;
-
-#ifdef KDBG
-    /* Call KDBG if available */
-    Return = KdbEnterDebuggerException(ExceptionRecord,
-                                       PreviousMode,
-                                       Context,
-                                       TrapFrame,
-                                       !SecondChance);
-#else /* not KDBG */
-    if (WrapperInitRoutine)
-    {
-        /* Call GDB */
-        Return = WrapperTable.KdpExceptionRoutine(ExceptionRecord,
-                                                  Context,
-                                                  TrapFrame);
-    }
-#endif /* not KDBG */
-
-    /* Debugger didn't handle it, please handle! */
-    if (Return == kdHandleException) return FALSE;
-
-    /* Debugger handled it */
-    return TRUE;
-}
-
-BOOLEAN
-NTAPI
-KdpCallGdb(IN PKTRAP_FRAME TrapFrame,
-           IN PEXCEPTION_RECORD ExceptionRecord,
-           IN PCONTEXT Context)
-{
-    KD_CONTINUE_TYPE Return = kdDoNotHandleException;
-
-    /* Get out of here if the Debugger isn't connected */
-    if (KdDebuggerNotPresent) return FALSE;
-
-    /* FIXME:
-     * Right now, the GDB wrapper seems to handle exceptions differntly
-     * from KDGB and both are called at different times, while the GDB
-     * one is only called once and that's it. I don't really have the knowledge
-     * to fix the GDB stub, so until then, we'll be using this hack
-     */
-    if (WrapperInitRoutine)
-    {
-        Return = WrapperTable.KdpExceptionRoutine(ExceptionRecord,
-                                                  Context,
-                                                  TrapFrame);
-    }
-
-    /* Debugger didn't handle it, please handle! */
-    if (Return == kdHandleException) return FALSE;
-
-    /* Debugger handled it */
-    return TRUE;
-}
-
-BOOLEAN
-NTAPI
-KdIsThisAKdTrap(IN PEXCEPTION_RECORD ExceptionRecord,
-                IN PCONTEXT Context,
-                IN KPROCESSOR_MODE PreviousMode)
-{
-    /* KDBG has its own mechanism for ignoring user mode exceptions */
-    return FALSE;
-}
+#undef KdD0Transition
+#undef KdD3Transition
+#undef KdSave
+#undef KdRestore
 
 /* PUBLIC FUNCTIONS *********************************************************/
 
-/*
- * @implemented
- */
-BOOLEAN
-NTAPI
-KdRefreshDebuggerNotPresent(VOID)
+static VOID
+KdpGetTerminalSettings(
+    _In_ PCSTR p1)
 {
-    UNIMPLEMENTED;
+#define CONST_STR_LEN(x) (sizeof(x)/sizeof(x[0]) - 1)
 
-    /* Just return whatever was set previously -- FIXME! */
-    return KdDebuggerNotPresent;
-}
-
-/*
- * @implemented
- */
-NTSTATUS
-NTAPI
-KdDisableDebugger(VOID)
-{
-    KIRQL OldIrql;
-
-    /* Raise IRQL */
-    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
-
-    /* TODO: Disable any breakpoints */
-
-    /* Disable the Debugger */
-    KdDebuggerEnabled = FALSE;
-    SharedUserData->KdDebuggerEnabled = FALSE;
-
-    /* Lower the IRQL */
-    KeLowerIrql(OldIrql);
-
-    /* Return success */
-    return STATUS_SUCCESS;
-}
-
-/*
- * @implemented
- */
-NTSTATUS
-NTAPI
-KdEnableDebugger(VOID)
-{
-    KIRQL OldIrql;
-
-    /* Raise IRQL */
-    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
-
-    /* TODO: Re-enable any breakpoints */
-
-    /* Enable the Debugger */
-    KdDebuggerEnabled = TRUE;
-    SharedUserData->KdDebuggerEnabled = TRUE;
-
-    /* Lower the IRQL */
-    KeLowerIrql(OldIrql);
-
-    /* Return success */
-    return STATUS_SUCCESS;
-}
-
-/*
- * @implemented
- */
-BOOLEAN
-NTAPI
-KdPollBreakIn(VOID)
-{
-    return KdpBreakPending;
-}
-
-/*
- * @unimplemented
- */
-NTSTATUS
-NTAPI
-KdPowerTransition(ULONG PowerState)
-{
-    UNIMPLEMENTED;
-    return STATUS_NOT_IMPLEMENTED;
-}
-
-/*
- * @unimplemented
- */
-NTSTATUS
-NTAPI
-KdChangeOption(IN KD_OPTION Option,
-               IN ULONG InBufferLength OPTIONAL,
-               IN PVOID InBuffer,
-               IN ULONG OutBufferLength OPTIONAL,
-               OUT PVOID OutBuffer,
-               OUT PULONG OutBufferRequiredLength OPTIONAL)
-{
-    UNIMPLEMENTED;
-    return STATUS_NOT_IMPLEMENTED;
-}
-
-
-NTSTATUS
-NTAPI
-NtQueryDebugFilterState(IN ULONG ComponentId,
-                        IN ULONG Level)
-{
-    ULONG i;
-
-    /* Convert Level to mask if it isn't already one */
-    if (Level < 32)
-        Level = 1 << Level;
-
-    /* Check if it is not the default component */
-    if (ComponentId != MAXULONG)
+    while (p1 && *p1)
     {
-        /* No, search for an existing entry in the table */
-        for (i = 0; i < KdComponentTableEntries; i++)
+        /* Skip leading whitespace */
+        while (*p1 == ' ') ++p1;
+
+        if (!_strnicmp(p1, "KDSERIAL", CONST_STR_LEN("KDSERIAL")))
         {
-            /* Check if it is the right component */
-            if (ComponentId == KdComponentTable[i].ComponentId)
+            p1 += CONST_STR_LEN("KDSERIAL");
+            KdbDebugState |= KD_DEBUG_KDSERIAL;
+            KdpDebugMode.Serial = TRUE;
+        }
+        else if (!_strnicmp(p1, "KDNOECHO", CONST_STR_LEN("KDNOECHO")))
+        {
+            p1 += CONST_STR_LEN("KDNOECHO");
+            KdbDebugState |= KD_DEBUG_KDNOECHO;
+        }
+
+        /* Move on to the next option */
+        p1 = strchr(p1, ' ');
+    }
+}
+
+static PCHAR
+KdpGetDebugMode(
+    _In_ PCHAR Currentp2)
+{
+    PCHAR p1, p2 = Currentp2;
+    ULONG Value;
+
+    /* Check for Screen Debugging */
+    if (!_strnicmp(p2, "SCREEN", 6))
+    {
+        /* Enable It */
+        p2 += 6;
+        KdpDebugMode.Screen = TRUE;
+    }
+    /* Check for Serial Debugging */
+    else if (!_strnicmp(p2, "COM", 3))
+    {
+        /* Check for a valid Serial Port */
+        p2 += 3;
+        if (*p2 != ':')
+        {
+            Value = (ULONG)atol(p2);
+            if (Value > 0 && Value < 5)
             {
-                /* Check if mask are matching */
-                return (Level & KdComponentTable[i].Level) ? TRUE : FALSE;
+                /* Valid port found, enable Serial Debugging */
+                KdpDebugMode.Serial = TRUE;
+
+                /* Set the port to use */
+                SerialPortNumber = Value;
+            }
+        }
+        else
+        {
+            Value = strtoul(p2 + 1, NULL, 0);
+            if (Value)
+            {
+                KdpDebugMode.Serial = TRUE;
+                SerialPortInfo.Address = UlongToPtr(Value);
+                SerialPortNumber = 0;
             }
         }
     }
+    /* Check for Debug Log Debugging */
+    else if (!_strnicmp(p2, "FILE", 4))
+    {
+        /* Enable It */
+        p2 += 4;
+        KdpDebugMode.File = TRUE;
+        if (*p2 == ':')
+        {
+            p2++;
+            p1 = p2;
+            while (*p2 != '\0' && *p2 != ' ') p2++;
+            KdpLogFileName.MaximumLength = KdpLogFileName.Length = p2 - p1;
+            KdpLogFileName.Buffer = p1;
+        }
+    }
 
-    /* Entry not found in the table, use default mask */
-    return (Level & Kd_DEFAULT_MASK) ? TRUE : FALSE;
+    return p2;
 }
 
 NTSTATUS
 NTAPI
-NtSetDebugFilterState(IN ULONG ComponentId,
-                      IN ULONG Level,
-                      IN BOOLEAN State)
+KdDebuggerInitialize0(
+    _In_opt_ PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
+    PCHAR CommandLine, Port = NULL;
     ULONG i;
+    BOOLEAN Success = FALSE;
 
-    /* Convert Level to mask if it isn't already one */
-    if (Level < 32)
-        Level = 1 << Level;
-    Level &= ~DPFLTR_MASK;
-
-    /* Check if it is the default component */
-    if (ComponentId == MAXULONG)
+    if (LoaderBlock)
     {
-        /* Yes, modify the default mask */
-        if (State)
-            Kd_DEFAULT_MASK |= Level;
+        /* Check if we have a command line */
+        CommandLine = LoaderBlock->LoadOptions;
+        if (CommandLine)
+        {
+            /* Upcase it */
+            _strupr(CommandLine);
+
+            /* Get terminal settings */
+            KdpGetTerminalSettings(CommandLine);
+
+            /* Get the port */
+            Port = strstr(CommandLine, "DEBUGPORT");
+        }
+    }
+
+    /* Check if we got the /DEBUGPORT parameter(s) */
+    while (Port)
+    {
+        /* Move past the actual string, to reach the port*/
+        Port += sizeof("DEBUGPORT") - 1;
+
+        /* Now get past any spaces and skip the equal sign */
+        while (*Port == ' ') Port++;
+        Port++;
+
+        /* Get the debug mode and wrapper */
+        Port = KdpGetDebugMode(Port);
+        Port = strstr(Port, "DEBUGPORT");
+    }
+
+    /* Use serial port then */
+    if (KdpDebugMode.Value == 0)
+        KdpDebugMode.Serial = TRUE;
+
+    /* Call the providers at Phase 0 */
+    for (i = 0; i < RTL_NUMBER_OF(DispatchTable); i++)
+    {
+        DispatchTable[i].InitStatus = InitRoutines[i](&DispatchTable[i], 0);
+        Success = (Success || NT_SUCCESS(DispatchTable[i].InitStatus));
+    }
+
+    /* Return success if at least one of the providers succeeded */
+    return (Success ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL);
+}
+
+
+/**
+ * @brief   Reinitialization routine.
+ * DRIVER_REINITIALIZE
+ *
+ * Calls each registered provider for reinitialization at Phase >= 2.
+ * I/O is now set up for disk access, at different phases.
+ **/
+static VOID
+NTAPI
+KdpDriverReinit(
+    _In_ PDRIVER_OBJECT DriverObject,
+    _In_opt_ PVOID Context,
+    _In_ ULONG Count)
+{
+    PLIST_ENTRY CurrentEntry;
+    PKD_DISPATCH_TABLE CurrentTable;
+    PKDP_INIT_ROUTINE KdpInitRoutine;
+    ULONG BootPhase = (Count + 1); // Do BootPhase >= 2
+    BOOLEAN ScheduleReinit = FALSE;
+
+    ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
+
+    DPRINT("*** KD %sREINITIALIZATION - Phase %d ***\n",
+           Context ? "" : "BOOT ", BootPhase);
+
+    /* Call the registered providers */
+    for (CurrentEntry = KdProviders.Flink;
+         CurrentEntry != &KdProviders; NOTHING)
+    {
+        /* Get the provider */
+        CurrentTable = CONTAINING_RECORD(CurrentEntry,
+                                         KD_DISPATCH_TABLE,
+                                         KdProvidersList);
+        /* Go to the next entry (the Init routine may unlink us) */
+        CurrentEntry = CurrentEntry->Flink;
+
+        /* Call it if it requires a reinitialization */
+        if (CurrentTable->KdpInitRoutine)
+        {
+            /* Get the initialization routine and reset it */
+            KdpInitRoutine = CurrentTable->KdpInitRoutine;
+            CurrentTable->KdpInitRoutine = NULL;
+            CurrentTable->InitStatus = KdpInitRoutine(CurrentTable, BootPhase);
+            DPRINT("KdpInitRoutine(%p) returned 0x%08lx\n",
+                   CurrentTable, CurrentTable->InitStatus);
+
+            /* Check whether it needs to be reinitialized again */
+            ScheduleReinit = (ScheduleReinit || CurrentTable->KdpInitRoutine);
+        }
+    }
+
+    DPRINT("ScheduleReinit: %s\n", ScheduleReinit ? "TRUE" : "FALSE");
+    if (ScheduleReinit)
+    {
+        /*
+         * Determine when to reinitialize.
+         * If Context == NULL, we are doing a boot-driver reinitialization.
+         * It is initially done once (Count == 1), and is rescheduled once
+         * after all other boot drivers get loaded (Count == 2).
+         * If further reinitialization is needed, switch to system-driver
+         * reinitialization and do it again, not more than twice.
+         */
+        if (Count <= 1)
+        {
+            IoRegisterBootDriverReinitialization(DriverObject,
+                                                 KdpDriverReinit,
+                                                 (PVOID)FALSE);
+        }
+        else if (Count <= 3)
+        {
+            IoRegisterDriverReinitialization(DriverObject,
+                                             KdpDriverReinit,
+                                             (PVOID)TRUE);
+        }
         else
-            Kd_DEFAULT_MASK &= ~Level;
-
-        return STATUS_SUCCESS;
+        {
+            /* Too late, no more reinitializations! */
+            DPRINT("Cannot reinitialize anymore!\n");
+            ScheduleReinit = FALSE;
+        }
     }
 
-    /* Search for an existing entry */
-    for (i = 0; i < KdComponentTableEntries; i++ )
+    if (!ScheduleReinit)
     {
-        if (ComponentId == KdComponentTable[i].ComponentId)
-            break;
+        /* All the necessary reinitializations are done,
+         * the driver object is not needed anymore. */
+        ObMakeTemporaryObject(DriverObject);
+        IoDeleteDriver(DriverObject);
     }
+}
 
-    /* Check if we have found an existing entry */
-    if (i == KdComponentTableEntries)
-    {
-        /* Check if we have enough space in the table */
-        if (i == MAX_KD_COMPONENT_TABLE_ENTRIES)
-            return STATUS_INVALID_PARAMETER_1;
+/**
+ * @brief   Entry point for the auxiliary driver.
+ * DRIVER_INITIALIZE
+ **/
+static NTSTATUS
+NTAPI
+KdpDriverEntry(
+    _In_ PDRIVER_OBJECT DriverObject,
+    _In_ PUNICODE_STRING RegistryPath)
+{
+    UNREFERENCED_PARAMETER(RegistryPath);
 
-        /* Add a new entry */
-        ++KdComponentTableEntries;
-        KdComponentTable[i].ComponentId = ComponentId;
-        KdComponentTable[i].Level = Kd_DEFAULT_MASK;
-    }
+    /* Register for reinitialization after the other drivers are loaded */
+    IoRegisterBootDriverReinitialization(DriverObject,
+                                         KdpDriverReinit,
+                                         (PVOID)FALSE);
 
-    /* Update entry table */
-    if (State)
-        KdComponentTable[i].Level |= Level;
-    else
-        KdComponentTable[i].Level &= ~Level;
-
+    /* Set the driver as initialized */
+    DriverObject->Flags |= DRVO_INITIALIZED;
     return STATUS_SUCCESS;
 }
 
-/*
- * @unimplemented
- */
-NTSTATUS
+/**
+ * @brief   Hooked HalInitPnpDriver() callback.
+ * It is initially set by the HAL when HalInitSystem(0, ...)
+ * is called earlier on.
+ **/
+static pHalInitPnpDriver orgHalInitPnpDriver = NULL;
+
+/**
+ * @brief
+ * HalInitPnpDriver() callback hook installed by KdDebuggerInitialize1().
+ *
+ * It is called during initialization of the I/O manager and is where
+ * the auxiliary driver is created. This driver is needed for receiving
+ * reinitialization callbacks in KdpDriverReinit() later.
+ * This hook must *always* call the original HalInitPnpDriver() function
+ * and return its returned value, or return STATUS_SUCCESS.
+ **/
+static NTSTATUS
 NTAPI
-KdSystemDebugControl(IN SYSDBG_COMMAND Command,
-                     IN PVOID InputBuffer,
-                     IN ULONG InputBufferLength,
-                     OUT PVOID OutputBuffer,
-                     IN ULONG OutputBufferLength,
-                     IN OUT PULONG ReturnLength,
-                     IN KPROCESSOR_MODE PreviousMode)
+KdpInitDriver(VOID)
 {
-    /* HACK */
-    return KdpServiceDispatcher(Command,
-                                InputBuffer,
-                                InputBufferLength,
-                                PreviousMode);
+    static BOOLEAN InitCalled = FALSE;
+    NTSTATUS Status;
+    UNICODE_STRING DriverName = RTL_CONSTANT_STRING(L"\\Driver\\KdDriver");
+
+    ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
+
+    /* Ensure we are not called more than once */
+    if (_InterlockedCompareExchange8((char*)&InitCalled, TRUE, FALSE) != FALSE)
+        return STATUS_SUCCESS;
+
+    /* Create the driver */
+    Status = IoCreateDriver(&DriverName, KdpDriverEntry);
+    if (!NT_SUCCESS(Status))
+        DPRINT1("IoCreateDriver failed: 0x%08lx\n", Status);
+    /* Ignore any failure from IoCreateDriver(). If it fails, no I/O-related
+     * initialization will happen (no file log debugging, etc.). */
+
+    /* Finally, restore and call the original HalInitPnpDriver() */
+    InterlockedExchangePointer((PVOID*)&HalInitPnpDriver, orgHalInitPnpDriver);
+    return (HalInitPnpDriver ? HalInitPnpDriver() : STATUS_SUCCESS);
 }
 
-PKDEBUG_ROUTINE KiDebugRoutine = KdpEnterDebuggerException;
+NTSTATUS
+NTAPI
+KdDebuggerInitialize1(
+    _In_opt_ PLOADER_PARAMETER_BLOCK LoaderBlock)
+{
+    PLIST_ENTRY CurrentEntry;
+    PKD_DISPATCH_TABLE CurrentTable;
+    PKDP_INIT_ROUTINE KdpInitRoutine;
+    BOOLEAN Success = FALSE;
+    BOOLEAN ReinitForPhase2 = FALSE;
 
- /* EOF */
+    /* Make space for the displayed providers' signons */
+    HalDisplayString("\r\n");
+
+    /* Call the registered providers */
+    for (CurrentEntry = KdProviders.Flink;
+         CurrentEntry != &KdProviders; NOTHING)
+    {
+        /* Get the provider */
+        CurrentTable = CONTAINING_RECORD(CurrentEntry,
+                                         KD_DISPATCH_TABLE,
+                                         KdProvidersList);
+        /* Go to the next entry (the Init routine may unlink us) */
+        CurrentEntry = CurrentEntry->Flink;
+
+        /* Get the initialization routine and reset it */
+        ASSERT(CurrentTable->KdpInitRoutine);
+        KdpInitRoutine = CurrentTable->KdpInitRoutine;
+        CurrentTable->KdpInitRoutine = NULL;
+
+        /* Call it */
+        CurrentTable->InitStatus = KdpInitRoutine(CurrentTable, 1);
+
+        /* Check whether it needs to be reinitialized for Phase 2 */
+        Success = (Success || NT_SUCCESS(CurrentTable->InitStatus));
+        ReinitForPhase2 = (ReinitForPhase2 || CurrentTable->KdpInitRoutine);
+    }
+
+    /* Make space for the displayed providers' signons */
+    HalDisplayString("\r\n");
+
+    NtGlobalFlag |= FLG_STOP_ON_EXCEPTION;
+
+    /* If we don't need to reinitialize providers for Phase 2, we are done */
+    if (!ReinitForPhase2)
+    {
+        /* Return success if at least one of them succeeded */
+        return (Success ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL);
+    }
+
+    /**
+     * We want to be able to perform I/O-related initialization (starting a
+     * logger thread for file log debugging, loading KDBinit file for KDBG,
+     * etc.). A good place for this would be as early as possible, once the
+     * I/O Manager has started the storage and the boot filesystem drivers.
+     *
+     * Here is an overview of the initialization steps of the NT Kernel and
+     * Executive:
+     * ----
+     * KiSystemStartup(KeLoaderBlock)
+     *     if (Cpu == 0) KdInitSystem(0, KeLoaderBlock);
+     *     KiSwitchToBootStack() -> KiSystemStartupBootStack()
+     *     -> KiInitializeKernel() -> ExpInitializeExecutive(Cpu, KeLoaderBlock)
+     *
+     * (NOTE: Any unexpected debugger break will call KdInitSystem(0, NULL); )
+     * KdInitSystem(0, LoaderBlock) -> KdDebuggerInitialize0(LoaderBlock);
+     *
+     * ExpInitializeExecutive(Cpu == 0):    ExpInitializationPhase = 0;
+     *     HalInitSystem(0, KeLoaderBlock); <-- Sets HalInitPnpDriver callback.
+     *     ...
+     *     PsInitSystem(LoaderBlock)
+     *         PsCreateSystemThread(Phase1Initialization)
+     *
+     * Phase1Initialization(Discard):       ExpInitializationPhase = 1;
+     *     HalInitSystem(1, KeLoaderBlock);
+     *     ...
+     *     Early initialization of Ob, Ex, Ke.
+     *     KdInitSystem(1, KeLoaderBlock);
+     *     ...
+     *     KdDebuggerInitialize1(LoaderBlock);
+     *     ...
+     *     IoInitSystem(LoaderBlock);
+     *     ...
+     * ----
+     * As we can see, KdDebuggerInitialize1() is the last KD initialization
+     * routine the kernel calls, and is called *before* the I/O Manager starts.
+     * Thus, direct Nt/ZwCreateFile ... calls done there would fail. Also,
+     * we want to do the I/O initialization as soon as possible. There does
+     * not seem to be any exported way to be notified about the I/O manager
+     * initialization steps... that is, unless we somehow become a driver and
+     * insert ourselves in the flow!
+     *
+     * Since we are not a regular driver, we need to invoke IoCreateDriver()
+     * to create one. However, remember that we are currently running *before*
+     * IoInitSystem(), the I/O subsystem is not initialized yet. Due to this,
+     * calling IoCreateDriver(), much like any other IO functions, would lead
+     * to a crash, because it calls
+     * ObCreateObject(..., IoDriverObjectType, ...), and IoDriverObjectType
+     * is non-initialized yet (it's NULL).
+     *
+     * The chosen solution is to hook a "known" exported callback: namely, the
+     * HalInitPnpDriver() callback (it initializes the "HAL Root Bus Driver").
+     * It is set very early on by the HAL via the HalInitSystem(0, ...) call,
+     * and is called early on by IoInitSystem() before any driver is loaded,
+     * but after the I/O Manager has been minimally set up so that new drivers
+     * can be created.
+     * When the hook: KdpInitDriver() is called, we create our driver with
+     * IoCreateDriver(), specifying its entrypoint KdpDriverEntry(), then
+     * restore and call the original HalInitPnpDriver() callback.
+     *
+     * Another possible unexplored alternative, could be to insert ourselves
+     * in the KeLoaderBlock->LoadOrderListHead boot modules list, or in the
+     * KeLoaderBlock->BootDriverListHead boot-driver list. (Note that while
+     * we may be able to do this, because boot-drivers are resident in memory,
+     * much like we are, we cannot insert ourselves in the system-driver list
+     * however, since those drivers are expected to come from PE image files.)
+     *
+     * Once the KdpDriverEntry() driver entrypoint is called, we register
+     * KdpDriverReinit() for re-initialization with the I/O Manager, in order
+     * to provide more initialization points. KdpDriverReinit() calls the KD
+     * providers at BootPhase >= 2, and schedules further reinitializations
+     * (at most 3 more) if any of the providers request so.
+     **/
+    orgHalInitPnpDriver =
+        InterlockedExchangePointer((PVOID*)&HalInitPnpDriver, KdpInitDriver);
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+NTAPI
+KdD0Transition(VOID)
+{
+    /* Nothing to do */
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+NTAPI
+KdD3Transition(VOID)
+{
+    /* Nothing to do */
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+NTAPI
+KdSave(
+    _In_ BOOLEAN SleepTransition)
+{
+    /* Nothing to do */
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+NTAPI
+KdRestore(
+    _In_ BOOLEAN SleepTransition)
+{
+    /* Nothing to do */
+    return STATUS_SUCCESS;
+}
+
+/* EOF */

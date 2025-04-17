@@ -5,7 +5,7 @@
  ******************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2017, Intel Corp.
+ * Copyright (C) 2000 - 2022, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
  * NO WARRANTY
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
  * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
@@ -159,8 +159,8 @@ AcpiNsHandleToName (
     /* Just copy the ACPI name from the Node and zero terminate it */
 
     NodeName = AcpiUtGetNodeName (Node);
-    ACPI_MOVE_NAME (Buffer->Pointer, NodeName);
-    ((char *) Buffer->Pointer) [ACPI_NAME_SIZE] = 0;
+    ACPI_COPY_NAMESEG (Buffer->Pointer, NodeName);
+    ((char *) Buffer->Pointer) [ACPI_NAMESEG_SIZE] = 0;
 
     ACPI_DEBUG_PRINT ((ACPI_DB_EXEC, "%4.4s\n", (char *) Buffer->Pointer));
     return_ACPI_STATUS (AE_OK);
@@ -222,7 +222,7 @@ AcpiNsHandleToPathname (
     /* Build the path in the caller buffer */
 
     (void) AcpiNsBuildNormalizedPath (Node, Buffer->Pointer,
-        RequiredSize, NoTrailing);
+        (UINT32) RequiredSize, NoTrailing);
 
     ACPI_DEBUG_PRINT ((ACPI_DB_EXEC, "%s [%X]\n",
         (char *) Buffer->Pointer, (UINT32) RequiredSize));
@@ -260,7 +260,7 @@ AcpiNsBuildNormalizedPath (
     BOOLEAN                 NoTrailing)
 {
     UINT32                  Length = 0, i;
-    char                    Name[ACPI_NAME_SIZE];
+    char                    Name[ACPI_NAMESEG_SIZE];
     BOOLEAN                 DoNoTrailing;
     char                    c, *Left, *Right;
     ACPI_NAMESPACE_NODE     *NextNode;
@@ -395,7 +395,176 @@ AcpiNsGetNormalizedPathname (
 
     /* Build the path in the allocated buffer */
 
-    (void) AcpiNsBuildNormalizedPath (Node, NameBuffer, Size, NoTrailing);
+    (void) AcpiNsBuildNormalizedPath (Node, NameBuffer, (UINT32) Size, NoTrailing);
+
+    ACPI_DEBUG_PRINT_RAW ((ACPI_DB_NAMES, "%s: Path \"%s\"\n",
+        ACPI_GET_FUNCTION_NAME, NameBuffer));
 
     return_PTR (NameBuffer);
+}
+
+
+/*******************************************************************************
+ *
+ * FUNCTION:    AcpiNsBuildPrefixedPathname
+ *
+ * PARAMETERS:  PrefixScope         - Scope/Path that prefixes the internal path
+ *              InternalPath        - Name or path of the namespace node
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Construct a fully qualified pathname from a concatenation of:
+ *              1) Path associated with the PrefixScope namespace node
+ *              2) External path representation of the Internal path
+ *
+ ******************************************************************************/
+
+char *
+AcpiNsBuildPrefixedPathname (
+    ACPI_GENERIC_STATE      *PrefixScope,
+    const char              *InternalPath)
+{
+    ACPI_STATUS             Status;
+    char                    *FullPath = NULL;
+    char                    *ExternalPath = NULL;
+    char                    *PrefixPath = NULL;
+    ACPI_SIZE               PrefixPathLength = 0;
+
+
+    /* If there is a prefix, get the pathname to it */
+
+    if (PrefixScope && PrefixScope->Scope.Node)
+    {
+        PrefixPath = AcpiNsGetNormalizedPathname (PrefixScope->Scope.Node, TRUE);
+        if (PrefixPath)
+        {
+            PrefixPathLength = strlen (PrefixPath);
+        }
+    }
+
+    Status = AcpiNsExternalizeName (ACPI_UINT32_MAX, InternalPath,
+        NULL, &ExternalPath);
+    if (ACPI_FAILURE (Status))
+    {
+        goto Cleanup;
+    }
+
+    /* Merge the prefix path and the path. 2 is for one dot and trailing null */
+
+    FullPath = ACPI_ALLOCATE_ZEROED (
+        PrefixPathLength + strlen (ExternalPath) + 2);
+    if (!FullPath)
+    {
+        goto Cleanup;
+    }
+
+    /* Don't merge if the External path is already fully qualified */
+
+    if (PrefixPath &&
+        (*ExternalPath != '\\') &&
+        (*ExternalPath != '^'))
+    {
+        strcat (FullPath, PrefixPath);
+        if (PrefixPath[1])
+        {
+            strcat (FullPath, ".");
+        }
+    }
+
+    AcpiNsNormalizePathname (ExternalPath);
+    strcat (FullPath, ExternalPath);
+
+Cleanup:
+    if (PrefixPath)
+    {
+        ACPI_FREE (PrefixPath);
+    }
+    if (ExternalPath)
+    {
+        ACPI_FREE (ExternalPath);
+    }
+
+    return (FullPath);
+}
+
+
+/*******************************************************************************
+ *
+ * FUNCTION:    AcpiNsNormalizePathname
+ *
+ * PARAMETERS:  OriginalPath        - Path to be normalized, in External format
+ *
+ * RETURN:      The original path is processed in-place
+ *
+ * DESCRIPTION: Remove trailing underscores from each element of a path.
+ *
+ *              For example:  \A___.B___.C___ becomes \A.B.C
+ *
+ ******************************************************************************/
+
+void
+AcpiNsNormalizePathname (
+    char                    *OriginalPath)
+{
+    char                    *InputPath = OriginalPath;
+    char                    *NewPathBuffer;
+    char                    *NewPath;
+    UINT32                  i;
+
+
+    /* Allocate a temp buffer in which to construct the new path */
+
+    NewPathBuffer = ACPI_ALLOCATE_ZEROED (strlen (InputPath) + 1);
+    NewPath = NewPathBuffer;
+    if (!NewPathBuffer)
+    {
+        return;
+    }
+
+    /* Special characters may appear at the beginning of the path */
+
+    if (*InputPath == '\\')
+    {
+        *NewPath = *InputPath;
+        NewPath++;
+        InputPath++;
+    }
+
+    while (*InputPath == '^')
+    {
+        *NewPath = *InputPath;
+        NewPath++;
+        InputPath++;
+    }
+
+    /* Remainder of the path */
+
+    while (*InputPath)
+    {
+        /* Do one nameseg at a time */
+
+        for (i = 0; (i < ACPI_NAMESEG_SIZE) && *InputPath; i++)
+        {
+            if ((i == 0) || (*InputPath != '_')) /* First char is allowed to be underscore */
+            {
+                *NewPath = *InputPath;
+                NewPath++;
+            }
+
+            InputPath++;
+        }
+
+        /* Dot means that there are more namesegs to come */
+
+        if (*InputPath == '.')
+        {
+            *NewPath = *InputPath;
+            NewPath++;
+            InputPath++;
+        }
+    }
+
+    *NewPath = 0;
+    strcpy (OriginalPath, NewPathBuffer);
+    ACPI_FREE (NewPathBuffer);
 }

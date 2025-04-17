@@ -7,12 +7,12 @@ list(APPEND SOURCE
     kdserial.c
     kddll.h)
 
-add_library(kdcom SHARED
+add_library(kdcom MODULE
     ${SOURCE}
     kdcom.rc
     ${CMAKE_CURRENT_BINARY_DIR}/kdcom.def)
 
-set_module_type(kdcom module IMAGEBASE 0x00010000)
+set_module_type(kdcom kerneldll ENTRYPOINT 0)
 set_subsystem(kdcom native)
 add_importlibs(kdcom ntoskrnl hal)
 target_link_libraries(kdcom cportlib)

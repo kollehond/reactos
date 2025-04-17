@@ -43,6 +43,7 @@ LARGE_INTEGER IoWriteTransferCount = {{0, 0}};
 ULONG IoOtherOperationCount = 0;
 LARGE_INTEGER IoOtherTransferCount = {{0, 0}};
 KSPIN_LOCK IoStatisticsLock = 0;
+ULONG IopAutoReboot;
 ULONG IopNumTriageDumpDataBlocks;
 PVOID IopTriageDumpDataBlocks[64];
 
@@ -59,14 +60,12 @@ extern POBJECT_TYPE IoAdapterObjectType;
 extern ERESOURCE IopDatabaseResource;
 ERESOURCE IopSecurityResource;
 extern ERESOURCE IopDriverLoadResource;
-extern KGUARDED_MUTEX PnpNotifyListLock;
 extern LIST_ENTRY IopDiskFileSystemQueueHead;
 extern LIST_ENTRY IopCdRomFileSystemQueueHead;
 extern LIST_ENTRY IopTapeFileSystemQueueHead;
 extern LIST_ENTRY IopNetworkFileSystemQueueHead;
 extern LIST_ENTRY DriverBootReinitListHead;
 extern LIST_ENTRY DriverReinitListHead;
-extern LIST_ENTRY PnpNotifyListHead;
 extern LIST_ENTRY IopFsNotifyChangeQueueHead;
 extern LIST_ENTRY IopErrorLogListHead;
 extern LIST_ENTRY IopTimerQueueHead;
@@ -79,6 +78,7 @@ extern KSPIN_LOCK IopLogListLock;
 extern KSPIN_LOCK IopTimerLock;
 
 extern PDEVICE_OBJECT IopErrorLogObject;
+extern BOOLEAN PnPBootDriversInitialized;
 
 GENERAL_LOOKASIDE IoLargeIrpLookaside;
 GENERAL_LOOKASIDE IoSmallIrpLookaside;
@@ -87,14 +87,10 @@ extern GENERAL_LOOKASIDE IoCompletionPacketLookaside;
 
 PLOADER_PARAMETER_BLOCK IopLoaderBlock;
 
-#if defined (ALLOC_PRAGMA)
-#pragma alloc_text(INIT, IoInitSystem)
-#endif
-
 /* INIT FUNCTIONS ************************************************************/
 
+CODE_SEG("INIT")
 VOID
-INIT_FUNCTION
 NTAPI
 IopInitLookasideLists(VOID)
 {
@@ -240,8 +236,8 @@ IopInitLookasideLists(VOID)
     }
 }
 
+CODE_SEG("INIT")
 BOOLEAN
-INIT_FUNCTION
 NTAPI
 IopCreateObjectTypes(VOID)
 {
@@ -317,7 +313,7 @@ IopCreateObjectTypes(VOID)
     ObjectTypeInitializer.CloseProcedure = IopCloseFile;
     ObjectTypeInitializer.DeleteProcedure = IopDeleteFile;
     ObjectTypeInitializer.SecurityProcedure = IopGetSetSecurityObject;
-    ObjectTypeInitializer.QueryNameProcedure = IopQueryNameFile;
+    ObjectTypeInitializer.QueryNameProcedure = IopQueryName;
     ObjectTypeInitializer.ParseProcedure = IopParseFile;
     ObjectTypeInitializer.UseDefaultObject = FALSE;
     if (!NT_SUCCESS(ObCreateObjectType(&Name,
@@ -329,8 +325,8 @@ IopCreateObjectTypes(VOID)
     return TRUE;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
-INIT_FUNCTION
 NTAPI
 IopCreateRootDirectories(VOID)
 {
@@ -394,8 +390,8 @@ IopCreateRootDirectories(VOID)
     return TRUE;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
-INIT_FUNCTION
 NTAPI
 IopMarkBootPartition(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
@@ -464,8 +460,8 @@ IopMarkBootPartition(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     return TRUE;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
-INIT_FUNCTION
 NTAPI
 IoInitSystem(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
@@ -484,14 +480,12 @@ IoInitSystem(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     ExInitializeResourceLite(&IopDatabaseResource);
     ExInitializeResourceLite(&IopSecurityResource);
     ExInitializeResourceLite(&IopDriverLoadResource);
-    KeInitializeGuardedMutex(&PnpNotifyListLock);
     InitializeListHead(&IopDiskFileSystemQueueHead);
     InitializeListHead(&IopCdRomFileSystemQueueHead);
     InitializeListHead(&IopTapeFileSystemQueueHead);
     InitializeListHead(&IopNetworkFileSystemQueueHead);
     InitializeListHead(&DriverBootReinitListHead);
     InitializeListHead(&DriverReinitListHead);
-    InitializeListHead(&PnpNotifyListHead);
     InitializeListHead(&ShutdownListHead);
     InitializeListHead(&LastChanceShutdownListHead);
     InitializeListHead(&IopFsNotifyChangeQueueHead);
@@ -501,6 +495,9 @@ IoInitSystem(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     KeInitializeSpinLock(&DriverBootReinitListLock);
     KeInitializeSpinLock(&ShutdownListLock);
     KeInitializeSpinLock(&IopLogListLock);
+
+    /* Initialize PnP notifications */
+    PiInitializeNotifications();
 
     /* Initialize the reserve IRP */
     if (!IopInitializeReserveIrp(&IopReserveIrpAllocator))
@@ -547,6 +544,13 @@ IoInitSystem(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     /* Initialize HAL Root Bus Driver */
     HalInitPnpDriver();
 
+    /* Reenumerate what HAL has added (synchronously)
+     * This function call should eventually become a 2nd stage of the PnP initialization */
+    PiQueueDeviceAction(IopRootDeviceNode->PhysicalDeviceObject,
+                        PiActionEnumRootDevices,
+                        NULL,
+                        NULL);
+
     /* Make loader block available for the whole kernel */
     IopLoaderBlock = LoaderBlock;
 
@@ -581,19 +585,9 @@ IoInitSystem(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
         return FALSE;
     }
 
-    /* Initialize PnP root relations */
-    IopEnumerateDevice(IopRootDeviceNode->PhysicalDeviceObject);
-
-#ifndef _WINKD_
-    /* Read KDB Data */
-    KdbInit();
-
-    /* I/O is now setup for disk access, so phase 3 */
-    KdInitSystem(3, LoaderBlock);
-#endif
-
-    /* Load services for devices found by PnP manager */
-    IopInitializePnpServices(IopRootDeviceNode);
+    /* The disk subsystem is initialized here and the SystemRoot is set too.
+     * We can finally load other drivers from the boot volume. */
+    PnPBootDriversInitialized = TRUE;
 
     /* Load system start drivers */
     IopInitializeSystemDrivers();
@@ -639,7 +633,7 @@ IoInitSystem(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
         return FALSE;
     }
 
-    /* Load the System DLL and its Entrypoints */
+    /* Load the System DLL and its entrypoints */
     Status = PsLocateSystemDll();
     if (!NT_SUCCESS(Status))
     {
@@ -649,6 +643,14 @@ IoInitSystem(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 
     /* Return success */
     return TRUE;
+}
+
+BOOLEAN
+NTAPI
+IoInitializeCrashDump(IN HANDLE PageFileHandle)
+{
+    UNIMPLEMENTED;
+    return FALSE;
 }
 
 /* EOF */

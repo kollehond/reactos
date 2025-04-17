@@ -1,4 +1,4 @@
-/* 
+/*
  * COPYRIGHT:        See COPYING in the top level directory
  * PROJECT:          ReactOS Win32k subsystem
  * PURPOSE:          Interface between Win32k and USERSRV
@@ -31,5 +31,12 @@ CsrClientCallServer(IN OUT PCSR_API_MESSAGE ApiMessage,
                     IN OUT PCSR_CAPTURE_BUFFER CaptureBuffer OPTIONAL,
                     IN CSR_API_NUMBER ApiNumber,
                     IN ULONG DataLength);
+
+#define ST_RIT              (1<<0)
+#define ST_DESKTOP_THREAD   (1<<1)
+#define ST_GHOST_THREAD     (1<<2)
+
+DWORD UserSystemThreadProc(BOOL bRemoteProcess);
+BOOL UserCreateSystemThread(DWORD Type);
 
 /* EOF */

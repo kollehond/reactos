@@ -31,9 +31,9 @@ static GENERIC_MAPPING LpcpPortMapping =
 
 /* PRIVATE FUNCTIONS *********************************************************/
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 LpcInitSystem(VOID)
 {
     OBJECT_TYPE_INITIALIZER ObjectTypeInitializer;

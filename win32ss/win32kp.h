@@ -10,14 +10,6 @@
 
 #pragma once
 
-#ifdef __GNUC__
-#define INIT_SECTION __attribute__((section ("INIT")))
-#define INIT_FUNCTION INIT_SECTION
-#else
-#define INIT_SECTION  /* Done via alloc_text for MSC */
-#define INIT_FUNCTION INIT_SECTION
-#endif
-
 /* Enable debugging features */
 #define GDI_DEBUG 0
 #define DBG_ENABLE_GDIOBJ_BACKTRACES 0
@@ -31,6 +23,7 @@ typedef struct _DC *PDC;
 #include "gdi/ntgdi/gdiobj.h"
 #include "gdi/ntgdi/palette.h"
 #include "gdi/eng/surface.h"
+#include "gdi/eng/mdevobj.h"
 #include "gdi/eng/pdevobj.h"
 #include "gdi/eng/ldevobj.h"
 #include "gdi/eng/device.h"
@@ -57,24 +50,25 @@ typedef struct _DC *PDC;
 #include "gdi/ntgdi/pen.h"
 #include "gdi/ntgdi/cliprgn.h"
 #include "gdi/ntgdi/coord.h"
-#include "gdi/ntgdi/gdifloat.h"
 #include "gdi/ntgdi/path.h"
 #include "gdi/dib/dib.h"
 #include "reactx/ntddraw/intddraw.h"
+#include "reactx/ntdxvista/dxprivate.h"
 
 /* Internal NtUser Headers */
 #include "user/ntuser/win32kdebug.h"
 #include "user/ntuser/win32.h"
 #include "user/ntuser/tags.h"
 #ifndef __cplusplus
+#include "user/ntuser/ntuser.h"
 #include "user/ntuser/usrheap.h"
 #include "user/ntuser/object.h"
-#include "user/ntuser/ntuser.h"
 #include "user/ntuser/shutdown.h"
 #include "user/ntuser/cursoricon.h"
 #include "user/ntuser/accelerator.h"
 #include "user/ntuser/hook.h"
 #include "user/ntuser/clipboard.h"
+#include "user/ntuser/display.h"
 #include "user/ntuser/winsta.h"
 #include "user/ntuser/msgqueue.h"
 #include "user/ntuser/desktop.h"
@@ -89,7 +83,9 @@ typedef struct _DC *PDC;
 #include "user/ntuser/painting.h"
 #include "user/ntuser/class.h"
 #include "user/ntuser/window.h"
+#include "user/ntuser/security.h"
 #include "user/ntuser/sysparams.h"
+#include "user/ntuser/power.h"
 #include "user/ntuser/prop.h"
 #include "user/ntuser/guicheck.h"
 #include "user/ntuser/useratom.h"
@@ -99,6 +95,7 @@ typedef struct _DC *PDC;
 #include "user/ntuser/winpos.h"
 #include "user/ntuser/callback.h"
 #include "user/ntuser/mmcopy.h"
+#include "user/ntuser/ghost.h"
 
 /* CSRSS Interface */
 #include "user/ntuser/csr.h"

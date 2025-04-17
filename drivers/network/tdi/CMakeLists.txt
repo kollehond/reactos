@@ -1,8 +1,4 @@
 
-include_directories(
-    BEFORE include
-    ${REACTOS_SOURCE_DIR}/sdk/lib/drivers/oskittcp/include)
-
 add_definitions(
     -DNDIS40
     -D_NTDRIVER_
@@ -21,7 +17,7 @@ list(APPEND SOURCE
     tdi/stubs.c
     precomp.h)
 
-add_library(tdi SHARED
+add_library(tdi MODULE
     ${SOURCE}
     misc/tdi.rc
     ${CMAKE_CURRENT_BINARY_DIR}/tdi.def)

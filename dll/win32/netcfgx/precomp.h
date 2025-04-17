@@ -14,14 +14,21 @@
 #include <windef.h>
 #include <winbase.h>
 #include <winreg.h>
+#include <winsvc.h>
+#include <windowsx.h>
 #include <objbase.h>
 #include <netcfgx.h>
 #include <setupapi.h>
 #include <netcfgn.h>
 #include <devguid.h>
 #include <commctrl.h>
+#include <cfgmgr32.h>
+
+#include <wine/debug.h>
 
 #include "resource.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(netcfgx);
 
 typedef HRESULT (CALLBACK *LPFNCREATEINSTANCE)(IUnknown* pUnkOuter, REFIID riid, LPVOID* ppvObject);
 typedef struct {
@@ -41,6 +48,7 @@ typedef struct tagNetCfgComponentItem
     DWORD dwCharacteristics;    //Y
     ULONG Status;               //Y
     BOOL bChanged;              //Y
+    LPWSTR pszBinding;
     struct tagNetCfgComponentItem * pNext;
     INetCfgComponentControl * pNCCC;
 }NetCfgComponentItem;
@@ -57,6 +65,20 @@ extern HINSTANCE netcfgx_hInstance;
 /* inetcfgcomp_iface.c */
 HRESULT WINAPI INetCfgComponent_Constructor (IUnknown * pUnkOuter, REFIID riid, LPVOID * ppv, NetCfgComponentItem * pItem,INetCfg * iface);
 HRESULT WINAPI IEnumNetCfgComponent_Constructor (IUnknown * pUnkOuter, REFIID riid, LPVOID * ppv, NetCfgComponentItem * pItem, INetCfg * iface);
+
+/* netcfgbindinginterface_iface.c */
+HRESULT WINAPI INetCfgBindingInterface_Constructor(IUnknown *pUnkOuter, REFIID riid, LPVOID *ppv);
+HRESULT WINAPI IEnumNetCfgBindingInterface_Constructor(IUnknown *pUnkOuter, REFIID riid, LPVOID *ppv);
+
+/* netcfgbindingpath_iface.c */
+HRESULT WINAPI INetCfgBindingPath_Constructor(IUnknown *pUnkOuter, REFIID riid, LPVOID *ppv);
+HRESULT WINAPI IEnumNetCfgBindingPath_Constructor(IUnknown *pUnkOuter, REFIID riid, LPVOID *ppv, DWORD dwFlags);
+
+/* netcfgclass_iface.c */
+HRESULT WINAPI INetCfgClass_Constructor(IUnknown *pUnkOuter, REFIID riid, LPVOID *ppv, const GUID *pguidClass, INetCfg *pNetCfg);
+
+/* netinstall.c */
+BOOL InstallNetworkComponent(_In_ PCWSTR pszComponentId);
 
 /* tcpipconf_notify.c */
 HRESULT WINAPI TcpipConfigNotify_Constructor (IUnknown * pUnkOuter, REFIID riid, LPVOID * ppv);

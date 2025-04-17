@@ -17,6 +17,12 @@ typedef enum _LSA_TOKEN_INFORMATION_TYPE
     LsaTokenInformationV1
 } LSA_TOKEN_INFORMATION_TYPE, *PLSA_TOKEN_INFORMATION_TYPE;
 
+typedef struct _LSA_TOKEN_INFORMATION_NULL
+{
+    LARGE_INTEGER ExpirationTime;
+    PTOKEN_GROUPS Groups;
+} LSA_TOKEN_INFORMATION_NULL, *PLSA_TOKEN_INFORMATION_NULL;
+
 typedef struct _LSA_TOKEN_INFORMATION_V1
 {
     LARGE_INTEGER ExpirationTime;
@@ -535,6 +541,25 @@ LsapLookupAuthenticationPackage(PLSA_API_MSG RequestMsg,
 }
 
 
+VOID
+LsapTerminateLogon(
+    _In_ PLUID LogonId)
+{
+    PLIST_ENTRY ListEntry;
+    PAUTH_PACKAGE Package;
+
+    ListEntry = PackageListHead.Flink;
+    while (ListEntry != &PackageListHead)
+    {
+        Package = CONTAINING_RECORD(ListEntry, AUTH_PACKAGE, Entry);
+
+        Package->LsaApLogonTerminated(LogonId);
+
+        ListEntry = ListEntry->Flink;
+    }
+}
+
+
 NTSTATUS
 LsapCallAuthenticationPackage(PLSA_API_MSG RequestMsg,
                               PLSAP_LOGON_CONTEXT LogonContext)
@@ -579,13 +604,22 @@ LsapCallAuthenticationPackage(PLSA_API_MSG RequestMsg,
         }
     }
 
-    Status = Package->LsaApCallPackage((PLSA_CLIENT_REQUEST)LogonContext,
-                                       LocalBuffer,
-                                       RequestMsg->CallAuthenticationPackage.Request.ProtocolSubmitBuffer,
-                                       RequestMsg->CallAuthenticationPackage.Request.SubmitBufferLength,
-                                       &RequestMsg->CallAuthenticationPackage.Reply.ProtocolReturnBuffer,
-                                       &RequestMsg->CallAuthenticationPackage.Reply.ReturnBufferLength,
-                                       &RequestMsg->CallAuthenticationPackage.Reply.ProtocolStatus);
+    if (LogonContext->TrustedCaller)
+        Status = Package->LsaApCallPackage((PLSA_CLIENT_REQUEST)LogonContext,
+                                           LocalBuffer,
+                                           RequestMsg->CallAuthenticationPackage.Request.ProtocolSubmitBuffer,
+                                           RequestMsg->CallAuthenticationPackage.Request.SubmitBufferLength,
+                                           &RequestMsg->CallAuthenticationPackage.Reply.ProtocolReturnBuffer,
+                                           &RequestMsg->CallAuthenticationPackage.Reply.ReturnBufferLength,
+                                           &RequestMsg->CallAuthenticationPackage.Reply.ProtocolStatus);
+    else
+        Status = Package->LsaApCallPackageUntrusted((PLSA_CLIENT_REQUEST)LogonContext,
+                                                    LocalBuffer,
+                                                    RequestMsg->CallAuthenticationPackage.Request.ProtocolSubmitBuffer,
+                                                    RequestMsg->CallAuthenticationPackage.Request.SubmitBufferLength,
+                                                    &RequestMsg->CallAuthenticationPackage.Reply.ProtocolReturnBuffer,
+                                                    &RequestMsg->CallAuthenticationPackage.Reply.ReturnBufferLength,
+                                                    &RequestMsg->CallAuthenticationPackage.Reply.ProtocolStatus);
     if (!NT_SUCCESS(Status))
     {
         TRACE("Package->LsaApCallPackage() failed (Status 0x%08lx)\n", Status);
@@ -1365,6 +1399,7 @@ LsapLogonUser(PLSA_API_MSG RequestMsg,
     SECURITY_QUALITY_OF_SERVICE Qos;
     LSA_TOKEN_INFORMATION_TYPE TokenInformationType;
     PVOID TokenInformation = NULL;
+    PLSA_TOKEN_INFORMATION_NULL TokenInfo0 = NULL;
     PLSA_TOKEN_INFORMATION_V1 TokenInfo1 = NULL;
     PUNICODE_STRING AccountName = NULL;
     PUNICODE_STRING AuthenticatingAuthority = NULL;
@@ -1549,15 +1584,23 @@ LsapLogonUser(PLSA_API_MSG RequestMsg,
         goto done;
     }
 
-    if (TokenInformationType == LsaTokenInformationV1)
+    if (TokenInformationType == LsaTokenInformationNull)
     {
-        TOKEN_PRIVILEGES NoPrivilege = {0};
-        TokenInfo1 = (PLSA_TOKEN_INFORMATION_V1)TokenInformation;
+        TOKEN_USER TokenUser;
+        TOKEN_PRIMARY_GROUP TokenPrimaryGroup;
+        TOKEN_GROUPS NoGroups = {0};
+        TOKEN_PRIVILEGES NoPrivileges = {0};
+
+        TokenInfo0 = (PLSA_TOKEN_INFORMATION_NULL)TokenInformation;
+
+        TokenUser.User.Sid = LsapWorldSid;
+        TokenUser.User.Attributes = 0;
+        TokenPrimaryGroup.PrimaryGroup = LsapWorldSid;
 
         Qos.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
         Qos.ImpersonationLevel = SecurityImpersonation;
-        Qos.ContextTrackingMode = SECURITY_DYNAMIC_TRACKING;
-        Qos.EffectiveOnly = FALSE;
+        Qos.ContextTrackingMode = SECURITY_STATIC_TRACKING;
+        Qos.EffectiveOnly = TRUE;
 
         ObjectAttributes.Length = sizeof(OBJECT_ATTRIBUTES);
         ObjectAttributes.RootDirectory = NULL;
@@ -1570,17 +1613,62 @@ LsapLogonUser(PLSA_API_MSG RequestMsg,
         Status = NtCreateToken(&TokenHandle,
                                TOKEN_ALL_ACCESS,
                                &ObjectAttributes,
+                               TokenImpersonation,
+                               &RequestMsg->LogonUser.Reply.LogonId,
+                               &TokenInfo0->ExpirationTime,
+                               &TokenUser,
+                               &NoGroups,
+                               &NoPrivileges,
+                               NULL,
+                               &TokenPrimaryGroup,
+                               NULL,
+                               &RequestMsg->LogonUser.Request.SourceContext);
+    }
+    else if (TokenInformationType == LsaTokenInformationV1)
+    {
+        TOKEN_PRIVILEGES NoPrivileges = {0};
+        PSECURITY_DESCRIPTOR TokenSd;
+        ULONG TokenSdSize;
+
+        TokenInfo1 = (PLSA_TOKEN_INFORMATION_V1)TokenInformation;
+
+        /* Set up a security descriptor for token object itself */
+        Status = LsapCreateTokenSd(&TokenInfo1->User, &TokenSd, &TokenSdSize);
+        if (!NT_SUCCESS(Status))
+        {
+            TokenSd = NULL;
+        }
+
+        Qos.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
+        Qos.ImpersonationLevel = SecurityImpersonation;
+        Qos.ContextTrackingMode = SECURITY_DYNAMIC_TRACKING;
+        Qos.EffectiveOnly = FALSE;
+
+        ObjectAttributes.Length = sizeof(OBJECT_ATTRIBUTES);
+        ObjectAttributes.RootDirectory = NULL;
+        ObjectAttributes.ObjectName = NULL;
+        ObjectAttributes.Attributes = 0;
+        ObjectAttributes.SecurityDescriptor = TokenSd;
+        ObjectAttributes.SecurityQualityOfService = &Qos;
+
+        /* Create the logon token */
+        Status = NtCreateToken(&TokenHandle,
+                               TOKEN_ALL_ACCESS,
+                               &ObjectAttributes,
                                (RequestMsg->LogonUser.Request.LogonType == Network) ? TokenImpersonation : TokenPrimary,
                                &RequestMsg->LogonUser.Reply.LogonId,
                                &TokenInfo1->ExpirationTime,
                                &TokenInfo1->User,
                                TokenInfo1->Groups,
-                               TokenInfo1->Privileges ? TokenInfo1->Privileges
-                                                      : &NoPrivilege,
+                               TokenInfo1->Privileges ? TokenInfo1->Privileges : &NoPrivileges,
                                &TokenInfo1->Owner,
                                &TokenInfo1->PrimaryGroup,
                                &TokenInfo1->DefaultDacl,
                                &RequestMsg->LogonUser.Request.SourceContext);
+
+        /* Free the allocated security descriptor */
+        RtlFreeHeap(RtlGetProcessHeap(), 0, TokenSd);
+
         if (!NT_SUCCESS(Status))
         {
             ERR("NtCreateToken failed (Status 0x%08lx)\n", Status);
@@ -1593,22 +1681,6 @@ LsapLogonUser(PLSA_API_MSG RequestMsg,
         Status = STATUS_NOT_IMPLEMENTED;
         goto done;
     }
-
-    /* Duplicate the token handle into the client process */
-    Status = NtDuplicateObject(NtCurrentProcess(),
-                               TokenHandle,
-                               LogonContext->ClientProcessHandle,
-                               &RequestMsg->LogonUser.Reply.Token,
-                               0,
-                               0,
-                               DUPLICATE_SAME_ACCESS | DUPLICATE_SAME_ATTRIBUTES | DUPLICATE_CLOSE_SOURCE);
-    if (!NT_SUCCESS(Status))
-    {
-        ERR("NtDuplicateObject failed (Status 0x%08lx)\n", Status);
-        goto done;
-    }
-
-//    TokenHandle = NULL;
 
     if (LogonType == Interactive ||
         LogonType == Batch ||
@@ -1633,12 +1705,41 @@ LsapLogonUser(PLSA_API_MSG RequestMsg,
         goto done;
     }
 
+    /*
+     * Duplicate the token handle into the client process.
+     * This must be the last step because we cannot
+     * close the duplicated token handle in case something fails.
+     */
+    Status = NtDuplicateObject(NtCurrentProcess(),
+                               TokenHandle,
+                               LogonContext->ClientProcessHandle,
+                               &RequestMsg->LogonUser.Reply.Token,
+                               0,
+                               0,
+                               DUPLICATE_SAME_ACCESS | DUPLICATE_SAME_ATTRIBUTES | DUPLICATE_CLOSE_SOURCE);
+    if (!NT_SUCCESS(Status))
+    {
+        ERR("NtDuplicateObject failed (Status 0x%08lx)\n", Status);
+        goto done;
+    }
+
 done:
-//    if (!NT_SUCCESS(Status))
-//    {
-        if (TokenHandle != NULL)
-            NtClose(TokenHandle);
-//    }
+    if (!NT_SUCCESS(Status))
+    {
+        /* Notify the authentification package of the failure */
+        Package->LsaApLogonTerminated(&RequestMsg->LogonUser.Reply.LogonId);
+
+        /* Delete the logon session */
+        LsapDeleteLogonSession(&RequestMsg->LogonUser.Reply.LogonId);
+
+        /* Release the profile buffer */
+        LsapFreeClientBuffer((PLSA_CLIENT_REQUEST)LogonContext,
+                             RequestMsg->LogonUser.Reply.ProfileBuffer);
+        RequestMsg->LogonUser.Reply.ProfileBuffer = NULL;
+    }
+
+    if (TokenHandle != NULL)
+        NtClose(TokenHandle);
 
     /* Free the local groups */
     if (LocalGroups != NULL)
@@ -1659,7 +1760,27 @@ done:
     /* Free the token information */
     if (TokenInformation != NULL)
     {
-        if (TokenInformationType == LsaTokenInformationV1)
+        if (TokenInformationType == LsaTokenInformationNull)
+        {
+            TokenInfo0 = (PLSA_TOKEN_INFORMATION_NULL)TokenInformation;
+
+            if (TokenInfo0 != NULL)
+            {
+                if (TokenInfo0->Groups != NULL)
+                {
+                    for (i = 0; i < TokenInfo0->Groups->GroupCount; i++)
+                    {
+                        if (TokenInfo0->Groups->Groups[i].Sid != NULL)
+                            LsapFreeHeap(TokenInfo0->Groups->Groups[i].Sid);
+                    }
+
+                    LsapFreeHeap(TokenInfo0->Groups);
+                }
+
+                LsapFreeHeap(TokenInfo0);
+            }
+        }
+        else if (TokenInformationType == LsaTokenInformationV1)
         {
             TokenInfo1 = (PLSA_TOKEN_INFORMATION_V1)TokenInformation;
 
@@ -1712,7 +1833,7 @@ done:
     /* Free the authentication authority */
     if (AuthenticatingAuthority != NULL)
     {
-        if (AuthenticatingAuthority != NULL)
+        if (AuthenticatingAuthority->Buffer != NULL)
             LsapFreeHeap(AuthenticatingAuthority->Buffer);
 
         LsapFreeHeap(AuthenticatingAuthority);

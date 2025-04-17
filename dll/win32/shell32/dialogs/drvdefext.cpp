@@ -3,6 +3,7 @@
  *
  * Copyright 2005 Johannes Anderwald
  * Copyright 2012 Rafal Harabien
+ * Copyright 2020 Katayama Hirofumi MZ
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -23,10 +24,13 @@
 
 #define _USE_MATH_DEFINES
 #include <math.h>
+#include <devguid.h>
+
+#define NTOS_MODE_USER
+#include <ndk/iofuncs.h>
+#include <ndk/obfuncs.h>
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
-
-static const GUID GUID_DEVCLASS_DISKDRIVE = {0x4d36e967L, 0xe325, 0x11ce, {0xbf, 0xc1, 0x08, 0x00, 0x2b, 0xe1, 0x03, 0x18}};
 
 typedef enum
 {
@@ -212,6 +216,7 @@ CDrvDefExt::PaintStaticControls(HWND hwndDlg, LPDRAWITEMSTRUCT pDrawItem)
         HBRUSH hBlueBrush = CreateSolidBrush(RGB(0, 0, 255));
         HBRUSH hMagBrush = CreateSolidBrush(RGB(255, 0, 255));
         HBRUSH hbrOld;
+        HPEN hBlackPen = (HPEN)GetStockObject(BLACK_PEN);
         HPEN hDarkBluePen = CreatePen(PS_SOLID, 1, RGB(0, 0, 128));
         HPEN hDarkMagPen = CreatePen(PS_SOLID, 1, RGB(128, 0, 128));
         HPEN hOldPen = (HPEN)SelectObject(pDrawItem->hDC, hDarkMagPen);
@@ -228,15 +233,27 @@ CDrvDefExt::PaintStaticControls(HWND hwndDlg, LPDRAWITEMSTRUCT pDrawItem)
         {
             double cos_val = (x - xCenter) * 2.0f / cx;
             INT y = yCenter + (INT)(sin(acos(cos_val)) * cy / 2) - 1;
+            HPEN hCenterPen;
 
             if (m_FreeSpacePerc < 50 && x == xRadial)
                 SelectObject(pDrawItem->hDC, hDarkBluePen);
+            
+            /* Temporarily change pens to draw edges */
+            if (x == pDrawItem->rcItem.left)
+                hCenterPen = (HPEN)SelectObject(pDrawItem->hDC, hBlackPen);
+            else if (x == pDrawItem->rcItem.right - 1)
+                SelectObject(pDrawItem->hDC, hBlackPen);
 
             MoveToEx(pDrawItem->hDC, x, y, NULL);
             LineTo(pDrawItem->hDC, x, y + 10);
+            SetPixel(pDrawItem->hDC, x, y + 10, RGB(0, 0, 0));
+            
+            /* Restore fill section pens */
+            if (x == pDrawItem->rcItem.left)
+                SelectObject(pDrawItem->hDC, hCenterPen);
         }
 
-        SelectObject(pDrawItem->hDC, hOldPen);
+        SelectObject(pDrawItem->hDC, hBlackPen);
 
         if (m_FreeSpacePerc > 50)
         {
@@ -261,7 +278,7 @@ CDrvDefExt::PaintStaticControls(HWND hwndDlg, LPDRAWITEMSTRUCT pDrawItem)
                     pDrawItem->rcItem.right, pDrawItem->rcItem.bottom - 10);
 
             SelectObject(pDrawItem->hDC, hMagBrush);
-            
+
             if (m_FreeSpacePerc > 0)
             {
                 Pie(pDrawItem->hDC, pDrawItem->rcItem.left, pDrawItem->rcItem.top, pDrawItem->rcItem.right,
@@ -270,12 +287,107 @@ CDrvDefExt::PaintStaticControls(HWND hwndDlg, LPDRAWITEMSTRUCT pDrawItem)
         }
 
         SelectObject(pDrawItem->hDC, hbrOld);
+        SelectObject(pDrawItem->hDC, hOldPen);
 
         DeleteObject(hBlueBrush);
         DeleteObject(hMagBrush);
         DeleteObject(hDarkBluePen);
         DeleteObject(hDarkMagPen);
     }
+}
+
+// https://stackoverflow.com/questions/3098696/get-information-about-disk-drives-result-on-windows7-32-bit-system/3100268#3100268
+static BOOL
+GetDriveTypeAndCharacteristics(HANDLE hDevice, DEVICE_TYPE *pDeviceType, ULONG *pCharacteristics)
+{
+    NTSTATUS Status;
+    IO_STATUS_BLOCK IoStatusBlock;
+    FILE_FS_DEVICE_INFORMATION DeviceInfo;
+
+    Status = NtQueryVolumeInformationFile(hDevice, &IoStatusBlock,
+                                          &DeviceInfo, sizeof(DeviceInfo),
+                                          FileFsDeviceInformation);
+    if (Status == NO_ERROR)
+    {
+        *pDeviceType = DeviceInfo.DeviceType;
+        *pCharacteristics = DeviceInfo.Characteristics;
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+BOOL IsDriveFloppyW(LPCWSTR pszDriveRoot)
+{
+    LPCWSTR RootPath = pszDriveRoot;
+    WCHAR szRoot[16], szDeviceName[16];
+    UINT uType;
+    HANDLE hDevice;
+    DEVICE_TYPE DeviceType;
+    ULONG ulCharacteristics;
+    BOOL ret;
+
+    lstrcpynW(szRoot, RootPath, _countof(szRoot));
+
+    if (L'a' <= szRoot[0] && szRoot[0] <= 'z')
+    {
+        szRoot[0] += ('A' - 'a');
+    }
+
+    if ('A' <= szRoot[0] && szRoot[0] <= L'Z' &&
+        szRoot[1] == L':' && szRoot[2] == 0)
+    {
+        // 'C:' --> 'C:\'
+        szRoot[2] = L'\\';
+        szRoot[3] = 0;
+    }
+
+    if (!PathIsRootW(szRoot))
+    {
+        return FALSE;
+    }
+
+    uType = GetDriveTypeW(szRoot);
+    if (uType == DRIVE_REMOVABLE)
+    {
+        if (szRoot[0] == L'A' || szRoot[0] == L'B')
+            return TRUE;
+    }
+    else
+    {
+        return FALSE;
+    }
+
+    lstrcpynW(szDeviceName, L"\\\\.\\", _countof(szDeviceName));
+    szDeviceName[4] = szRoot[0];
+    szDeviceName[5] = L':';
+    szDeviceName[6] = UNICODE_NULL;
+
+    hDevice = CreateFileW(szDeviceName, FILE_READ_ATTRIBUTES,
+                          FILE_SHARE_READ | FILE_SHARE_WRITE,
+                          NULL, OPEN_EXISTING, 0, NULL);
+    if (hDevice == INVALID_HANDLE_VALUE)
+    {
+        return FALSE;
+    }
+
+    ret = FALSE;
+    if (GetDriveTypeAndCharacteristics(hDevice, &DeviceType, &ulCharacteristics))
+    {
+        if ((ulCharacteristics & FILE_FLOPPY_DISKETTE) == FILE_FLOPPY_DISKETTE)
+            ret = TRUE;
+    }
+
+    CloseHandle(hDevice);
+
+    return ret;
+}
+
+BOOL IsDriveFloppyA(LPCSTR pszDriveRoot)
+{
+    WCHAR szRoot[8];
+    MultiByteToWideChar(CP_ACP, 0, pszDriveRoot, -1, szRoot, _countof(szRoot));
+    return IsDriveFloppyW(szRoot);
 }
 
 VOID
@@ -304,7 +416,12 @@ CDrvDefExt::InitGeneralPage(HWND hwndDlg)
     UINT IconId, TypeStrId = 0;
     switch (DriveType)
     {
-        case DRIVE_REMOVABLE: IconId = IDI_SHELL_3_14_FLOPPY; break;
+        case DRIVE_REMOVABLE:
+            if (IsDriveFloppyW(m_wszDrive))
+                IconId = IDI_SHELL_3_14_FLOPPY;
+            else
+                IconId = IDI_SHELL_REMOVEABLE;
+            break;
         case DRIVE_CDROM: IconId = IDI_SHELL_CDROM; TypeStrId = IDS_DRIVE_CDROM; break;
         case DRIVE_REMOTE: IconId = IDI_SHELL_NETDRIVE; TypeStrId = IDS_DRIVE_NETWORK; break;
         case DRIVE_RAMDISK: IconId = IDI_SHELL_RAMDISK; break;
@@ -315,14 +432,14 @@ CDrvDefExt::InitGeneralPage(HWND hwndDlg)
     {
         /* volume label textbox */
         SendMessage(GetDlgItem(hwndDlg, 14000), EM_SETREADONLY, TRUE, 0);
-        
+
         /* disk compression */
         ShowWindow(GetDlgItem(hwndDlg, 14011), FALSE);
 
         /* index */
         ShowWindow(GetDlgItem(hwndDlg, 14012), FALSE);
     }
-    
+
     HICON hIcon = (HICON)LoadImage(shell32_hInstance, MAKEINTRESOURCE(IconId), IMAGE_ICON, 32, 32, LR_SHARED);
     if (hIcon)
         SendDlgItemMessageW(hwndDlg, 14016, STM_SETICON, (WPARAM)hIcon, 0);
@@ -379,7 +496,7 @@ CDrvDefExt::InitGeneralPage(HWND hwndDlg)
     GetDlgItemTextW(hwndDlg, 14009, wszFormat, _countof(wszFormat));
     swprintf(wszBuf, wszFormat, m_wszDrive[0]);
     SetDlgItemTextW(hwndDlg, 14009, wszBuf);
-    
+
     /* show disk cleanup button only for fixed drives */
     ShowWindow(GetDlgItem(hwndDlg, 14010), DriveType == DRIVE_FIXED);
 }
@@ -436,8 +553,13 @@ CDrvDefExt::GeneralPageProc(
                     WCHAR wszCmd[MAX_PATH];
 
                     StringCbPrintfW(wszCmd, sizeof(wszCmd), wszBuf, pDrvDefExt->m_wszDrive[0]);
+                    WCHAR* wszArgs = PathGetArgsW(wszCmd);
+                    if (wszArgs && *wszArgs && wszArgs != wszCmd)
+                        wszArgs[-1] = UNICODE_NULL;
+                    else
+                        wszArgs = NULL;
 
-                    if (ShellExecuteW(hwndDlg, NULL, wszCmd, NULL, NULL, SW_SHOW) <= (HINSTANCE)32)
+                    if (ShellExecuteW(hwndDlg, NULL, wszCmd, wszArgs, NULL, SW_SHOW) <= (HINSTANCE)32)
                         ERR("Failed to create cleanup process %ls\n", wszCmd);
                 }
             }
@@ -456,11 +578,15 @@ CDrvDefExt::GeneralPageProc(
                 if (lppsn->hdr.code == PSN_APPLY)
                 {
                     CDrvDefExt *pDrvDefExt = reinterpret_cast<CDrvDefExt *>(GetWindowLongPtr(hwndDlg, DWLP_USER));
-                    WCHAR wszBuf[256];
 
-                    if (GetDlgItemTextW(hwndDlg, 14000, wszBuf, _countof(wszBuf)))
-                        SetVolumeLabelW(pDrvDefExt->m_wszDrive, wszBuf);
-                    SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, PSNRET_NOERROR);
+                    HRESULT hr = E_FAIL;
+                    HWND hLabel = GetDlgItem(hwndDlg, 14000);
+                    WCHAR wszBuf[256];
+                    *wszBuf = UNICODE_NULL;
+                    if (GetWindowTextW(hLabel, wszBuf, _countof(wszBuf)) || GetWindowTextLengthW(hLabel) == 0)
+                        hr = CDrivesFolder::SetDriveLabel(hwndDlg, pDrvDefExt->m_wszDrive, wszBuf);
+
+                    SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, FAILED(hr) ? PSNRET_INVALID : PSNRET_NOERROR);
                     return TRUE;
                 }
             }
@@ -549,10 +675,12 @@ CDrvDefExt::HardwarePageProc(
     {
         case WM_INITDIALOG:
         {
-            GUID Guid = GUID_DEVCLASS_DISKDRIVE;
+            GUID Guids[2];
+            Guids[0] = GUID_DEVCLASS_DISKDRIVE;
+            Guids[1] = GUID_DEVCLASS_CDROM;
 
             /* create the hardware page */
-            DeviceCreateHardwarePageEx(hwndDlg, &Guid, 1, HWPD_STANDARDLIST);
+            DeviceCreateHardwarePageEx(hwndDlg, Guids, _countof(Guids), HWPD_STANDARDLIST);
             break;
         }
     }
@@ -570,11 +698,39 @@ CDrvDefExt::~CDrvDefExt()
 
 }
 
-HRESULT WINAPI
-CDrvDefExt::Initialize(LPCITEMIDLIST pidlFolder, IDataObject *pDataObj, HKEY hkeyProgID)
+struct CDrop
 {
-    FORMATETC format;
+    HRESULT hr;
     STGMEDIUM stgm;
+    HDROP hDrop;
+
+    explicit CDrop(IDataObject *pDO)
+    {
+        FORMATETC format = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+        hDrop = SUCCEEDED(hr = pDO->GetData(&format, &stgm)) ? (HDROP)stgm.hGlobal : NULL;
+    }
+
+    ~CDrop()
+    {
+        if (hDrop)
+            ReleaseStgMedium(&stgm);
+    }
+
+    UINT GetCount()
+    {
+        return DragQueryFileW(hDrop, -1, NULL, 0);
+    }
+};
+
+static inline bool
+IsValidDrivePath(PCWSTR Path)
+{
+    return GetDriveTypeW(Path) > DRIVE_NO_ROOT_DIR;
+}
+
+HRESULT WINAPI
+CDrvDefExt::Initialize(PCIDLIST_ABSOLUTE pidlFolder, IDataObject *pDataObj, HKEY hkeyProgID)
+{
     HRESULT hr;
 
     TRACE("%p %p %p %p\n", this, pidlFolder, pDataObj, hkeyProgID);
@@ -582,24 +738,20 @@ CDrvDefExt::Initialize(LPCITEMIDLIST pidlFolder, IDataObject *pDataObj, HKEY hke
     if (!pDataObj)
         return E_FAIL;
 
-    format.cfFormat = CF_HDROP;
-    format.ptd = NULL;
-    format.dwAspect = DVASPECT_CONTENT;
-    format.lindex = -1;
-    format.tymed = TYMED_HGLOBAL;
 
-    hr = pDataObj->GetData(&format, &stgm);
-    if (FAILED(hr))
+    CDrop drop(pDataObj);
+    if (FAILED_UNEXPECTEDLY(hr = drop.hr))
         return hr;
 
-    if (!DragQueryFileW((HDROP)stgm.hGlobal, 0, m_wszDrive, _countof(m_wszDrive)))
+    if (!DragQueryFileW(drop.hDrop, 0, m_wszDrive, _countof(m_wszDrive)))
     {
         ERR("DragQueryFileW failed\n");
-        ReleaseStgMedium(&stgm);
         return E_FAIL;
     }
 
-    ReleaseStgMedium(&stgm);
+    if (drop.GetCount() > 1)
+        m_Multiple = pDataObj;
+
     TRACE("Drive properties %ls\n", m_wszDrive);
 
     return S_OK;
@@ -626,34 +778,76 @@ CDrvDefExt::GetCommandString(UINT_PTR idCmd, UINT uType, UINT *pwReserved, LPSTR
     return E_NOTIMPL;
 }
 
+HRESULT
+CDrvDefExt::AddMainPage(LPFNADDPROPSHEETPAGE pfnAddPage, LPARAM lParam)
+{
+    WCHAR szTitle[MAX_PATH], *pszTitle = NULL;
+    if (m_Multiple)
+    {
+        CComHeapPtr<ITEMIDLIST_ABSOLUTE> pidl(SHSimpleIDListFromPathW(m_wszDrive));
+        if (SUCCEEDED(SHGetNameAndFlagsW(pidl, SHGDN_INFOLDER, szTitle, _countof(szTitle), NULL)))
+            pszTitle = szTitle;
+    }
+
+    HPROPSHEETPAGE hPage;
+    hPage = SH_CreatePropertySheetPageEx(IDD_DRIVE_PROPERTIES, GeneralPageProc, (LPARAM)this,
+                                         pszTitle, &PropSheetPageLifetimeCallback<CDrvDefExt>);
+    HRESULT hr = AddPropSheetPage(hPage, pfnAddPage, lParam);
+    if (FAILED_UNEXPECTEDLY(hr))
+        return hr;
+    else
+        AddRef(); // For PropSheetPageLifetimeCallback
+    return hr;
+}
+
 HRESULT WINAPI
 CDrvDefExt::AddPages(LPFNADDPROPSHEETPAGE pfnAddPage, LPARAM lParam)
 {
-    HPROPSHEETPAGE hPage;
+    HRESULT hr = AddMainPage(pfnAddPage, lParam);
+    if (FAILED_UNEXPECTEDLY(hr))
+        return hr;
 
-    hPage = SH_CreatePropertySheetPage(IDD_DRIVE_PROPERTIES,
-                                       GeneralPageProc,
-                                       (LPARAM)this,
-                                       NULL);
-    if (hPage)
-        pfnAddPage(hPage, lParam);
-
-    if (GetDriveTypeW(m_wszDrive) == DRIVE_FIXED)
+    if (m_Multiple)
     {
-        hPage = SH_CreatePropertySheetPage(IDD_DRIVE_TOOLS,
-                                           ExtraPageProc,
-                                           (LPARAM)this,
-                                           NULL);
-        if (hPage)
-            pfnAddPage(hPage, lParam);
-    }
+        CDrop drop(m_Multiple);
+        UINT count = SUCCEEDED(drop.hr) ? drop.GetCount() : 0;
+        for (UINT i = 0; ++i < count;) // Skipping the first drive since it already has a page
+        {
+            CComPtr<CDrvDefExt> SheetExt;
+            if (FAILED_UNEXPECTEDLY(hr = ShellObjectCreator(SheetExt)))
+                continue;
+            if (!DragQueryFileW(drop.hDrop, i, SheetExt->m_wszDrive, _countof(SheetExt->m_wszDrive)))
+                continue;
+            if (!IsValidDrivePath(SheetExt->m_wszDrive))
+                continue;
 
-    hPage = SH_CreatePropertySheetPage(IDD_DRIVE_HARDWARE,
-                                       HardwarePageProc,
-                                       (LPARAM)this,
-                                       NULL);
-    if (hPage)
-        pfnAddPage(hPage, lParam);
+            SheetExt->m_Multiple = m_Multiple;
+            SheetExt->AddMainPage(pfnAddPage, lParam);
+        }
+    }
+    else
+    {
+        HPROPSHEETPAGE hPage;
+        if (GetDriveTypeW(m_wszDrive) == DRIVE_FIXED)
+        {
+            hPage = SH_CreatePropertySheetPage(IDD_DRIVE_TOOLS,
+                                               ExtraPageProc,
+                                               (LPARAM)this,
+                                               NULL);
+            if (hPage)
+                pfnAddPage(hPage, lParam);
+        }
+
+        if (GetDriveTypeW(m_wszDrive) != DRIVE_REMOTE)
+        {
+            hPage = SH_CreatePropertySheetPage(IDD_DRIVE_HARDWARE,
+                                               HardwarePageProc,
+                                               (LPARAM)this,
+                                               NULL);
+            if (hPage)
+                pfnAddPage(hPage, lParam);
+        }
+    }
 
     return S_OK;
 }

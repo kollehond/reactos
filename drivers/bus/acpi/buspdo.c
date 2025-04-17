@@ -1,3 +1,4 @@
+#ifndef UNIT_TEST
 #include "precomp.h"
 
 #include <initguid.h>
@@ -72,6 +73,14 @@ Bus_PDO_PnP (
         {
             status = IoRegisterDeviceInterface(DeviceData->Common.Self,
                                                &GUID_DEVICE_THERMAL_ZONE,
+                                               NULL,
+                                               &DeviceData->InterfaceName);
+        }
+        else if (device->flags.hardware_id &&
+                 strstr(device->pnp.hardware_id, ACPI_FAN_HID))
+        {
+            status = IoRegisterDeviceInterface(DeviceData->Common.Self,
+                                               &GUID_DEVICE_FAN,
                                                NULL,
                                                &DeviceData->InterfaceName);
         }
@@ -183,7 +192,7 @@ Bus_PDO_PnP (
             PoSetPowerState(DeviceData->Common.Self, DevicePowerState, state);
             DeviceData->Common.DevicePowerState = PowerDeviceD3;
         }
-        
+
         SET_NEW_PNP_STATE(DeviceData->Common, Stopped);
         status = STATUS_SUCCESS;
         break;
@@ -540,7 +549,7 @@ Bus_PDO_QueryDeviceId(
         if (DeviceData->AcpiHandle)
         {
             acpi_bus_get_device(DeviceData->AcpiHandle, &Device);
-            
+
             if (!Device->flags.hardware_id)
             {
                 /* We don't have the ID to satisfy this request */
@@ -614,10 +623,10 @@ Bus_PDO_QueryDeviceId(
                 /* We don't have the ID to satisfy this request */
                 break;
             }
-            
+
             DPRINT("Device name: %s\n", Device->pnp.device_name);
             DPRINT("Hardware ID: %s\n", Device->pnp.hardware_id);
-            
+
             if (strcmp(Device->pnp.hardware_id, "Processor") == 0)
             {
                 length += swprintf(&temp[length],
@@ -639,13 +648,13 @@ Bus_PDO_QueryDeviceId(
                                    L"ACPI\\%hs",
                                    Device->pnp.cid_list->Ids[i].String);
                     temp[length++] = UNICODE_NULL;
-                    
+
                     length += swprintf(&temp[length],
                                    L"*%hs",
                                    Device->pnp.cid_list->Ids[i].String);
                     temp[length++] = UNICODE_NULL;
                 }
-                
+
                 temp[length++] = UNICODE_NULL;
             }
             else
@@ -653,7 +662,7 @@ Bus_PDO_QueryDeviceId(
                 /* No compatible IDs */
                 break;
             }
-            
+
             NT_ASSERT(length * sizeof(WCHAR) <= sizeof(temp));
 
             buffer = ExAllocatePoolWithTag(PagedPool, length * sizeof(WCHAR), 'IpcA');
@@ -971,7 +980,7 @@ Bus_PDO_QueryResources(
                     ResourceDescriptor->Type = CmResourceTypeInterrupt;
 
                     ResourceDescriptor->ShareDisposition =
-                    (irq_data->Sharable == ACPI_SHARED ? CmResourceShareShared : CmResourceShareDeviceExclusive);
+                    (irq_data->Shareable == ACPI_SHARED ? CmResourceShareShared : CmResourceShareDeviceExclusive);
                     ResourceDescriptor->Flags =
                     (irq_data->Triggering == ACPI_LEVEL_SENSITIVE ? CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE : CM_RESOURCE_INTERRUPT_LATCHED);
                     ResourceDescriptor->u.Interrupt.Level =
@@ -990,7 +999,7 @@ Bus_PDO_QueryResources(
                     ResourceDescriptor->Type = CmResourceTypeInterrupt;
 
                     ResourceDescriptor->ShareDisposition =
-                    (irq_data->Sharable == ACPI_SHARED ? CmResourceShareShared : CmResourceShareDeviceExclusive);
+                    (irq_data->Shareable == ACPI_SHARED ? CmResourceShareShared : CmResourceShareDeviceExclusive);
                     ResourceDescriptor->Flags =
                     (irq_data->Triggering == ACPI_LEVEL_SENSITIVE ? CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE : CM_RESOURCE_INTERRUPT_LATCHED);
                     ResourceDescriptor->u.Interrupt.Level =
@@ -1294,6 +1303,7 @@ Bus_PDO_QueryResources(
     Irp->IoStatus.Information = (ULONG_PTR)ResourceList;
     return STATUS_SUCCESS;
 }
+#endif /* UNIT_TEST */
 
 NTSTATUS
 Bus_PDO_QueryResourceRequirements(
@@ -1308,6 +1318,7 @@ Bus_PDO_QueryResourceRequirements(
     PIO_RESOURCE_REQUIREMENTS_LIST RequirementsList;
     PIO_RESOURCE_DESCRIPTOR RequirementDescriptor;
     BOOLEAN CurrentRes = FALSE;
+    BOOLEAN SeenStartDependent;
 
     PAGED_CODE ();
 
@@ -1358,10 +1369,19 @@ Bus_PDO_QueryResourceRequirements(
       return STATUS_UNSUCCESSFUL;
     }
 
-    resource= Buffer.Pointer;
+    SeenStartDependent = FALSE;
+    resource = Buffer.Pointer;
     /* Count number of resources */
-    while (resource->Type != ACPI_RESOURCE_TYPE_END_TAG)
+    while (resource->Type != ACPI_RESOURCE_TYPE_END_TAG && resource->Type != ACPI_RESOURCE_TYPE_END_DEPENDENT)
     {
+        if (resource->Type == ACPI_RESOURCE_TYPE_START_DEPENDENT)
+        {
+            if (SeenStartDependent)
+            {
+                break;
+            }
+            SeenStartDependent = TRUE;
+        }
         switch (resource->Type)
         {
             case ACPI_RESOURCE_TYPE_EXTENDED_IRQ:
@@ -1431,21 +1451,30 @@ Bus_PDO_QueryResourceRequirements(
     RequirementDescriptor = RequirementsList->List[0].Descriptors;
 
     /* Fill resources list structure */
-        resource = Buffer.Pointer;
+    SeenStartDependent = FALSE;
+    resource = Buffer.Pointer;
     while (resource->Type != ACPI_RESOURCE_TYPE_END_TAG && resource->Type != ACPI_RESOURCE_TYPE_END_DEPENDENT)
     {
+        if (resource->Type == ACPI_RESOURCE_TYPE_START_DEPENDENT)
+        {
+            if (SeenStartDependent)
+            {
+                break;
+            }
+            SeenStartDependent = TRUE;
+        }
         switch (resource->Type)
         {
             case ACPI_RESOURCE_TYPE_EXTENDED_IRQ:
             {
-                ACPI_RESOURCE_EXTENDED_IRQ *irq_data = (ACPI_RESOURCE_EXTENDED_IRQ*) &resource->Data;
+                ACPI_RESOURCE_EXTENDED_IRQ *irq_data = &resource->Data.ExtendedIrq;
                 if (irq_data->ProducerConsumer == ACPI_PRODUCER)
                     break;
                 for (i = 0; i < irq_data->InterruptCount; i++)
                 {
                     RequirementDescriptor->Option = (i == 0) ? IO_RESOURCE_PREFERRED : IO_RESOURCE_ALTERNATIVE;
                     RequirementDescriptor->Type = CmResourceTypeInterrupt;
-                    RequirementDescriptor->ShareDisposition = (irq_data->Sharable == ACPI_SHARED ? CmResourceShareShared : CmResourceShareDeviceExclusive);
+                    RequirementDescriptor->ShareDisposition = (irq_data->Shareable == ACPI_SHARED ? CmResourceShareShared : CmResourceShareDeviceExclusive);
                     RequirementDescriptor->Flags =(irq_data->Triggering == ACPI_LEVEL_SENSITIVE ? CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE : CM_RESOURCE_INTERRUPT_LATCHED);
                     RequirementDescriptor->u.Interrupt.MinimumVector =
                     RequirementDescriptor->u.Interrupt.MaximumVector = irq_data->Interrupts[i];
@@ -1456,12 +1485,12 @@ Bus_PDO_QueryResourceRequirements(
             }
             case ACPI_RESOURCE_TYPE_IRQ:
             {
-                ACPI_RESOURCE_IRQ *irq_data = (ACPI_RESOURCE_IRQ*) &resource->Data;
+                ACPI_RESOURCE_IRQ *irq_data = &resource->Data.Irq;
                 for (i = 0; i < irq_data->InterruptCount; i++)
                 {
                     RequirementDescriptor->Option = (i == 0) ? IO_RESOURCE_PREFERRED : IO_RESOURCE_ALTERNATIVE;
                     RequirementDescriptor->Type = CmResourceTypeInterrupt;
-                    RequirementDescriptor->ShareDisposition = (irq_data->Sharable == ACPI_SHARED ? CmResourceShareShared : CmResourceShareDeviceExclusive);
+                    RequirementDescriptor->ShareDisposition = (irq_data->Shareable == ACPI_SHARED ? CmResourceShareShared : CmResourceShareDeviceExclusive);
                     RequirementDescriptor->Flags =(irq_data->Triggering == ACPI_LEVEL_SENSITIVE ? CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE : CM_RESOURCE_INTERRUPT_LATCHED);
                     RequirementDescriptor->u.Interrupt.MinimumVector =
                     RequirementDescriptor->u.Interrupt.MaximumVector = irq_data->Interrupts[i];
@@ -1472,7 +1501,7 @@ Bus_PDO_QueryResourceRequirements(
             }
             case ACPI_RESOURCE_TYPE_DMA:
             {
-                ACPI_RESOURCE_DMA *dma_data = (ACPI_RESOURCE_DMA*) &resource->Data;
+                ACPI_RESOURCE_DMA *dma_data = &resource->Data.Dma;
                 for (i = 0; i < dma_data->ChannelCount; i++)
                 {
                     RequirementDescriptor->Type = CmResourceTypeDma;
@@ -1502,7 +1531,7 @@ Bus_PDO_QueryResourceRequirements(
             }
             case ACPI_RESOURCE_TYPE_IO:
             {
-                ACPI_RESOURCE_IO *io_data = (ACPI_RESOURCE_IO*) &resource->Data;
+                ACPI_RESOURCE_IO *io_data = &resource->Data.Io;
                 RequirementDescriptor->Flags = CM_RESOURCE_PORT_IO;
                 if (io_data->IoDecode == ACPI_DECODE_16)
                     RequirementDescriptor->Flags |= CM_RESOURCE_PORT_16_BIT_DECODE;
@@ -1521,7 +1550,7 @@ Bus_PDO_QueryResourceRequirements(
             }
             case ACPI_RESOURCE_TYPE_FIXED_IO:
             {
-                ACPI_RESOURCE_FIXED_IO *io_data = (ACPI_RESOURCE_FIXED_IO*) &resource->Data;
+                ACPI_RESOURCE_FIXED_IO *io_data = &resource->Data.FixedIo;
                 RequirementDescriptor->Flags = CM_RESOURCE_PORT_IO;
                 RequirementDescriptor->u.Port.Length = io_data->AddressLength;
                 RequirementDescriptor->Option = CurrentRes ? 0 : IO_RESOURCE_PREFERRED;
@@ -1536,7 +1565,7 @@ Bus_PDO_QueryResourceRequirements(
             }
             case ACPI_RESOURCE_TYPE_ADDRESS16:
             {
-                ACPI_RESOURCE_ADDRESS16 *addr16_data = (ACPI_RESOURCE_ADDRESS16*) &resource->Data;
+                ACPI_RESOURCE_ADDRESS16 *addr16_data = &resource->Data.Address16;
                 if (addr16_data->ProducerConsumer == ACPI_PRODUCER)
                     break;
                 RequirementDescriptor->Option = CurrentRes ? 0 : IO_RESOURCE_PREFERRED;
@@ -1584,7 +1613,7 @@ Bus_PDO_QueryResourceRequirements(
             }
             case ACPI_RESOURCE_TYPE_ADDRESS32:
             {
-                ACPI_RESOURCE_ADDRESS32 *addr32_data = (ACPI_RESOURCE_ADDRESS32*) &resource->Data;
+                ACPI_RESOURCE_ADDRESS32 *addr32_data = &resource->Data.Address32;
                 if (addr32_data->ProducerConsumer == ACPI_PRODUCER)
                     break;
                 RequirementDescriptor->Option = CurrentRes ? 0 : IO_RESOURCE_PREFERRED;
@@ -1632,7 +1661,7 @@ Bus_PDO_QueryResourceRequirements(
             }
             case ACPI_RESOURCE_TYPE_ADDRESS64:
             {
-                ACPI_RESOURCE_ADDRESS64 *addr64_data = (ACPI_RESOURCE_ADDRESS64*) &resource->Data;
+                ACPI_RESOURCE_ADDRESS64 *addr64_data = &resource->Data.Address64;
                 if (addr64_data->ProducerConsumer == ACPI_PRODUCER)
                     break;
                 RequirementDescriptor->Option = CurrentRes ? 0 : IO_RESOURCE_PREFERRED;
@@ -1681,7 +1710,7 @@ Bus_PDO_QueryResourceRequirements(
             }
             case ACPI_RESOURCE_TYPE_EXTENDED_ADDRESS64:
             {
-                ACPI_RESOURCE_EXTENDED_ADDRESS64 *addr64_data = (ACPI_RESOURCE_EXTENDED_ADDRESS64*) &resource->Data;
+                ACPI_RESOURCE_EXTENDED_ADDRESS64 *addr64_data = &resource->Data.ExtAddress64;
                 if (addr64_data->ProducerConsumer == ACPI_PRODUCER)
                     break;
                 RequirementDescriptor->Option = CurrentRes ? 0 : IO_RESOURCE_PREFERRED;
@@ -1730,7 +1759,7 @@ Bus_PDO_QueryResourceRequirements(
             }
             case ACPI_RESOURCE_TYPE_MEMORY24:
             {
-                ACPI_RESOURCE_MEMORY24 *mem24_data = (ACPI_RESOURCE_MEMORY24*) &resource->Data;
+                ACPI_RESOURCE_MEMORY24 *mem24_data = &resource->Data.Memory24;
                 RequirementDescriptor->Option = CurrentRes ? 0 : IO_RESOURCE_PREFERRED;
                 RequirementDescriptor->Type = CmResourceTypeMemory;
                 RequirementDescriptor->ShareDisposition = CmResourceShareDeviceExclusive;
@@ -1748,7 +1777,7 @@ Bus_PDO_QueryResourceRequirements(
             }
             case ACPI_RESOURCE_TYPE_MEMORY32:
             {
-                ACPI_RESOURCE_MEMORY32 *mem32_data = (ACPI_RESOURCE_MEMORY32*) &resource->Data;
+                ACPI_RESOURCE_MEMORY32 *mem32_data = &resource->Data.Memory32;
                 RequirementDescriptor->Option = CurrentRes ? 0 : IO_RESOURCE_PREFERRED;
                 RequirementDescriptor->Type = CmResourceTypeMemory;
                 RequirementDescriptor->ShareDisposition = CmResourceShareDeviceExclusive;
@@ -1766,7 +1795,7 @@ Bus_PDO_QueryResourceRequirements(
             }
             case ACPI_RESOURCE_TYPE_FIXED_MEMORY32:
             {
-                ACPI_RESOURCE_FIXED_MEMORY32 *fixedmem32_data = (ACPI_RESOURCE_FIXED_MEMORY32*) &resource->Data;
+                ACPI_RESOURCE_FIXED_MEMORY32 *fixedmem32_data = &resource->Data.FixedMemory32;
                 RequirementDescriptor->Option = CurrentRes ? 0 : IO_RESOURCE_PREFERRED;
                 RequirementDescriptor->Type = CmResourceTypeMemory;
                 RequirementDescriptor->ShareDisposition = CmResourceShareDeviceExclusive;
@@ -1796,6 +1825,7 @@ Bus_PDO_QueryResourceRequirements(
     return STATUS_SUCCESS;
 }
 
+#ifndef UNIT_TEST
 NTSTATUS
 Bus_PDO_QueryDeviceRelations(
      PPDO_DEVICE_DATA     DeviceData,
@@ -2040,5 +2070,4 @@ GetDeviceCapabilitiesExit:
     return status;
 
 }
-
-
+#endif /* UNIT_TEST */

@@ -116,6 +116,7 @@ typedef struct _CRYPT_SIGNED_INFO
     CRYPT_CONTENT_INFO    content;
     DWORD                 cSignerInfo;
     PCMSG_CMS_SIGNER_INFO rgSignerInfo;
+    PDWORD                signerKeySpec;
 } CRYPT_SIGNED_INFO;
 
 BOOL CRYPT_AsnEncodeCMSSignedInfo(CRYPT_SIGNED_INFO *, void *pvData,
@@ -149,9 +150,9 @@ BOOL WINAPI CRYPT_AsnEncodePubKeyInfoNoNull(DWORD dwCertEncodingType,
 /* Returns a handle to the default crypto provider; loads it if necessary.
  * Returns NULL on failure.
  */
-HCRYPTPROV CRYPT_GetDefaultProvider(void) DECLSPEC_HIDDEN;
+HCRYPTPROV WINAPI I_CryptGetDefaultCryptProv(ALG_ID);
 
-HINSTANCE hInstance DECLSPEC_HIDDEN;
+extern HINSTANCE hInstance DECLSPEC_HIDDEN;
 
 void crypt_oid_init(void) DECLSPEC_HIDDEN;
 void crypt_oid_free(void) DECLSPEC_HIDDEN;
@@ -341,7 +342,7 @@ void CRYPT_ImportSystemRootCertsToReg(void) DECLSPEC_HIDDEN;
 BOOL CRYPT_SerializeContextsToReg(HKEY key, DWORD flags, const WINE_CONTEXT_INTERFACE *contextInterface,
     HCERTSTORE memStore) DECLSPEC_HIDDEN;
 
-BOOL CRYPT_IsCertificateSelfSigned(PCCERT_CONTEXT cert, DWORD *type) DECLSPEC_HIDDEN;
+DWORD CRYPT_IsCertificateSelfSigned(const CERT_CONTEXT *cert) DECLSPEC_HIDDEN;
 
 /* Allocates and initializes a certificate chain engine, but without creating
  * the root store.  Instead, it uses root, and assumes the caller has done any

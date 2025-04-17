@@ -134,11 +134,10 @@ LdrVerifyMappedImageMatchesChecksum(
 
 /*
  * @implemented
- * @note This needs SEH (See https://jira.reactos.org/browse/CORE-14857)
  */
 NTSTATUS
 NTAPI
-RtlImageNtHeaderEx(
+RtlpImageNtHeaderEx(
     _In_ ULONG Flags,
     _In_ PVOID Base,
     _In_ ULONG64 Size,
@@ -290,17 +289,38 @@ RtlImageDirectoryEntryToData(
     if (NtHeader == NULL)
         return NULL;
 
-    if (Directory >= SWAPD(NtHeader->OptionalHeader.NumberOfRvaAndSizes))
-        return NULL;
+    if (NtHeader->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
+    {
+        PIMAGE_OPTIONAL_HEADER64 OptionalHeader = (PIMAGE_OPTIONAL_HEADER64)&NtHeader->OptionalHeader;
 
-    Va = SWAPD(NtHeader->OptionalHeader.DataDirectory[Directory].VirtualAddress);
-    if (Va == 0)
-        return NULL;
+        if (Directory >= SWAPD(OptionalHeader->NumberOfRvaAndSizes))
+            return NULL;
 
-    *Size = SWAPD(NtHeader->OptionalHeader.DataDirectory[Directory].Size);
+        Va = SWAPD(OptionalHeader->DataDirectory[Directory].VirtualAddress);
+        if (Va == 0)
+            return NULL;
 
-    if (MappedAsImage || Va < SWAPD(NtHeader->OptionalHeader.SizeOfHeaders))
-        return (PVOID)((ULONG_PTR)BaseAddress + Va);
+        *Size = SWAPD(OptionalHeader->DataDirectory[Directory].Size);
+
+        if (MappedAsImage || Va < SWAPD(OptionalHeader->SizeOfHeaders))
+            return (PVOID)((ULONG_PTR)BaseAddress + Va);
+    }
+    else
+    {
+        PIMAGE_OPTIONAL_HEADER32 OptionalHeader = (PIMAGE_OPTIONAL_HEADER32)&NtHeader->OptionalHeader;
+
+        if (Directory >= SWAPD(OptionalHeader->NumberOfRvaAndSizes))
+            return NULL;
+
+        Va = SWAPD(OptionalHeader->DataDirectory[Directory].VirtualAddress);
+        if (Va == 0)
+            return NULL;
+
+        *Size = SWAPD(OptionalHeader->DataDirectory[Directory].Size);
+
+        if (MappedAsImage || Va < SWAPD(OptionalHeader->SizeOfHeaders))
+            return (PVOID)((ULONG_PTR)BaseAddress + Va);
+    }
 
     /* Image mapped as ordinary file, we must find raw pointer */
     return RtlImageRvaToVa(NtHeader, BaseAddress, Va, NULL);
@@ -440,11 +460,11 @@ LdrProcessRelocationBlockLongLong(
 ULONG
 NTAPI
 LdrRelocateImage(
-    IN PVOID BaseAddress,
-    IN PCCH  LoaderName,
-    IN ULONG Success,
-    IN ULONG Conflict,
-    IN ULONG Invalid)
+    _In_ PVOID BaseAddress,
+    _In_opt_ PCSTR LoaderName,
+    _In_ ULONG Success,
+    _In_ ULONG Conflict,
+    _In_ ULONG Invalid)
 {
     return LdrRelocateImageWithBias(BaseAddress, 0, LoaderName, Success, Conflict, Invalid);
 }
@@ -452,12 +472,12 @@ LdrRelocateImage(
 ULONG
 NTAPI
 LdrRelocateImageWithBias(
-    IN PVOID BaseAddress,
-    IN LONGLONG AdditionalBias,
-    IN PCCH  LoaderName,
-    IN ULONG Success,
-    IN ULONG Conflict,
-    IN ULONG Invalid)
+    _In_ PVOID BaseAddress,
+    _In_ LONGLONG AdditionalBias,
+    _In_opt_ PCSTR LoaderName,
+    _In_ ULONG Success,
+    _In_ ULONG Conflict,
+    _In_ ULONG Invalid)
 {
     PIMAGE_NT_HEADERS NtHeaders;
     PIMAGE_DATA_DIRECTORY RelocationDDir;
@@ -466,6 +486,8 @@ LdrRelocateImageWithBias(
     ULONG_PTR Address;
     PUSHORT TypeOffset;
     LONGLONG Delta;
+
+    UNREFERENCED_PARAMETER(LoaderName);
 
     NtHeaders = RtlImageNtHeader(BaseAddress);
 

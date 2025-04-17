@@ -22,6 +22,10 @@ DWORD DebugTraceLevel = MIN_TRACE;
 
 #endif /* DBG */
 
+/* FIXME: should depend on SystemSize */
+ULONG AfdReceiveWindowSize = 0x2000;
+ULONG AfdSendWindowSize = 0x2000;
+
 void OskitDumpBuffer( PCHAR Data, UINT Len ) {
     unsigned int i;
 
@@ -352,6 +356,8 @@ AfdCreateSocket(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     FCB->DeviceExt = DeviceExt;
     FCB->AddressFile.Handle = INVALID_HANDLE_VALUE;
     FCB->Connection.Handle = INVALID_HANDLE_VALUE;
+    FCB->Recv.Size = AfdReceiveWindowSize;
+    FCB->Send.Size = AfdSendWindowSize;
 
     KeInitializeMutex( &FCB->Mutex, 0 );
 
@@ -744,9 +750,6 @@ AfdDisconnect(PDEVICE_OBJECT DeviceObject, PIRP Irp,
         /* Discard any pending data */
         FCB->Recv.Content = 0;
         FCB->Recv.BytesUsed = 0;
-
-        /* Mark us as overread to complete future reads with an error */
-        FCB->Overread = TRUE;
 
         /* Set a successful receive status to indicate a shutdown on overread */
         FCB->LastReceiveStatus = STATUS_SUCCESS;

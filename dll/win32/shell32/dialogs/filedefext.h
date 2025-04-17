@@ -27,7 +27,7 @@ class CFileVersionInfo
         PVOID m_pInfo;
         WORD m_wLang, m_wCode;
         WCHAR m_wszLang[64];
-        
+
         typedef struct _LANGANDCODEPAGE_
         {
             WORD wLang;
@@ -75,7 +75,7 @@ private:
     static INT_PTR CALLBACK GeneralPageProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 	static INT_PTR CALLBACK VersionPageProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 	static INT_PTR CALLBACK FolderCustomizePageProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
-	BOOL CountFolderAndFiles(HWND hwndDlg, LPWSTR pwszBuf, UINT cchBufMax, LPDWORD ticks);
+	BOOL CountFolderAndFiles(HWND hwndDlg, LPCWSTR pwszBuf, LPDWORD ticks);
 
 	WCHAR m_wszPath[MAX_PATH];
 	CFileVersionInfo m_VerInfo;
@@ -84,6 +84,7 @@ private:
 	DWORD m_cFiles;
     DWORD m_cFolders;
     ULARGE_INTEGER m_DirSize;
+    ULARGE_INTEGER m_DirSizeOnDisc;
 
     static DWORD WINAPI _CountFolderAndFilesThreadProc(LPVOID lpParameter);
 
@@ -104,20 +105,20 @@ public:
     void UpdateFolderIcon(HWND hwndDlg);
 
 	// IShellExtInit
-	virtual HRESULT STDMETHODCALLTYPE Initialize(LPCITEMIDLIST pidlFolder, IDataObject *pdtobj, HKEY hkeyProgID);
+	STDMETHOD(Initialize)(PCIDLIST_ABSOLUTE pidlFolder, IDataObject *pdtobj, HKEY hkeyProgID) override;
 
     // IContextMenu
-	virtual HRESULT WINAPI QueryContextMenu(HMENU hmenu, UINT indexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags);
-	virtual HRESULT WINAPI InvokeCommand(LPCMINVOKECOMMANDINFO lpici);
-	virtual HRESULT WINAPI GetCommandString(UINT_PTR idCmd, UINT uType, UINT *pwReserved, LPSTR pszName, UINT cchMax);
+	STDMETHOD(QueryContextMenu)(HMENU hmenu, UINT indexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags) override;
+	STDMETHOD(InvokeCommand)(LPCMINVOKECOMMANDINFO lpici) override;
+	STDMETHOD(GetCommandString)(UINT_PTR idCmd, UINT uType, UINT *pwReserved, LPSTR pszName, UINT cchMax) override;
 
 	// IShellPropSheetExt
-	virtual HRESULT WINAPI AddPages(LPFNADDPROPSHEETPAGE pfnAddPage, LPARAM lParam);
-	virtual HRESULT WINAPI ReplacePage(UINT uPageID, LPFNADDPROPSHEETPAGE pfnReplacePage, LPARAM lParam);
+	STDMETHOD(AddPages)(LPFNADDPROPSHEETPAGE pfnAddPage, LPARAM lParam) override;
+	STDMETHOD(ReplacePage)(UINT uPageID, LPFNADDPROPSHEETPAGE pfnReplacePage, LPARAM lParam) override;
 
     // IObjectWithSite
-	virtual HRESULT WINAPI SetSite(IUnknown *punk);
-	virtual HRESULT WINAPI GetSite(REFIID iid, void **ppvSite);
+	STDMETHOD(SetSite)(IUnknown *punk) override;
+	STDMETHOD(GetSite)(REFIID iid, void **ppvSite) override;
 
 DECLARE_REGISTRY_RESOURCEID(IDR_FILEDEFEXT)
 DECLARE_NOT_AGGREGATABLE(CFileDefExt)
@@ -136,7 +137,6 @@ struct _CountFolderAndFilesData {
     CFileDefExt *This;
     HWND hwndDlg;
     LPWSTR pwszBuf;
-    UINT cchBufMax;
 };
 
 #endif /* _FILE_DEF_EXT_H_ */

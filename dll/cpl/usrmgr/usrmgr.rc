@@ -39,6 +39,9 @@ IDI_GROUP ICON "resources/group.ico"
 #ifdef LANGUAGE_FR_FR
     #include "lang/fr-FR.rc"
 #endif
+#ifdef LANGUAGE_ID_ID
+    #include "lang/id-ID.rc"
+#endif
 #ifdef LANGUAGE_IT_IT
     #include "lang/it-IT.rc"
 #endif
@@ -47,6 +50,9 @@ IDI_GROUP ICON "resources/group.ico"
 #endif
 #ifdef LANGUAGE_PL_PL
     #include "lang/pl-PL.rc"
+#endif
+#ifdef LANGUAGE_PT_PT
+    #include "lang/pt-PT.rc"
 #endif
 #ifdef LANGUAGE_RO_RO
     #include "lang/ro-RO.rc"
@@ -62,6 +68,9 @@ IDI_GROUP ICON "resources/group.ico"
 #endif
 #ifdef LANGUAGE_ZH_CN
     #include "lang/zh-CN.rc"
+#endif
+#ifdef LANGUAGE_ZH_HK
+    #include "lang/zh-HK.rc"
 #endif
 #ifdef LANGUAGE_ZH_TW
     #include "lang/zh-TW.rc"

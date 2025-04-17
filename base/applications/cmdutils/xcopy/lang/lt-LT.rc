@@ -26,7 +26,7 @@ STRINGTABLE
 \n\
 Sintaksė:\n\
 XCOPY šaltinis [paskirtis] [/I] [/S] [/Q] [/F] [/L] [/W] [/T] [/N] [/U]\n\
-\t     [/R] [/H] [/C] [/P] [/A] [/M] [/E] [/D] [/Y] [/-Y]\n\
+\t     [/R] [/H] [/C] [/P] [/A] [/M] [/E] [/D] [/Y] [/-Y] [/K]\n\
 \n\
 Kur:\n\
 \n\
@@ -50,6 +50,7 @@ Kur:\n\
 [/A]  Kopijuoti tik failus su nustatytu archyvavimo požymiu\n\
 [/M]  Kopijuoti tik failus su nustatytu archyvavimo požymiu, pašalinti\n\
 \tarchyvavimo požymį\n\
+[/K]  Copy file attributes, without this attributes are not preserved.\n\
 [/D | /D:m-d-y] Kopijuoti naujus failus arba modifikuotos po nurodytos datos.\n\
 \t\tJei data nenurodyta, kopijuoti tik jei paskirties failas yra\n\
 \t\tsenesnis už šaltinio failą\n\n"

@@ -113,7 +113,7 @@ INT CommandHistory(LPTSTR param)
     else
     {
         for (h_tmp = Top->prev; h_tmp != Bottom; h_tmp = h_tmp->prev)
-            ConErrPuts(h_tmp->string);
+            ConOutPrintf(_T("%s\n"), h_tmp->string);
     }
     return 0;
 }
@@ -309,7 +309,7 @@ LPCTSTR PeekHistory(INT dir)
     else
     {
         /* key down */
-        if (entry->next == Bottom || entry == Bottom)
+        if (entry->prev == Bottom || entry == Bottom)
         {
 #ifdef WRAP_HISTORY
             entry = Top;

@@ -4,6 +4,7 @@ extern ATOM AtomMessage;
 extern ATOM AtomWndObj; /* WNDOBJ list */
 extern ATOM AtomLayer;
 extern ATOM AtomFlashWndState;
+extern BOOL g_bWindowSnapEnabled;
 
 #define HAS_DLGFRAME(Style, ExStyle) \
             (((ExStyle) & WS_EX_DLGMODALFRAME) || \
@@ -52,17 +53,22 @@ VOID FASTCALL IntGetWindowBorderMeasures(PWND WindowObject, UINT *cx, UINT *cy);
 BOOL FASTCALL IntShowOwnedPopups( PWND owner, BOOL fShow );
 LRESULT FASTCALL IntDefWindowProc( PWND Window, UINT Msg, WPARAM wParam, LPARAM lParam, BOOL Ansi);
 VOID FASTCALL IntNotifyWinEvent(DWORD, PWND, LONG, LONG, DWORD);
+#define WINVER_WIN2K  _WIN32_WINNT_WIN2K
+#define WINVER_WINNT4 _WIN32_WINNT_NT4
+#define WINVER_WIN31  0x30A
 PWND FASTCALL IntCreateWindow(CREATESTRUCTW* Cs,
                                         PLARGE_STRING WindowName,
                                         PCLS Class,
                                         PWND ParentWindow,
                                         PWND OwnerWindow,
                                         PVOID acbiBuffer,
-                                        PDESKTOP pdeskCreated);
+                                        PDESKTOP pdeskCreated,
+                                        DWORD dwVer );
 PWND FASTCALL co_UserCreateWindowEx(CREATESTRUCTW* Cs,
                                     PUNICODE_STRING ClassName,
                                     PLARGE_STRING WindowName,
-                                    PVOID acbiBuffer);
+                                    PVOID acbiBuffer,
+                                    DWORD dwVer );
 BOOL FASTCALL IntEnableWindow(HWND,BOOL);
 BOOL FASTCALL IntIsWindowVisible(PWND);
 DWORD FASTCALL GetNCHitEx(PWND,POINT);
@@ -73,5 +79,112 @@ LONG FASTCALL co_UserSetWindowLong(HWND,DWORD,LONG,BOOL);
 LONG_PTR FASTCALL co_UserSetWindowLongPtr(HWND, DWORD, LONG_PTR, BOOL);
 HWND FASTCALL IntGetWindow(HWND,UINT);
 LRESULT co_UserFreeWindow(PWND,PPROCESSINFO,PTHREADINFO,BOOLEAN);
+
+#define HWND_TERMINATOR ((HWND)UlongToHandle(1))
+
+typedef struct tagWINDOWLIST
+{
+    struct tagWINDOWLIST *pNextList;
+    HWND *phwndLast;
+    HWND *phwndEnd;
+    PTHREADINFO pti;
+    HWND ahwnd[ANYSIZE_ARRAY]; /* Terminated by HWND_TERMINATOR */
+} WINDOWLIST, *PWINDOWLIST;
+
+extern PWINDOWLIST gpwlList;
+extern PWINDOWLIST gpwlCache;
+
+#define WL_IS_BAD(pwl)   ((pwl)->phwndEnd <= (pwl)->phwndLast)
+#define WL_CAPACITY(pwl) ((pwl)->phwndEnd - &((pwl)->ahwnd[0]))
+
+PWINDOWLIST FASTCALL IntBuildHwndList(PWND pwnd, DWORD dwFlags, PTHREADINFO pti);
+VOID FASTCALL IntFreeHwndList(PWINDOWLIST pwlTarget);
+HWND FASTCALL IntFindWindow(PWND Parent, PWND ChildAfter, RTL_ATOM ClassAtom,
+                            PUNICODE_STRING WindowName);
+
+/* Undocumented dwFlags for IntBuildHwndList */
+#define IACE_LIST  0x0002
+
+#define IS_WND_CHILD(pWnd) ((pWnd)->style & WS_CHILD)
+#define IS_WND_MENU(pWnd) ((pWnd)->pcls->atomClassName == gpsi->atomSysClass[ICLS_MENU])
+
+// The IME-like windows are the IME windows and the IME UI windows.
+// The IME window's class name is "IME".
+// The IME UI window behaves the User Interface of IME for the user.
+#define IS_WND_IMELIKE(pWnd) \
+    (((pWnd)->pcls->style & CS_IME) || \
+     ((pWnd)->pcls->atomClassName == gpsi->atomSysClass[ICLS_IME]))
+
+extern BOOL gfIMEShowStatus;
+
+BOOL FASTCALL IntWantImeWindow(PWND pwndTarget);
+PWND FASTCALL co_IntCreateDefaultImeWindow(PWND pwndTarget, HINSTANCE hInst);
+BOOL FASTCALL IntImeCanDestroyDefIMEforChild(PWND pImeWnd, PWND pwndTarget);
+BOOL FASTCALL IntImeCanDestroyDefIME(PWND pImeWnd, PWND pwndTarget);
+BOOL FASTCALL IntBroadcastImeShowStatusChange(PWND pImeWnd, BOOL bShow);
+VOID FASTCALL IntNotifyImeShowStatus(PWND pImeWnd);
+VOID FASTCALL IntCheckImeShowStatusInThread(PWND pImeWnd);
+
+static inline
+VOID
+ReplaceWndPtr(_Inout_ PWND* ppwnd, _In_opt_ PWND pwndNew)
+{
+    /* First reference the new one */
+    if (pwndNew != NULL)
+    {
+        UserReferenceObject(pwndNew);
+    }
+
+    /* Then dereference the previous one */
+    if (*ppwnd != NULL)
+    {
+        UserDereferenceObject(*ppwnd);
+    }
+
+    /* And set */
+    *ppwnd = pwndNew;
+}
+
+static inline
+VOID
+WndSetOwner(_Inout_ PWND pwnd, _In_opt_ PWND pwndOwner)
+{
+    ReplaceWndPtr(&pwnd->spwndOwner, pwndOwner);
+}
+
+static inline
+VOID
+WndSetParent(_Inout_ PWND pwnd, _In_opt_ PWND pwndParent)
+{
+    ReplaceWndPtr(&pwnd->spwndParent, pwndParent);
+}
+
+static inline
+VOID
+WndSetChild(_Inout_ PWND pwnd, _In_opt_ PWND pwndChild)
+{
+    ReplaceWndPtr(&pwnd->spwndChild, pwndChild);
+}
+
+static inline
+VOID
+WndSetNext(_Inout_ PWND pwnd, _In_opt_ PWND pwndNext)
+{
+    ReplaceWndPtr(&pwnd->spwndNext, pwndNext);
+}
+
+static inline
+VOID
+WndSetPrev(_Inout_ PWND pwnd, _In_opt_ PWND pwndPrev)
+{
+    ReplaceWndPtr(&pwnd->spwndPrev, pwndPrev);
+}
+
+static inline
+VOID
+WndSetLastActive(_Inout_ PWND pwnd, _In_opt_ PWND pwndLastActive)
+{
+    ReplaceWndPtr(&pwnd->spwndLastActive, pwndLastActive);
+}
 
 /* EOF */

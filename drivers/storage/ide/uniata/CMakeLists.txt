@@ -1,5 +1,4 @@
 
-set_cpp()
 
 include_directories(
     BEFORE ${CMAKE_CURRENT_SOURCE_DIR}
@@ -20,15 +19,20 @@ list(APPEND SOURCE
     ros_glue/ros_glue.cpp
     stdafx.h)
 
-add_library(uniata SHARED ${SOURCE} idedma.rc)
+add_library(uniata MODULE ${SOURCE} idedma.rc)
 
-if(USE_CLANG_CL OR (NOT MSVC))
-    add_target_compile_flags(uniata "-Wno-narrowing")
-    if(USE_CLANG_CL)
-        add_target_compile_flags(uniata "-Wno-unused-const-variable")
-    else()
-        add_target_compile_flags(uniata "-Wno-unused-but-set-variable")
-    endif()
+if(MSVC)
+    # Disable warning C4267: '=': conversion from 'size_t' to 'USHORT', possible loss of data
+    # Disable warning C4838: conversion from 'int' to 'ULONG' requires a narrowing conversion
+    target_compile_options(uniata PRIVATE /wd4267 /wd4838)
+endif()
+
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(uniata PRIVATE -Wno-narrowing -Wno-unused-but-set-variable)
+endif()
+
+if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(uniata PRIVATE -Wno-unused-const-variable)
 endif()
 
 add_pch(uniata stdafx.h SOURCE)
@@ -36,3 +40,4 @@ set_module_type(uniata kernelmodedriver)
 add_importlibs(uniata scsiport ntoskrnl hal)
 add_cd_file(TARGET uniata DESTINATION reactos/system32/drivers NO_CAB FOR all)
 add_registry_inf(uniata_reg.inf)
+add_driver_inf(uniata uniata_comm.inf)

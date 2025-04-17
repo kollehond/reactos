@@ -12,6 +12,7 @@
 HINSTANCE		hInstance;			// Holds The Instance Of The Application
 
 GLuint texture[3];	                //stores texture objects and display list
+HDC hdcOpenGL;
 
 LPCTSTR registryPath = _T("Software\\Microsoft\\ScreenSavers\\Butterflies");
 BOOL dRotate;
@@ -136,7 +137,7 @@ HGLRC InitOGLWindow(HWND hWnd)
 	hRC = wglCreateContext(hDC);
 	wglMakeCurrent(hDC, hRC);
 
-	ReleaseDC(hWnd, hDC);
+	hdcOpenGL = hDC;
 
 	return hRC;
 }
@@ -230,15 +231,15 @@ void Display()
 
 }
 
-BOOL AboutProc(HWND hdlg, UINT msg, WPARAM wpm, LPARAM lpm){
-    
+INT_PTR CALLBACK AboutProc(HWND hdlg, UINT msg, WPARAM wpm, LPARAM lpm){
+
 	switch(msg){
 	case WM_CTLCOLORSTATIC:
 		if(((HWND)lpm == GetDlgItem(hdlg, WEBPAGE1)) || ((HWND)lpm == GetDlgItem(hdlg, WEBPAGE2)))
 		{
 			SetTextColor((HDC)wpm, RGB(0,0,255));
 			SetBkColor((HDC)wpm, (COLORREF)GetSysColor(COLOR_3DFACE));
-			return((int)GetSysColorBrush(COLOR_3DFACE));
+			return (INT_PTR)GetSysColorBrush(COLOR_3DFACE);
 		}
 		break;
     case WM_COMMAND:
@@ -287,6 +288,7 @@ LRESULT WINAPI ScreenSaverProc(HWND hWnd, UINT message,
 	case WM_DESTROY:
 		wglMakeCurrent(NULL, NULL);
 		wglDeleteContext(hRC);
+		ReleaseDC(hWnd, hdcOpenGL);
 		break;
 	}
 
@@ -314,7 +316,7 @@ BOOL WINAPI ScreenSaverConfigureDialog(HWND hDlg, UINT message,
 			        EndDialog(hDlg, TRUE);
 			        break;
 		        case IDABOUT:
-			        DialogBox(hInstance, MAKEINTRESOURCE(IDD_DLG_ABOUT), hDlg, (DLGPROC)AboutProc);
+			        DialogBox(hInstance, MAKEINTRESOURCE(IDD_DLG_ABOUT), hDlg, AboutProc);
                     break;
 		    }
 	}

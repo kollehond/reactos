@@ -52,69 +52,39 @@
 
 #include <ntstrsafe.h>
 
+
 /* Setup library headers */
 #include <reactos/rosioctl.h>
 #include <../lib/setuplib.h>
-// #include "errorcode.h"
 
 /* Internal Headers */
 #include "consup.h"
-#include "inffile.h"
 #include "progress.h"
-#include "infros.h"
-#include "filequeue.h"
-#include "registry.h"
 #include "fslist.h"
 #include "partlist.h"
-#include "cabinet.h"
-#include "filesup.h"
 #include "genlist.h"
 #include "mui.h"
 
+#include "spapisup/inffile.h"
+#include "spapisup/cabinet.h"
+
+
 extern HANDLE ProcessHeap;
-extern UNICODE_STRING SourceRootPath;
-extern UNICODE_STRING SourceRootDir;
-extern UNICODE_STRING SourcePath;
-extern BOOLEAN IsUnattendedSetup;
-extern PWCHAR SelectedLanguageId;
+extern PCWSTR SelectedLanguageId;
 
-extern VOID InfSetHeap(PVOID Heap);
-extern VOID InfCloseFile(HINF InfHandle);
-extern BOOLEAN InfFindNextLine(PINFCONTEXT ContextIn,
-                               PINFCONTEXT ContextOut);
-extern BOOLEAN InfGetBinaryField(PINFCONTEXT Context,
-                                 ULONG FieldIndex,
-                                 PUCHAR ReturnBuffer,
-                                 ULONG ReturnBufferSize,
-                                 PULONG RequiredSize);
-extern BOOLEAN InfGetMultiSzField(PINFCONTEXT Context,
-                                  ULONG FieldIndex,
-                                  PWSTR ReturnBuffer,
-                                  ULONG ReturnBufferSize,
-                                  PULONG RequiredSize);
-extern BOOLEAN InfGetStringField(PINFCONTEXT Context,
-                                 ULONG FieldIndex,
-                                 PWSTR ReturnBuffer,
-                                 ULONG ReturnBufferSize,
-                                 PULONG RequiredSize);
-
-#define SetupCloseInfFile InfCloseFile
-#define SetupFindNextLine InfFindNextLine
-#define SetupGetBinaryField InfGetBinaryField
-#define SetupGetMultiSzFieldW InfGetMultiSzField
-#define SetupGetStringFieldW InfGetStringField
-
-#ifndef _PAGE_NUMBER_DEFINED
-#define _PAGE_NUMBER_DEFINED
 typedef enum _PAGE_NUMBER
 {
-    START_PAGE,
+    SETUP_INIT_PAGE,    /* Virtual page */
     LANGUAGE_PAGE,
-    INTRO_PAGE,
+    WELCOME_PAGE,
     LICENSE_PAGE,
     INSTALL_INTRO_PAGE,
 
 //    SCSI_CONTROLLER_PAGE,
+//    OEM_DRIVER_PAGE,
+
+    REPAIR_INTRO_PAGE,
+    UPGRADE_REPAIR_PAGE,
 
     DEVICE_SETTINGS_PAGE,
     COMPUTER_SETTINGS_PAGE,
@@ -123,37 +93,39 @@ typedef enum _PAGE_NUMBER
     LAYOUT_SETTINGS_PAGE,
 
     SELECT_PARTITION_PAGE,
-    CREATE_PRIMARY_PARTITION_PAGE,
-    CREATE_EXTENDED_PARTITION_PAGE,
-    CREATE_LOGICAL_PARTITION_PAGE,
+    CREATE_PARTITION_PAGE,
+    CHANGE_SYSTEM_PARTITION,
     CONFIRM_DELETE_SYSTEM_PARTITION_PAGE,
     DELETE_PARTITION_PAGE,
 
-    SELECT_FILE_SYSTEM_PAGE,
-    FORMAT_PARTITION_PAGE,
+    START_PARTITION_OPERATIONS_PAGE,    /* Virtual page */
+    SELECT_FILE_SYSTEM_PAGE,    /* Virtual page */
+    FORMAT_PARTITION_PAGE,      /* Virtual page */
     CHECK_FILE_SYSTEM_PAGE,
+    BOOTLOADER_SELECT_PAGE,
 
     PREPARE_COPY_PAGE,
     INSTALL_DIRECTORY_PAGE,
     FILE_COPY_PAGE,
     REGISTRY_PAGE,
-    BOOT_LOADER_PAGE,
-    BOOT_LOADER_FLOPPY_PAGE,
-    BOOT_LOADER_HARDDISK_MBR_PAGE,
-    BOOT_LOADER_HARDDISK_VBR_PAGE,
-
-    REPAIR_INTRO_PAGE,
+    BOOTLOADER_INSTALL_PAGE,
+    BOOTLOADER_REMOVABLE_DISK_PAGE,
 
     SUCCESS_PAGE,
     QUIT_PAGE,
     FLUSH_PAGE,
-    REBOOT_PAGE,		/* virtual page */
-    RECOVERY_PAGE,		/* virtual page */
+    REBOOT_PAGE,    /* Virtual page */
+    RECOVERY_PAGE,  /* Virtual page */
 } PAGE_NUMBER, *PPAGE_NUMBER;
-#endif
 
 #define POPUP_WAIT_NONE    0
 #define POPUP_WAIT_ANY_KEY 1
 #define POPUP_WAIT_ENTER   2
+
+VOID
+PopupError(IN PCCH Text,
+           IN PCCH Status,
+           IN PINPUT_RECORD Ir,
+           IN ULONG WaitEvent);
 
 #endif /* _USETUP_PCH_ */

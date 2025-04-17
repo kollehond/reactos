@@ -28,7 +28,7 @@ VOID DisplayWin32ErrorDbg(DWORD dwErrorCode, const char *file, int line)
 VOID DisplayWin32Error(DWORD dwErrorCode)
 #endif
 {
-    LPVOID lpMsgBuf;
+    PWSTR lpMsgBuf;
 #if DBG
     WCHAR szMsg[255];
 #endif
@@ -44,7 +44,7 @@ VOID DisplayWin32Error(DWORD dwErrorCode)
                    NULL );
 
 #if DBG
-    if (swprintf(szMsg, L"%hs:%d: %s", file, line, lpMsgBuf))
+    if (swprintf(szMsg, L"%hs:%d: %s", file, line, (PWSTR)lpMsgBuf))
     {
         MessageBoxW(NULL, szMsg, NULL, MB_OK | MB_ICONERROR);
     }
@@ -67,13 +67,28 @@ InitPropSheetPage(PROPSHEETPAGEW *psp, WORD idDlg, DLGPROC DlgProc)
     psp->pfnDlgProc = DlgProc;
 }
 
+static int CALLBACK
+PropSheetProc(HWND hwndDlg, UINT uMsg, LPARAM lParam)
+{
+    // NOTE: This callback is needed to set large icon correctly.
+    HICON hIcon;
+    switch (uMsg)
+    {
+        case PSCB_INITIALIZED:
+        {
+            hIcon = LoadIconW(hApplet, MAKEINTRESOURCEW(IDC_CPLICON));
+            SendMessageW(hwndDlg, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+            break;
+        }
+    }
+    return 0;
+}
 
 static LONG APIENTRY
 Applet(HWND hwnd, UINT uMsg, LPARAM wParam, LPARAM lParam)
 {
     PROPSHEETHEADER psh;
     PROPSHEETPAGEW psp[3];
-    WCHAR Caption[256];
     LONG Ret = 0;
 
     UNREFERENCED_PARAMETER(uMsg);
@@ -83,18 +98,17 @@ Applet(HWND hwnd, UINT uMsg, LPARAM wParam, LPARAM lParam)
     if (RegisterMonthCalControl(hApplet) &&
         RegisterClockControl())
     {
-        LoadStringW(hApplet, IDS_CPLNAME, Caption, sizeof(Caption) / sizeof(WCHAR));
-
         ZeroMemory(&psh, sizeof(PROPSHEETHEADERW));
         psh.dwSize = sizeof(PROPSHEETHEADERW);
-        psh.dwFlags =  PSH_PROPSHEETPAGE | PSH_PROPTITLE;
+        psh.dwFlags =  PSH_PROPSHEETPAGE | PSH_PROPTITLE | PSH_USEICONID | PSH_USECALLBACK;
         psh.hwndParent = hwnd;
         psh.hInstance = hApplet;
-        psh.hIcon = LoadIcon(hApplet, MAKEINTRESOURCEW(IDC_CPLICON));
-        psh.pszCaption = Caption;
+        psh.pszIcon = MAKEINTRESOURCEW(IDC_CPLICON);
+        psh.pszCaption = MAKEINTRESOURCEW(IDS_CPLNAME);
         psh.nPages = sizeof(psp) / sizeof(PROPSHEETPAGEW);
         psh.nStartPage = 0;
         psh.ppsp = psp;
+        psh.pfnCallback = PropSheetProc;
 
         InitPropSheetPage(&psp[0], IDD_DATETIMEPAGE, DateTimePageProc);
         InitPropSheetPage(&psp[1], IDD_TIMEZONEPAGE, TimeZonePageProc);
@@ -117,7 +131,7 @@ CPlApplet(HWND hwndCpl,
           LPARAM lParam1,
           LPARAM lParam2)
 {
-    INT i = (INT)lParam1;
+    UINT i = (UINT)lParam1;
 
     switch (uMsg)
     {
@@ -128,20 +142,26 @@ CPlApplet(HWND hwndCpl,
             return NUM_APPLETS;
 
         case CPL_INQUIRE:
-        {
-            CPLINFO *CPlInfo = (CPLINFO*)lParam2;
-            CPlInfo->lData = 0;
-            CPlInfo->idIcon = Applets[i].idIcon;
-            CPlInfo->idName = Applets[i].idName;
-            CPlInfo->idInfo = Applets[i].idDescription;
-        }
-        break;
+            if (i < NUM_APPLETS)
+            {
+                CPLINFO *CPlInfo = (CPLINFO*)lParam2;
+                CPlInfo->lData = 0;
+                CPlInfo->idIcon = Applets[i].idIcon;
+                CPlInfo->idName = Applets[i].idName;
+                CPlInfo->idInfo = Applets[i].idDescription;
+            }
+            else
+            {
+                return TRUE;
+            }
+            break;
 
         case CPL_DBLCLK:
-        {
-            Applets[i].AppletProc(hwndCpl, uMsg, lParam1, lParam2);
-        }
-        break;
+            if (i < NUM_APPLETS)
+                Applets[i].AppletProc(hwndCpl, uMsg, lParam1, lParam2);
+            else
+                return TRUE;
+            break;
     }
     return FALSE;
 }

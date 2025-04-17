@@ -1,6 +1,6 @@
 LANGUAGE LANG_GERMAN, SUBLANG_NEUTRAL
 
-IDD_POWER_METER DIALOGEX 0, 0, 252, 218 
+IDD_POWER_METER DIALOGEX 0, 0, 252, 218
 STYLE DS_SHELLFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 EXSTYLE WS_EX_CONTEXTHELP
 CAPTION "Energieanzeige"
@@ -18,12 +18,13 @@ BEGIN
     IDS_PWR_PROPERTIES        "&Energieverwaltungseigenschaften einstellen"
     IDS_PWR_METER             "Batterieanzeige ö&ffnen"
     IDS_PWR_RUN               "shell32.dll,Control_RunDLL PowerCfg.cpl"
-    IDS_PWR_PERCENT_REMAINING "%.2f%% verbleibend"
-    IDS_PWR_CHARGING          "%.2f%% und wird geladen"
+    IDS_PWR_PERCENT_REMAINING "%u%% verbleibend"
+    IDS_PWR_CHARGING          "%u%% und wird geladen"
     IDS_PWR_UNKNOWN_REMAINING "Unbekannt verbleibend"
     IDS_PWR_AC "Mit Wechselstrom"
     IDS_PWR_HOURS_REMAINING "%1!u!:%2!02u! Stunden (%3!u!%%) verbleibend"
     IDS_PWR_MINUTES_REMAINING "%1!u! Min. (%2!u!%%) verbleibend"
+    IDS_PWR_FULLY_CHARGED "Fully charged"
 
     //Hotplug related strings
     IDS_HOTPLUG_REMOVE_1 "Hardware sicher entfernen"

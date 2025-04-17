@@ -20,6 +20,7 @@
 
 #pragma once
 
+// FCIDM_BROWSERFIRST..LAST: 0xa000..0xbf00
 #define IDM_FILE_CLOSE                   0xA021
 #define IDM_FILE_EXPLORE_MENU            0xA027
 #define IDM_BACKSPACE                    0xA032
@@ -63,6 +64,7 @@
 #define IDM_BAND_MENU                       269
 #define IDM_BAND_TITLE                   0xA200
 #define IDM_BAND_CLOSE                   0xA201
+#define FCIDM_BROWSER_TOGGLEFULLSCREEN   0xA21B
 
 #define IDM_POPUPMENU        2001
 #define IDM_LARGE_ICONS      2002
@@ -73,6 +75,7 @@
 
 /* Random id for band close button, feel free to change it */
 #define IDM_BASEBAR_CLOSE                0xA200
+#define IDM_NOTIFYITBARDIRTY             0xA239 /* Arbitrary id */
 
 /* User-installed explorer band IDs according to API Monitor traces */
 #define IDM_EXPLORERBAND_BEGINCUSTOM     0xA240
@@ -98,12 +101,17 @@
 #define IDR_INTERNETTOOLBAR      136
 #define IDR_GLOBALFOLDERSETTINGS 137
 #define IDR_REGTREEOPTIONS       138
-#define IDR_EXPLORERBAND         139
 #define IDR_PROGRESSDIALOG       140
 #define IDR_AUTOCOMPLETE         141
 #define IDR_ACLISTISF            142
 #define IDR_ISFBAND              143
 #define IDR_ACLCUSTOMMRU         144
+#define IDR_TASKBARLIST          145
+#define IDR_FILESEARCHBAND       146
+#define IDR_FINDFOLDER           147
+#define IDR_USERASSIST           148
+#define IDR_SHELLTASKSCHEDULER   149
+#define IDR_ACLHISTORY           150
 
 #define IDS_SMALLICONS           12301
 #define IDS_LARGEICONS           12302
@@ -118,11 +126,12 @@
 #define IDS_SEARCHLABEL          12897
 #define IDS_STANDARD_TOOLBAR     12624
 #define IDS_ADDRESSBANDLABEL     12902
-#define IDS_FOLDERSLABEL         12919
+#define IDS_ADDRESSMENUTEXT      13137
 #define IDS_HISTORYTEXT          13169
 #define IDS_UP                   58434
 #define IDS_BACK                 58689
 #define IDS_FORWARD              58690
+#define IDS_FOLDER_OPTIONS       58691
 
 #define IDS_CANCELLING           16
 #define IDS_REMAINING            17
@@ -152,3 +161,28 @@
 #define IDB_SHELL_BRANDBAND_SM_LO   245
 #define IDB_SHELL_BRANDBAND_MD_LO   246
 #define IDB_SHELL_BRANDBAND_LG_LO   247*/
+
+#define IDD_SEARCH_DLG          1000
+#define IDC_SEARCH_LABEL        1001
+#define IDC_SEARCH_FILENAME     1002
+#define IDC_SEARCH_QUERY        1003
+#define IDC_SEARCH_BUTTON       1004
+#define IDC_SEARCH_STOP_BUTTON  1005
+#define IDC_SEARCH_COMBOBOX     1006
+#define IDC_SEARCH_HIDDEN       1007
+#define IDS_SEARCHINVALID       4518
+#define IDS_COL_NAME            8976
+#define IDS_COL_LOCATION        8977
+#define IDS_COL_RELEVANCE       8989
+#define IDS_SEARCH_FILES_FOUND  9232
+#define IDS_SEARCH_FOLDER       9234
+#define IDS_SEARCH_RESULTS      30520
+#define IDS_SEARCH_OPEN_FOLDER  40960
+#define IDC_STATUSBAR           40961
+
+#define IDS_PARSE_ADDR_ERR_TITLE 9600
+#define IDS_PARSE_ADDR_ERR_TEXT  9601
+
+#define COL_NAME_INDEX      0
+#define COL_LOCATION_INDEX  1
+#define COL_RELEVANCE_INDEX 2

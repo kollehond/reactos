@@ -38,7 +38,7 @@ BEGIN
 END
 
 IDD_CONNECTDIALOG DIALOGEX 0, 0, 260, 262
-STYLE DS_SHELLFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+STYLE DS_SHELLFONT | DS_CENTER | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Connexion au bureau distant"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
@@ -55,7 +55,7 @@ BEGIN
     IDS_HIGHCOLOR15 "32,768 Couleurs (15 bit)"
     IDS_HIGHCOLOR16 "65,536 Couleurs (16 bit)"
     IDS_HIGHCOLOR24 "16,777,216 Couleurs (24 bit)"
-    IDS_HIGHCOLOR32 "Highest Quality (32 bit)"
+    IDS_HIGHCOLOR32 "La plus haute qualité (32 bit)"
     IDS_PIXEL "%lux%lu Pixels"
     IDS_FULLSCREEN "Plein écran"
     IDS_BROWSESERVER "<Parcourir pour plus...>"

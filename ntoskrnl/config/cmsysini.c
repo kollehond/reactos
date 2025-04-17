@@ -1,7 +1,6 @@
 /*
  * PROJECT:         ReactOS Kernel
  * LICENSE:         BSD - See COPYING.ARM in the top level directory
- * FILE:            ntoskrnl/config/cmsysini.c
  * PURPOSE:         Configuration Manager - System Initialization Code
  * PROGRAMMERS:     ReactOS Portable Systems Group
  *                  Alex Ionescu (alex.ionescu@reactos.org)
@@ -22,15 +21,19 @@ LIST_ENTRY CmpSelfHealQueueListHead;
 KEVENT CmpLoadWorkerEvent;
 LONG CmpLoadWorkerIncrement;
 PEPROCESS CmpSystemProcess;
-BOOLEAN HvShutdownComplete;
 PVOID CmpRegistryLockCallerCaller, CmpRegistryLockCaller;
 BOOLEAN CmpFlushOnLockRelease;
 BOOLEAN CmpSpecialBootCondition;
-BOOLEAN CmpNoWrite;
+
+/* Disable registry hive writes, until the IO subsystem is initialized
+ * and disk access is enabled (when the SM signals so after AUTOCHK) */
+BOOLEAN CmpNoWrite = TRUE;
+
 BOOLEAN CmpWasSetupBoot;
 BOOLEAN CmpProfileLoaded;
 BOOLEAN CmpNoVolatileCreates;
 ULONG CmpTraceLevel = 0;
+BOOLEAN HvShutdownComplete = FALSE;
 
 extern LONG CmpFlushStarveWriters;
 extern BOOLEAN CmFirstTime;
@@ -139,7 +142,7 @@ CmpDeleteKeyObject(PVOID DeletedObject)
         if (Kcb)
         {
             /* Delist the key */
-            DelistKeyBodyFromKCB(KeyBody, FALSE);
+            DelistKeyBodyFromKCB(KeyBody, KeyBody->KcbLocked);
 
             /* Dereference the KCB */
             CmpDelayDerefKeyControlBlock(Kcb);
@@ -229,7 +232,7 @@ CmpQueryKeyName(IN PVOID ObjectBody,
 
     /* Check if the provided buffer is too small to fit even anything */
     if ((Length <= sizeof(OBJECT_NAME_INFORMATION)) ||
-        ((Length < (*ReturnLength)) && (BytesToCopy < sizeof(WCHAR))))
+        ((Length < *ReturnLength) && (BytesToCopy < sizeof(WCHAR))))
     {
         /* Free the buffer allocated by CmpConstructName */
         ExFreePoolWithTag(KeyName, TAG_CM);
@@ -239,7 +242,7 @@ CmpQueryKeyName(IN PVOID ObjectBody,
     }
 
     /* Check if the provided buffer can be partially written */
-    if (Length < (*ReturnLength))
+    if (Length < *ReturnLength)
     {
         /* Yes, indicate so in the return status */
         Status = STATUS_INFO_LENGTH_MISMATCH;
@@ -329,7 +332,7 @@ CmpInitHiveFromFile(IN PCUNICODE_STRING HiveName,
         *New = FALSE;
     }
 
-    /* Check if we're sharing hives */
+    /* Check if the system hives are opened in shared mode */
     if (CmpShareSystemHives)
     {
         /* Then force using the primary hive */
@@ -359,6 +362,7 @@ CmpInitHiveFromFile(IN PCUNICODE_STRING HiveName,
                                NULL,
                                FileHandle,
                                LogHandle,
+                               NULL,
                                NULL,
                                HiveName,
                                CheckFlags);
@@ -391,15 +395,16 @@ CmpInitHiveFromFile(IN PCUNICODE_STRING HiveName,
     return STATUS_SUCCESS;
 }
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 CmpSetSystemValues(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
-    OBJECT_ATTRIBUTES ObjectAttributes;
-    UNICODE_STRING KeyName, ValueName = { 0, 0, NULL };
-    HANDLE KeyHandle = NULL;
     NTSTATUS Status;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    HANDLE KeyHandle;
+    UNICODE_STRING KeyName, ValueName = { 0, 0, NULL };
+
     ASSERT(LoaderBlock != NULL);
 
     /* Setup attributes for loader options */
@@ -412,9 +417,10 @@ CmpSetSystemValues(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
                                NULL,
                                NULL);
     Status = NtOpenKey(&KeyHandle, KEY_WRITE, &ObjectAttributes);
-    if (!NT_SUCCESS(Status)) goto Quickie;
+    if (!NT_SUCCESS(Status))
+        return Status;
 
-    /* Key opened, now write to the key */
+    /* Setup the value for the system start options */
     RtlInitUnicodeString(&KeyName, L"SystemStartOptions");
     Status = NtSetValueKey(KeyHandle,
                            &KeyName,
@@ -422,9 +428,10 @@ CmpSetSystemValues(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
                            REG_SZ,
                            CmpLoadOptions.Buffer,
                            CmpLoadOptions.Length);
-    if (!NT_SUCCESS(Status)) goto Quickie;
+    if (!NT_SUCCESS(Status))
+        goto Quit;
 
-    /* Setup value name for system boot device in ARC format */
+    /* Setup the value for the system boot device in ARC format */
     RtlInitUnicodeString(&KeyName, L"SystemBootDevice");
     RtlCreateUnicodeStringFromAsciiz(&ValueName, LoaderBlock->ArcBootDeviceName);
     Status = NtSetValueKey(KeyHandle,
@@ -434,20 +441,18 @@ CmpSetSystemValues(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
                            ValueName.Buffer,
                            ValueName.Length);
 
-Quickie:
-    /* Free the buffers */
+    /* Free the temporary string */
     RtlFreeUnicodeString(&ValueName);
 
+Quit:
     /* Close the key and return */
-    if (KeyHandle) NtClose(KeyHandle);
-
-    /* Return the status */
-    return (ExpInTextModeSetup ? STATUS_SUCCESS : Status);
+    NtClose(KeyHandle);
+    return Status;
 }
 
 static
+CODE_SEG("INIT")
 NTSTATUS
-INIT_FUNCTION
 CmpCreateHardwareProfile(HANDLE ControlSetHandle)
 {
     OBJECT_ATTRIBUTES ObjectAttributes;
@@ -517,9 +522,9 @@ done:
     return Status;
 }
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 CmpCreateControlSet(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
     UNICODE_STRING ConfigName = RTL_CONSTANT_STRING(L"Control\\IDConfigDB");
@@ -686,7 +691,7 @@ CmpCreateControlSet(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
         ValueInfo = (PKEY_VALUE_FULL_INFORMATION)ValueInfoBuffer;
 
         /* Check if we failed or got a non DWORD-value */
-        if (!(NT_SUCCESS(Status)) || (ValueInfo->Type != REG_DWORD))
+        if (!NT_SUCCESS(Status) || (ValueInfo->Type != REG_DWORD))
         {
             Status = STATUS_SUCCESS;
             goto Cleanup;
@@ -727,7 +732,7 @@ CmpCreateControlSet(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     Status = NtOpenKey(&ProfileHandle,
                        KEY_READ | KEY_WRITE,
                        &ObjectAttributes);
-    if (!NT_SUCCESS (Status))
+    if (!NT_SUCCESS(Status))
     {
         /* Cleanup and exit */
         Status = STATUS_SUCCESS;
@@ -858,9 +863,9 @@ CmpLinkHiveToMaster(IN PUNICODE_STRING LinkName,
     return STATUS_SUCCESS;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 CmpInitializeSystemHive(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
     static const UNICODE_STRING HiveName = RTL_CONSTANT_STRING(L"SYSTEM");
@@ -872,7 +877,6 @@ CmpInitializeSystemHive(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     UNICODE_STRING KeyName;
     PCMHIVE SystemHive = NULL;
     PSECURITY_DESCRIPTOR SecurityDescriptor;
-    BOOLEAN Success;
 
     PAGED_CODE();
 
@@ -907,31 +911,26 @@ CmpInitializeSystemHive(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     Status = CmpInitializeHive(&SystemHive,
                                HiveBase ? HINIT_MEMORY : HINIT_CREATE,
                                HIVE_NOLAZYFLUSH,
-                               HFILE_TYPE_LOG,
+                               HFILE_TYPE_ALTERNATE,
                                HiveBase,
                                NULL,
                                NULL,
                                NULL,
+                               NULL,
                                &HiveName,
-                               HiveBase ? 2 : 0);
+                               HiveBase ? CM_CHECK_REGISTRY_PURGE_VOLATILES : CM_CHECK_REGISTRY_DONT_PURGE_VOLATILES);
     if (!NT_SUCCESS(Status))
     {
         return FALSE;
     }
 
     /* Set the hive filename */
-    Success = RtlCreateUnicodeString(&SystemHive->FileFullPath,
-                                     L"\\SystemRoot\\System32\\Config\\SYSTEM");
-    if (!Success)
-    {
+    if (!RtlCreateUnicodeString(&SystemHive->FileFullPath, L"\\SystemRoot\\System32\\Config\\SYSTEM"))
         return FALSE;
-    }
 
-    /* Manually set the hive as volatile, if in Live CD mode */
+    /* Load the system hive as volatile, if opened in shared mode */
     if (HiveBase && CmpShareSystemHives)
-    {
         SystemHive->Hive.HiveFlags = HIVE_VOLATILE;
-    }
 
     /* Save the boot type */
     CmpBootType = SystemHive->Hive.BaseBlock->BootType;
@@ -941,7 +940,7 @@ CmpInitializeSystemHive(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     {
         /* Disable self-healing internally and check if boot type wanted it */
         CmpSelfHeal = FALSE;
-        if (CmpBootType & 4)
+        if (CmpBootType & HBOOT_TYPE_SELF_HEAL)
         {
             /* We're disabled, so bugcheck */
             KeBugCheckEx(BAD_SYSTEM_CONFIG_INFO,
@@ -975,9 +974,9 @@ CmpInitializeSystemHive(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     return TRUE;
 }
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 CmpCreateObjectTypes(VOID)
 {
     OBJECT_TYPE_INITIALIZER ObjectTypeInitializer;
@@ -1009,9 +1008,9 @@ CmpCreateObjectTypes(VOID)
     return ObCreateObjectType(&Name, &ObjectTypeInitializer, NULL, &CmpKeyObjectType);
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 CmpCreateRootNode(IN PHHIVE Hive,
                   IN PCWSTR Name,
                   OUT PHCELL_INDEX Index)
@@ -1065,9 +1064,9 @@ CmpCreateRootNode(IN PHHIVE Hive,
     return TRUE;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 CmpCreateRegistryRoot(VOID)
 {
     UNICODE_STRING KeyName;
@@ -1110,7 +1109,11 @@ CmpCreateRegistryRoot(VOID)
     /* Sanity check, and get the key cell */
     ASSERT((&CmiVolatileHive->Hive)->ReleaseCellRoutine == NULL);
     KeyCell = (PCM_KEY_NODE)HvGetCell(&CmiVolatileHive->Hive, RootIndex);
-    if (!KeyCell) return FALSE;
+    if (!KeyCell)
+    {
+        ObDereferenceObject(RootKey);
+        return FALSE;
+    }
 
     /* Create the KCB */
     RtlInitUnicodeString(&KeyName, L"\\REGISTRY");
@@ -1131,6 +1134,7 @@ CmpCreateRegistryRoot(VOID)
     RootKey->Type = CM_KEY_BODY_TYPE;
     RootKey->NotifyBlock = NULL;
     RootKey->ProcessID = PsGetCurrentProcessId();
+    RootKey->KcbLocked = FALSE;
 
     /* Link with KCB */
     EnlistKeyBodyWithKCB(RootKey, 0);
@@ -1144,7 +1148,6 @@ CmpCreateRegistryRoot(VOID)
                             &CmpRegistryRootHandle);
     if (!NT_SUCCESS(Status))
     {
-        ObDereferenceObject(RootKey);
         return FALSE;
     }
 
@@ -1161,84 +1164,98 @@ CmpCreateRegistryRoot(VOID)
         return FALSE;
     }
 
-    /* Completely sucessful */
+    /* Completely successful */
     return TRUE;
 }
 
-NTSTATUS
-NTAPI
-CmpGetRegistryPath(OUT PWCHAR ConfigPath)
+static PCWSTR
+CmpGetRegistryPath(VOID)
 {
-    OBJECT_ATTRIBUTES ObjectAttributes;
-    NTSTATUS Status;
-    HANDLE KeyHandle;
-    PKEY_VALUE_PARTIAL_INFORMATION ValueInfo;
-    UNICODE_STRING KeyName = RTL_CONSTANT_STRING(L"\\Registry\\Machine\\HARDWARE");
-    UNICODE_STRING ValueName = RTL_CONSTANT_STRING(L"InstallPath");
-    ULONG BufferSize, ResultSize;
+    PCWSTR ConfigPath;
 
     /* Check if we are booted in setup */
-    if (ExpInTextModeSetup)
+    if (!ExpInTextModeSetup)
     {
-        DPRINT1("CmpGetRegistryPath TextMode setup HACK!!\n");
-
-        /* Setup the object attributes */
-        InitializeObjectAttributes(&ObjectAttributes,
-                                   &KeyName,
-                                   OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
-                                   NULL,
-                                   NULL);
-        /* Open the key */
-        Status =  ZwOpenKey(&KeyHandle,
-                            KEY_ALL_ACCESS,
-                            &ObjectAttributes);
-        if (!NT_SUCCESS(Status)) return Status;
-
-        /* Allocate the buffer */
-        BufferSize = sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 4096;
-        ValueInfo = ExAllocatePoolWithTag(PagedPool, BufferSize, TAG_CM);
-        if (!ValueInfo)
-        {
-            /* Fail */
-            ZwClose(KeyHandle);
-            return STATUS_INSUFFICIENT_RESOURCES;
-        }
-
-        /* Query the value */
-        Status = ZwQueryValueKey(KeyHandle,
-                                 &ValueName,
-                                 KeyValuePartialInformation,
-                                 ValueInfo,
-                                 BufferSize,
-                                 &ResultSize);
-        ZwClose(KeyHandle);
-        if (!NT_SUCCESS(Status))
-        {
-            /* Fail */
-            ExFreePoolWithTag(ValueInfo, TAG_CM);
-            return Status;
-        }
-
-        /* Copy the config path and null-terminate it */
-        RtlCopyMemory(ConfigPath,
-                      ValueInfo->Data,
-                      ValueInfo->DataLength);
-        ConfigPath[ValueInfo->DataLength / sizeof(WCHAR)] = UNICODE_NULL;
-        ExFreePoolWithTag(ValueInfo, TAG_CM);
+        ConfigPath = L"\\SystemRoot\\System32\\Config\\";
     }
     else
     {
-        /* Just use default path */
-        wcscpy(ConfigPath, L"\\SystemRoot");
+        ConfigPath = L"\\SystemRoot\\";
     }
-
-    /* Add registry path */
-    wcscat(ConfigPath, L"\\System32\\Config\\");
 
     DPRINT1("CmpGetRegistryPath: ConfigPath = '%S'\n", ConfigPath);
 
-    /* Done */
-    return STATUS_SUCCESS;
+    return ConfigPath;
+}
+
+/**
+ * @brief
+ * Checks if the primary and alternate backing hive are
+ * the same, by determining the time stamp of both hives.
+ *
+ * @param[in] FileName
+ * A pointer to a string containing the file name of the
+ * primary hive.
+ *
+ * @param[in] CmMainmHive
+ * A pointer to a CM hive descriptor associated with the
+ * primary hive.
+ *
+ * @param[in] AlternateHandle
+ * A handle to a file that represents the alternate hive.
+ *
+ * @param[in] Diverged
+ * A pointer to a boolean value, if both hives are the same
+ * it returns TRUE. Otherwise it returns FALSE.
+ */
+static
+VOID
+CmpHasAlternateHiveDiverged(
+    _In_ PCUNICODE_STRING FileName,
+    _In_ PCMHIVE CmMainmHive,
+    _In_ HANDLE AlternateHandle,
+    _Out_ PBOOLEAN Diverged)
+{
+    PHHIVE Hive, AlternateHive;
+    NTSTATUS Status;
+    PCMHIVE CmiAlternateHive;
+
+    /* Assume it has not diverged */
+    *Diverged = FALSE;
+
+    /* Initialize the SYSTEM alternate hive */
+    Status = CmpInitializeHive(&CmiAlternateHive,
+                               HINIT_FILE,
+                               0,
+                               HFILE_TYPE_PRIMARY,
+                               NULL,
+                               AlternateHandle,
+                               NULL,
+                               NULL,
+                               NULL,
+                               FileName,
+                               CM_CHECK_REGISTRY_DONT_PURGE_VOLATILES);
+    if (!NT_SUCCESS(Status))
+    {
+        /* Assume it has diverged... */
+        DPRINT1("Failed to initialize the alternate hive to check for diversion (Status 0x%lx)\n", Status);
+        *Diverged = TRUE;
+        return;
+    }
+
+    /*
+     * Check the timestamp of both hives. If they do not match they
+     * have diverged, the kernel has to synchronize the both hives.
+     */
+    Hive = &CmMainmHive->Hive;
+    AlternateHive = &CmiAlternateHive->Hive;
+    if (AlternateHive->BaseBlock->TimeStamp.QuadPart !=
+        Hive->BaseBlock->TimeStamp.QuadPart)
+    {
+        *Diverged = TRUE;
+    }
+
+    CmpDestroyHive(CmiAlternateHive);
 }
 
 _Function_class_(KSTART_ROUTINE)
@@ -1246,15 +1263,17 @@ VOID
 NTAPI
 CmpLoadHiveThread(IN PVOID StartContext)
 {
-    WCHAR FileBuffer[MAX_PATH], RegBuffer[MAX_PATH], ConfigPath[MAX_PATH];
+    WCHAR FileBuffer[64], RegBuffer[64];
+    PCWSTR ConfigPath;
     UNICODE_STRING TempName, FileName, RegName;
     ULONG i, ErrorResponse, WorkerCount, Length;
     USHORT FileStart;
     ULONG PrimaryDisposition, SecondaryDisposition, ClusterSize;
     PCMHIVE CmHive;
-    HANDLE PrimaryHandle = NULL, LogHandle = NULL;
+    HANDLE PrimaryHandle = NULL, AlternateHandle = NULL;
     NTSTATUS Status = STATUS_SUCCESS;
     PVOID ErrorParameters;
+    BOOLEAN HasDiverged;
     PAGED_CODE();
 
     /* Get the hive index, make sure it makes sense */
@@ -1269,7 +1288,7 @@ CmpLoadHiveThread(IN PVOID StartContext)
     RtlInitEmptyUnicodeString(&RegName, RegBuffer, sizeof(RegBuffer));
 
     /* Now build the system root path */
-    CmpGetRegistryPath(ConfigPath);
+    ConfigPath = CmpGetRegistryPath();
     RtlInitUnicodeString(&TempName, ConfigPath);
     RtlAppendUnicodeStringToString(&FileName, &TempName);
     FileStart = FileName.Length;
@@ -1304,9 +1323,9 @@ CmpLoadHiveThread(IN PVOID StartContext)
                                      CmpMachineHiveList[i].HHiveFlags,
                                      &CmHive,
                                      &CmpMachineHiveList[i].Allocate,
-                                     0);
-        if (!(NT_SUCCESS(Status)) ||
-            (!(CmpShareSystemHives) && !(CmHive->FileHandles[HFILE_TYPE_LOG])))
+                                     CM_CHECK_REGISTRY_PURGE_VOLATILES);
+        if (!NT_SUCCESS(Status) ||
+            (!CmpShareSystemHives && !CmHive->FileHandles[HFILE_TYPE_LOG]))
         {
             /*
              * We failed, or could not get a log file (unless
@@ -1333,18 +1352,18 @@ CmpLoadHiveThread(IN PVOID StartContext)
         {
             /* It's now, open the hive file and log */
             Status = CmpOpenHiveFiles(&FileName,
-                                      L".LOG",
+                                      L".ALT",
                                       &PrimaryHandle,
-                                      &LogHandle,
+                                      &AlternateHandle,
                                       &PrimaryDisposition,
                                       &SecondaryDisposition,
                                       TRUE,
                                       TRUE,
                                       FALSE,
                                       &ClusterSize);
-            if (!(NT_SUCCESS(Status)) || !(LogHandle))
+            if (!NT_SUCCESS(Status) || !AlternateHandle)
             {
-                /* Couldn't open the hive or its log file, raise a hard error */
+                /* Couldn't open the hive or its alternate file, raise a hard error */
                 ErrorParameters = &FileName;
                 NtRaiseHardError(STATUS_CANNOT_LOAD_REGISTRY_FILE,
                                  1,
@@ -1358,7 +1377,14 @@ CmpLoadHiveThread(IN PVOID StartContext)
             }
 
             /* Save the file handles. This should remove our sync hacks */
-            CmHive->FileHandles[HFILE_TYPE_LOG] = LogHandle;
+            /*
+             * FIXME: Any hive that relies on the alternate hive for recovery purposes
+             * will only get an alternate hive. As a result, the LOG file would never
+             * get synced each time a write is done to the hive. In the future it would
+             * be best to adapt the code so that a primary hive can use a LOG and ALT
+             * hives at the same time.
+             */
+            CmHive->FileHandles[HFILE_TYPE_ALTERNATE] = AlternateHandle;
             CmHive->FileHandles[HFILE_TYPE_PRIMARY] = PrimaryHandle;
 
             /* Allow lazy flushing since the handles are there -- remove sync hacks */
@@ -1383,8 +1409,36 @@ CmpLoadHiveThread(IN PVOID StartContext)
                 //ASSERT(FALSE);
             //}
 
-            /* Another thing we don't support is NTLDR-recovery */
-            if (CmHive->Hive.BaseBlock->BootRecover) ASSERT(FALSE);
+            /* FreeLdr has recovered the hive with a log, we must do a flush */
+            if (CmHive->Hive.BaseBlock->BootRecover == HBOOT_BOOT_RECOVERED_BY_HIVE_LOG)
+            {
+                DPRINT1("FreeLdr recovered the hive (hive 0x%p)\n", CmHive);
+                RtlSetAllBits(&CmHive->Hive.DirtyVector);
+                CmHive->Hive.DirtyCount = CmHive->Hive.DirtyVector.SizeOfBitMap;
+                HvSyncHive((PHHIVE)CmHive);
+            }
+            else
+            {
+                /*
+                 * Check whether the both primary and alternate hives are the same,
+                 * or that the primary or alternate were created for the first time.
+                 * Do a write against the alternate hive in these cases.
+                 */
+                CmpHasAlternateHiveDiverged(&FileName,
+                                            CmHive,
+                                            AlternateHandle,
+                                            &HasDiverged);
+                if (HasDiverged ||
+                    PrimaryDisposition == FILE_CREATED ||
+                    SecondaryDisposition == FILE_CREATED)
+                {
+                    if (!HvWriteAlternateHive((PHHIVE)CmHive))
+                    {
+                        DPRINT1("Failed to write to alternate hive\n");
+                        goto Exit;
+                    }
+                }
+            }
 
             /* Finally, set our allocated hive to the same hive we've had */
             CmpMachineHiveList[i].CmHive2 = CmHive;
@@ -1392,6 +1446,7 @@ CmpLoadHiveThread(IN PVOID StartContext)
         }
     }
 
+Exit:
     /* We're done */
     CmpMachineHiveList[i].ThreadFinished = TRUE;
 
@@ -1409,18 +1464,20 @@ CmpLoadHiveThread(IN PVOID StartContext)
 
 VOID
 NTAPI
-CmpInitializeHiveList(IN USHORT Flag)
+CmpInitializeHiveList(VOID)
 {
-    WCHAR FileBuffer[MAX_PATH], RegBuffer[MAX_PATH], ConfigPath[MAX_PATH];
+    WCHAR FileBuffer[64], RegBuffer[64];
+    PCWSTR ConfigPath;
     UNICODE_STRING TempName, FileName, RegName;
     HANDLE Thread;
     NTSTATUS Status;
     ULONG i;
     USHORT RegStart;
     PSECURITY_DESCRIPTOR SecurityDescriptor;
+
     PAGED_CODE();
 
-    /* Allow writing for now */
+    /* Reenable hive writes now */
     CmpNoWrite = FALSE;
 
     /* Build the file name and registry name strings */
@@ -1428,7 +1485,7 @@ CmpInitializeHiveList(IN USHORT Flag)
     RtlInitEmptyUnicodeString(&RegName, RegBuffer, sizeof(RegBuffer));
 
     /* Now build the system root path */
-    CmpGetRegistryPath(ConfigPath);
+    ConfigPath = CmpGetRegistryPath();
     RtlInitUnicodeString(&TempName, ConfigPath);
     RtlAppendUnicodeStringToString(&FileName, &TempName);
 
@@ -1452,7 +1509,7 @@ CmpInitializeHiveList(IN USHORT Flag)
         /* Make sure the list is set up */
         ASSERT(CmpMachineHiveList[i].Name != NULL);
 
-        /* Load the hive as volatile, if in LiveCD mode */
+        /* Load this root hive as volatile, if opened in shared mode */
         if (CmpShareSystemHives)
             CmpMachineHiveList[i].HHiveFlags |= HIVE_VOLATILE;
 
@@ -1558,9 +1615,9 @@ CmpInitializeHiveList(IN USHORT Flag)
     CmpNoVolatileCreates = TRUE;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 CmInitSystem1(VOID)
 {
     OBJECT_ATTRIBUTES ObjectAttributes;
@@ -1574,10 +1631,14 @@ CmInitSystem1(VOID)
     /* Check if this is PE-boot */
     if (InitIsWinPEMode)
     {
-        /* Set registry to PE mode */
+        /* Set the registry in PE mode and load the system hives in shared mode */
         CmpMiniNTBoot = TRUE;
         CmpShareSystemHives = TRUE;
     }
+    /* If we are in volatile boot mode, ALL hives without exception
+     * (system hives and others) will be loaded in shared mode */
+    if (CmpVolatileBoot)
+        CmpShareSystemHives = TRUE;
 
     /* Initialize the hive list and lock */
     InitializeListHead(&CmpHiveListHead);
@@ -1623,7 +1684,8 @@ CmInitSystem1(VOID)
                                NULL,
                                NULL,
                                NULL,
-                               0);
+                               NULL,
+                               CM_CHECK_REGISTRY_DONT_PURGE_VOLATILES);
     if (!NT_SUCCESS(Status))
     {
         /* Bugcheck */
@@ -1714,7 +1776,8 @@ CmInitSystem1(VOID)
                                NULL,
                                NULL,
                                NULL,
-                               0);
+                               NULL,
+                               CM_CHECK_REGISTRY_DONT_PURGE_VOLATILES);
     if (!NT_SUCCESS(Status))
     {
         /* Bugcheck */
@@ -1774,58 +1837,9 @@ CmInitSystem1(VOID)
     return TRUE;
 }
 
-VOID
-NTAPI
-INIT_FUNCTION
-CmpFreeDriverList(IN PHHIVE Hive,
-                  IN PLIST_ENTRY DriverList)
-{
-    PLIST_ENTRY NextEntry, OldEntry;
-    PBOOT_DRIVER_NODE DriverNode;
-    PAGED_CODE();
-
-    /* Parse the current list */
-    NextEntry = DriverList->Flink;
-    while (NextEntry != DriverList)
-    {
-        /* Get the driver node */
-        DriverNode = CONTAINING_RECORD(NextEntry, BOOT_DRIVER_NODE, ListEntry.Link);
-
-        /* Get the next entry now, since we're going to free it later */
-        OldEntry = NextEntry;
-        NextEntry = NextEntry->Flink;
-
-        /* Was there a name? */
-        if (DriverNode->Name.Buffer)
-        {
-            /* Free it */
-            CmpFree(DriverNode->Name.Buffer, DriverNode->Name.Length);
-        }
-
-        /* Was there a registry path? */
-        if (DriverNode->ListEntry.RegistryPath.Buffer)
-        {
-            /* Free it */
-            CmpFree(DriverNode->ListEntry.RegistryPath.Buffer,
-                    DriverNode->ListEntry.RegistryPath.MaximumLength);
-        }
-
-        /* Was there a file path? */
-        if (DriverNode->ListEntry.FilePath.Buffer)
-        {
-            /* Free it */
-            CmpFree(DriverNode->ListEntry.FilePath.Buffer,
-                    DriverNode->ListEntry.FilePath.MaximumLength);
-        }
-
-        /* Now free the node, and move on */
-        CmpFree(OldEntry, sizeof(BOOT_DRIVER_NODE));
-    }
-}
-
+CODE_SEG("INIT")
 PUNICODE_STRING*
 NTAPI
-INIT_FUNCTION
 CmGetSystemDriverList(VOID)
 {
     LIST_ENTRY DriverList;
@@ -2058,11 +2072,6 @@ CmpUnlockRegistry(VOID)
         CmpDoFlushAll(TRUE);
         CmpFlushOnLockRelease = FALSE;
     }
-    else
-    {
-        /* Lazy flush the registry */
-        CmpLazyFlush();
-    }
 
     /* Release the lock and leave the critical region */
     ExReleaseResourceLite(&CmpRegistryLock);
@@ -2112,14 +2121,14 @@ CmpReleaseTwoKcbLockByKey(IN ULONG ConvKey1,
     Index1 = GET_HASH_INDEX(ConvKey1);
     Index2 = GET_HASH_INDEX(ConvKey2);
     ASSERT((GET_HASH_ENTRY(CmpCacheTable, ConvKey2)->Owner == KeGetCurrentThread()) ||
-           (CmpTestRegistryLockExclusive()));
+           CmpTestRegistryLockExclusive());
 
     /* See which one is highest */
     if (Index1 < Index2)
     {
         /* Grab them in the proper order */
         ASSERT((GET_HASH_ENTRY(CmpCacheTable, ConvKey1)->Owner == KeGetCurrentThread()) ||
-               (CmpTestRegistryLockExclusive()));
+               CmpTestRegistryLockExclusive());
         CmpReleaseKcbLockByKey(ConvKey2);
         CmpReleaseKcbLockByKey(ConvKey1);
     }
@@ -2129,7 +2138,7 @@ CmpReleaseTwoKcbLockByKey(IN ULONG ConvKey1,
         if (Index1 != Index2)
         {
             ASSERT((GET_HASH_ENTRY(CmpCacheTable, ConvKey1)->Owner == KeGetCurrentThread()) ||
-                   (CmpTestRegistryLockExclusive()));
+                   CmpTestRegistryLockExclusive());
             CmpReleaseKcbLockByKey(ConvKey1);
         }
         CmpReleaseKcbLockByKey(ConvKey2);
@@ -2160,6 +2169,14 @@ CmShutdownSystem(VOID)
 
         ListEntry = ListEntry->Flink;
     }
+
+    /*
+     * As we flushed all the hives on the disk,
+     * tell the system we do not want any further
+     * registry flushing or syncing at this point
+     * since we are shutting down the registry anyway.
+     */
+    HvShutdownComplete = TRUE;
 
     CmpUnlockRegistry();
 }

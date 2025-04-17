@@ -1,34 +1,27 @@
 
-set_cpp(WITH_RUNTIME)
-
-include_directories(
-    ${REACTOS_SOURCE_DIR}/sdk/lib/atl
-    ${REACTOS_SOURCE_DIR}/sdk/include/reactos/wine)
-
 spec2def(msgina.dll msgina.spec)
 
-list(APPEND C_SOURCE
+list(APPEND SOURCE
     gui.c
     lsa.c
     msgina.c
     shutdown.c
     stubs.c
-    tui.c
-    msgina.h)
+    tui.c)
 
-list(APPEND CPP_SOURCE
-    dimmedwindow.cpp)
+list(APPEND PCH_SKIP_SOURCE
+    dimmedwindow.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/msgina_stubs.c)
 
-add_library(msgina SHARED
-    ${C_SOURCE}
-    ${CPP_SOURCE}
+add_library(msgina MODULE
+    ${SOURCE}
+    ${PCH_SKIP_SOURCE}
     msgina.rc
-    ${CMAKE_CURRENT_BINARY_DIR}/msgina_stubs.c
     ${CMAKE_CURRENT_BINARY_DIR}/msgina.def)
 
 set_module_type(msgina win32dll UNICODE)
-target_link_libraries(msgina atlnew wine uuid ${PSEH_LIB})
+target_link_libraries(msgina wine uuid ${PSEH_LIB} cpprt atl_classes)
 add_delay_importlibs(msgina secur32)
 add_importlibs(msgina advapi32 user32 gdi32 powrprof userenv msvcrt kernel32 ntdll)
-add_pch(msgina msgina.h CPP_SOURCE)
+add_pch(msgina msgina.h "${PCH_SKIP_SOURCE}")
 add_cd_file(TARGET msgina DESTINATION reactos/system32 FOR all)

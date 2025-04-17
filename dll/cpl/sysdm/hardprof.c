@@ -121,13 +121,17 @@ CopyProfileDlgProc(
                                    pProfileNames->szDestinationName,
                                    PROFILE_NAME_LENGTH);
                     if (IsProfileNameInUse(pProfileNames, FALSE))
+                    {
                         ResourceMessageBox(hApplet,
-                                           NULL,
+                                           hwndDlg,
                                            MB_OK | MB_ICONERROR,
                                            IDS_HWPROFILE_WARNING,
                                            IDS_HWPROFILE_ALREADY_IN_USE);
+                    }
                     else
+                    {
                         EndDialog(hwndDlg, IDOK);
+                    }
                     return TRUE;
 
                 case IDCANCEL:
@@ -238,13 +242,17 @@ RenameProfileDlgProc(
                                    pProfileNames->szDestinationName,
                                    PROFILE_NAME_LENGTH);
                     if (IsProfileNameInUse(pProfileNames, TRUE))
+                    {
                         ResourceMessageBox(hApplet,
-                                           NULL,
+                                           hwndDlg,
                                            MB_OK | MB_ICONERROR,
                                            IDS_HWPROFILE_WARNING,
                                            IDS_HWPROFILE_ALREADY_IN_USE);
+                    }
                     else
+                    {
                         EndDialog(hwndDlg, IDOK);
+                    }
                     return TRUE;
 
                 case IDCANCEL:
@@ -303,23 +311,20 @@ DeleteHardwareProfile(
     HWND hwndDlg,
     PPROFILEDATA pProfileData)
 {
-    WCHAR szMessage[256];
-    WCHAR szBuffer[128];
-    WCHAR szCaption[80];
     PPROFILE pProfiles;
     PPROFILE pProfile;
 
     pProfile = &pProfileData->pProfiles[pProfileData->dwSelectedProfileIndex];
 
-    LoadStringW(hApplet, IDS_HWPROFILE_CONFIRM_DELETE_TITLE, szCaption, sizeof(szCaption) / sizeof(WCHAR));
-    LoadStringW(hApplet, IDS_HWPROFILE_CONFIRM_DELETE, szBuffer, sizeof(szBuffer) / sizeof(WCHAR));
-    swprintf(szMessage, szBuffer, pProfile->szFriendlyName);
-
-    if (MessageBox(NULL,
-                   szMessage,
-                   szCaption,
-                   MB_YESNO | MB_ICONQUESTION) != IDYES)
+    if (ResourceMessageBox(hApplet,
+                           hwndDlg,
+                           MB_YESNO | MB_ICONQUESTION,
+                           IDS_HWPROFILE_CONFIRM_DELETE_TITLE,
+                           IDS_HWPROFILE_CONFIRM_DELETE,
+                           pProfile->szFriendlyName) != IDYES)
+    {
         return;
+    }
 
     SendDlgItemMessageW(hwndDlg, IDC_HRDPROFLSTBOX, LB_DELETESTRING, pProfileData->dwSelectedProfileIndex, 0);
 
@@ -407,6 +412,22 @@ HardwareProfilePropertiesDlgProc(
     return FALSE;
 }
 
+static int CALLBACK
+PropSheetProc(HWND hwndDlg, UINT uMsg, LPARAM lParam)
+{
+    // NOTE: This callback is needed to set large icon correctly.
+    HICON hIcon;
+    switch (uMsg)
+    {
+        case PSCB_INITIALIZED:
+        {
+            hIcon = LoadIconW(hApplet, MAKEINTRESOURCEW(IDI_HARDPROF));
+            SendMessageW(hwndDlg, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+            break;
+        }
+    }
+    return 0;
+}
 
 static
 VOID
@@ -433,15 +454,15 @@ HardwareProfileProperties(
 
     ZeroMemory(&psh, sizeof(PROPSHEETHEADER));
     psh.dwSize = sizeof(PROPSHEETHEADER);
-    psh.dwFlags = PSH_PROPTITLE;
+    psh.dwFlags = PSH_PROPTITLE | PSH_USEICONID | PSH_USECALLBACK;
     psh.hwndParent = hwndDlg;
     psh.hInstance = hApplet;
-    psh.hIcon = NULL;
+    psh.pszIcon = MAKEINTRESOURCEW(IDI_HARDPROF);
     psh.pszCaption = pProfileData->pProfiles[pProfileData->dwSelectedProfileIndex].szFriendlyName;
     psh.nPages = 1;
     psh.nStartPage = 0;
     psh.phpage = &hpsp;
-    psh.pfnCallback = NULL;
+    psh.pfnCallback = PropSheetProc;
 
     PropertySheet(&psh);
 }

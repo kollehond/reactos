@@ -13,22 +13,26 @@
 #include <winreg.h>
 #include <wingdi.h>
 #include <wincon.h>
+#include <windowsx.h>
 #include <tchar.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <shlwapi.h>
+#include <setupapi.h>
+#include <cpl.h>
+
+#include <strsafe.h>
 
 #include "resource.h"
 
 #define NUM_APPLETS (1)
 
-typedef LONG (CALLBACK *APPLET_INITPROC)(VOID);
-
 typedef struct _APPLET
 {
-  int idIcon;
-  int idName;
-  int idDescription;
-  APPLET_INITPROC AppletProc;
+    int idIcon;
+    int idName;
+    int idDescription;
+    APPLET_PROC AppletProc;
 } APPLET, *PAPPLET;
 
 extern HINSTANCE hApplet;
@@ -48,45 +52,18 @@ INT_PTR CALLBACK StartRecDlgProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM 
 INT_PTR CALLBACK VirtMemDlgProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 INT_PTR CALLBACK LicenceDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 
-typedef struct _PAGEFILE
-{
-    TCHAR  szDrive[3];
-    LPTSTR pszVolume;
-    INT    OldMinSize;
-    INT    OldMaxSize;
-    INT    NewMinSize;
-    INT    NewMaxSize;
-    UINT   FreeSize;
-    BOOL   bUsed;
-} PAGEFILE, *PPAGEFILE;
+/* System information */
+BOOL GetSystemName(PWSTR pBuf, SIZE_T cchBuf);
 
-typedef struct _VIRTMEM
-{
-    HWND   hSelf;
-    HWND   hListBox;
-    LPTSTR szPagingFiles;
-    TCHAR  szDrive[10];
-    INT    Count;
-    BOOL   bModified;
-    PAGEFILE  Pagefile[26];
-} VIRTMEM, *PVIRTMEM;
+#define MAX_STR_LENGTH  256
 
-typedef struct _BOOTRECORD
-{
-  DWORD BootType;
-  WCHAR szSectionName[128];
-  WCHAR szBootPath[MAX_PATH];
-  WCHAR szOptions[512];
-
-}BOOTRECORD, *PBOOTRECORD;
-
-INT
+INT __cdecl
 ResourceMessageBox(
-    IN HINSTANCE hInstance,
-    IN HWND hwnd,
-    IN UINT uType,
-    IN UINT uCaption,
-    IN UINT uText);
-
+    _In_opt_ HINSTANCE hInstance,
+    _In_opt_ HWND hwnd,
+    _In_ UINT uType,
+    _In_ UINT uCaption,
+    _In_ UINT uText,
+    ...);
 
 #endif /* __CPL_SYSDM_H */

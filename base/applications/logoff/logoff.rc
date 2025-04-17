@@ -31,6 +31,12 @@
 #ifdef LANGUAGE_ES_ES
     #include "lang/es-ES.rc"
 #endif
+#ifdef LANGUAGE_ET_EE
+    #include "lang/et-EE.rc"
+#endif
+#ifdef LANGUAGE_EU_ES
+    #include "lang/eu-ES.rc"
+#endif
 #ifdef LANGUAGE_FR_FR
     #include "lang/fr-FR.rc"
 #endif
@@ -78,6 +84,9 @@
 #endif
 #ifdef LANGUAGE_ZH_CN
     #include "lang/zh-CN.rc"
+#endif
+#ifdef LANGUAGE_ZH_HK
+    #include "lang/zh-HK.rc"
 #endif
 #ifdef LANGUAGE_ZH_TW
     #include "lang/zh-TW.rc"

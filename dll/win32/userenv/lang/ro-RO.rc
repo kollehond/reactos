@@ -1,16 +1,19 @@
 /*
- * FILE:        dll/win32/userenv/lang/ro-RO.rc
- *              ReactOS Project (http://www.reactos.org)
- * TRANSLATOR:  Ștefan Fulea (stefan dot fulea at mail dot md)
+ * PROJECT:     ReactOS Win32 User Environment
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
+ * PURPOSE:     Romanian resource file
+ * TRANSLATORS: Copyright 2011-2018 Ștefan Fulea <stefan.fulea@mail.com>
+ *              Copyright 2024 Andrei Miloiu <miloiuandrei@gmail.com>
  */
 
 LANGUAGE LANG_ROMANIAN, SUBLANG_NEUTRAL
 
+/* See also: dll/win32/shell32/lang */
 STRINGTABLE
 BEGIN
     IDS_PROFILEPATH "%SystemDrive%\\Documente și preferințe"
     IDS_APPDATA "Date de aplicație"
-    IDS_DESKTOP "Birou"
+    IDS_DESKTOP "Desktop"
     IDS_FAVORITES "Favorite"
     IDS_MYDOCUMENTS "Documentele mele"
     IDS_NETHOOD "Rețele"
@@ -23,8 +26,8 @@ BEGIN
     IDS_STARTUP "Meniul Pornire\\Programe\\Autolansate"
     IDS_LOCALSETTINGS "Preferințe locale"
     IDS_LOCALAPPDATA "Preferințe locale\\Date de aplicație"
-    IDS_TEMP "Preferințe locale\\Temp"
+    IDS_TEMP "Preferințe locale\\Temp" /* See also TEMP_DIR in boot/bootdata/hivedef.inf */
     IDS_CACHE "Preferințe locale\\Fișiere de Internet temporare"
     IDS_HISTORY "Preferințe locale\\Istoric"
-    IDS_COOKIES "Cookies"
+    IDS_COOKIES "Cookie-uri"
 END

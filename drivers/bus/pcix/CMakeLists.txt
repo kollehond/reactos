@@ -1,4 +1,8 @@
 
+include_directories(
+    ${REACTOS_SOURCE_DIR}/sdk/lib/drivers/arbiter
+    ${REACTOS_SOURCE_DIR}/sdk/include/reactos/drivers)
+
 list(APPEND SOURCE
     arb/ar_busno.c
     arb/ar_memio.c
@@ -32,16 +36,27 @@ list(APPEND SOURCE
     pdo.c
     power.c
     usage.c
-    utils.c
-    pci.h)
+    utils.c)
 
-add_library(pcix SHARED
+list(APPEND PCH_SKIP_SOURCE
+    guid.c)
+
+add_library(pcix MODULE
     ${SOURCE}
-    guid.c
+    ${PCH_SKIP_SOURCE}
     pci.rc)
 
 set_module_type(pcix kernelmodedriver)
+target_link_libraries(pcix arbiter)
+if(MSVC)
+    target_link_options(pcix PRIVATE /SECTION:.rsrc,!D)
+else()
+    add_custom_command(
+        TARGET pcix POST_BUILD
+        COMMAND native-pefixup --section:.rsrc,!D $<TARGET_FILE:pcix>
+        VERBATIM)
+endif()
 add_importlibs(pcix ntoskrnl hal)
-add_pch(pcix pci.h SOURCE)
+add_pch(pcix pci.h "${PCH_SKIP_SOURCE}")
 add_dependencies(pcix pciclass)
 add_cd_file(TARGET pcix DESTINATION reactos/system32/drivers NO_CAB FOR all)

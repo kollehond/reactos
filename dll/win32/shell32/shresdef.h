@@ -1,6 +1,7 @@
 /*
  * Copyright 2000 Juergen Schmied
  * Copyright 2017 Katayama Hirofumi MZ
+ * Copyright 2021 Arnav Bhatt
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -27,6 +28,7 @@
 
 /* Bitmaps */
 #define IDB_REACTOS                 131
+#define IDB_LINEBAR                 138
 #define IDB_SHELL_IEXPLORE_LG       204
 #define IDB_SHELL_IEXPLORE_LG_HOT   205
 #define IDB_SHELL_IEXPLORE_SM       206
@@ -35,6 +37,11 @@
 #define IDB_SHELL_EDIT_LG_HOT       226
 #define IDB_SHELL_EDIT_SM           227
 #define IDB_SHELL_EDIT_SM_HOT       228
+
+/* Bitmaps for fancy log off dialog box */
+#define IDB_DLG_BG                  500
+#define IDB_REACTOS_FLAG            501
+#define IDB_IMAGE_STRIP             502
 
 /* Strings */
 
@@ -108,6 +115,8 @@
 #define IDS_DRIVE_REMOVABLE      76
 #define IDS_FS_UNKNOWN           77
 
+#define IDS_CREATEFILE_CAPTION    126
+#define IDS_CREATEFILE_DENIED     127
 #define IDS_CREATEFOLDER_DENIED   128
 #define IDS_CREATEFOLDER_CAPTION  129
 #define IDS_DELETEITEM_CAPTION    130
@@ -129,6 +138,7 @@
 #define FCIDM_SHVIEW_NEW          146
 #define IDS_CONTROLPANEL          148
 #define IDS_NEWFOLDER             149
+#define IDS_NEWITEMFORMAT         150
 #define IDS_COLUMN_EXTENSION      151
 #define IDS_NO_EXTENSION          152
 #define IDS_RECYCLEBIN_LOCATION   153
@@ -139,6 +149,10 @@
 #define IDS_CANTEJECTMEDIA        158
 #define IDS_CANTSHOWPROPERTIES    159
 #define IDS_CANTDISCONNECT        160
+#define IDS_NONE                  161
+
+#define IDS_EXPAND                170
+#define IDS_COLLAPSE              171
 
 /* Friendly File Type Names */
 #define IDS_DIRECTORY             200
@@ -174,7 +188,6 @@
 #define IDS_FILE_TYPES            174
 #define IDS_FILE_DETAILS          175
 #define IDS_FILE_DETAILSADV       176
-#define IDS_FILE_EXT_TYPE         999
 #define IDS_BYTES_FORMAT          177
 #define IDS_OPEN_WITH_RECOMMENDED 178
 #define IDS_OPEN_WITH_OTHER       179
@@ -183,6 +196,15 @@
 #define IDS_RUNDLG_BROWSE_ERROR   181
 #define IDS_RUNDLG_BROWSE_CAPTION 182
 #define IDS_RUNDLG_BROWSE_FILTER  183
+
+/* Format Dialog strings */
+#define IDS_FORMAT_TITLE          184
+#define IDS_FORMAT_WARNING        185
+#define IDS_FORMAT_COMPLETE       186
+
+/* Warning format system drive dialog strings */
+#define IDS_NO_FORMAT_TITLE       188
+#define IDS_NO_FORMAT             189
 
 #define IDS_UNKNOWN_APP     190
 #define IDS_EXE_DESCRIPTION 191
@@ -193,6 +215,7 @@
 #define IDS_EDIT_VERB    303
 #define IDS_FIND_VERB    304
 #define IDS_PRINT_VERB   305
+#define IDS_CMD_VERB     306
 
 #define IDS_FILE_FOLDER          308
 #define IDS_CREATELINK           309
@@ -209,7 +232,7 @@
 #define IDS_DESCRIPTION          331
 #define IDS_COPY_OF              332
 
-/* Strings for file operations*/
+/* Strings for file operations */
 #define IDS_FILEOOP_COPYING      333
 #define IDS_FILEOOP_MOVING       334
 #define IDS_FILEOOP_DELETING     335
@@ -220,6 +243,25 @@
 #define IDS_EJECT                339
 #define IDS_DISCONNECT           340
 
+#define IDS_OPENFILELOCATION     341
+#define IDS_SENDTO_MENU          343
+#define IDS_COPYASPATHMENU       30328
+
+#define IDS_MOVEERRORTITLE       344
+#define IDS_COPYERRORTITLE       345
+#define IDS_MOVEERRORSAMEFOLDER  346
+#define IDS_MOVEERRORSAME        347
+#define IDS_COPYERRORSAME        348
+#define IDS_MOVEERRORSUBFOLDER   349
+#define IDS_COPYERRORSUBFOLDER   350
+#define IDS_MOVEERROR            351
+#define IDS_COPYERROR            352
+
+/* Shortcut property sheet */
+#define IDS_SHORTCUT_RUN_NORMAL  4167
+#define IDS_SHORTCUT_RUN_MIN     4168
+#define IDS_SHORTCUT_RUN_MAX     4169
+
 #define IDS_MENU_EMPTY           34561
 
 /* Note: those strings are referenced from the registry */
@@ -228,15 +270,34 @@
 #define IDS_FONTS_DESCRIPTION      22920
 #define IDS_ADMINISTRATIVETOOLS_DESCRIPTION 22921
 #define IDS_FOLDER_OPTIONS_DESCRIPTION 22924
+#define IDS_TASKBAR_OPTIONS_INFOTIP 30348
 #define IDS_ADMINISTRATIVETOOLS    22982
 #define IDS_FOLDER_OPTIONS         22985
 #define IDS_FONTS                  22981
+#define IDS_TASKBAR_OPTIONS        32517
 #define IDS_PRINTERS               9319
 #define IDS_MYCOMPUTER             9216
 #define IDS_PERSONAL               9227
 #define IDS_NETWORKPLACE           9217
 #define IDS_OBJECTS                6466
 #define IDS_OBJECTS_SELECTED       6477
+
+/* Explorer file search */
+#define IDS_SEARCH_LOCALDRIVES     10241
+#define IDS_SEARCH_BROWSEITEM      10244
+
+/* Recycle Bin Cleaner */
+#define IDS_RECYCLE_CLEANER_DISPLAYNAME             10291
+#define IDS_RECYCLE_CLEANER_DESCRIPTION             10292
+#define IDS_RECYCLE_CLEANER_BUTTON_TEXT             10293
+
+/* Desktop icon titles */
+#define IDS_TITLE_MYCOMP                            30386
+#define IDS_TITLE_MYNET                             30387
+#define IDS_TITLE_BIN_1                             30388
+#define IDS_TITLE_BIN_0                             30389
+#define IDS_TITLE_BIN                               30390
+#define IDS_TITLE_MYFILES                           30391
 
 /* Advanced settings */
 #define IDS_ADVANCED_FOLDER                         30498
@@ -259,12 +320,37 @@
 #define IDS_ADVANCED_SHOW_COMP_COLOR                30512
 #define IDS_ADVANCED_SHOW_INFO_TIP                  30502
 
-#define IDS_NEWEXT_ADVANCED_LEFT                    30515
-#define IDS_NEWEXT_ADVANCED_RIGHT                   30516
-#define IDS_NEWEXT_NEW                              30518
-#define IDS_NEWEXT_SPECIFY_EXT                      30519
-#define IDS_NEWEXT_ALREADY_ASSOC                    30520
-#define IDS_NEWEXT_EXT_IN_USE                       30521
+/* These values must be synchronized with explorer */
+#define IDS_ADVANCED_DISPLAY_FAVORITES              30466
+#define IDS_ADVANCED_DISPLAY_LOG_OFF                30467
+#define IDS_ADVANCED_EXPAND_CONTROL_PANEL           30468
+#define IDS_ADVANCED_EXPAND_MY_DOCUMENTS            30469
+#define IDS_ADVANCED_EXPAND_PRINTERS                30470
+#define IDS_ADVANCED_EXPAND_MY_PICTURES             30472
+#define IDS_ADVANCED_EXPAND_NET_CONNECTIONS         30473
+#define IDS_ADVANCED_DISPLAY_RUN                    30474
+#define IDS_ADVANCED_DISPLAY_ADMINTOOLS             30476
+#define IDS_ADVANCED_SMALL_START_MENU               30477
+/* End synchronized */
+
+#define IDS_STARTPANELCFG_MYCOMPUTER                30480
+#define IDS_STARTPANELCFG_NETHOOD                   30481
+#define IDS_STARTPANELCFG_CONNECTIONSFOLDER         30482
+#define IDS_STARTPANELCFG_RUN                       30483
+#define IDS_STARTPANELCFG_HELP                      30489
+#define IDS_STARTPANELCFG_DONTDISPLAYITEM           30492
+#define IDS_STARTPANELCFG_PRINTERS                  30493
+#define IDS_STARTPANELCFG_ADMINTOOLS                30515
+
+#define IDS_SEARCH_RESULTS                          30520 // FIXME: Move browseui IDS_SEARCH_RESULTS to shell32
+#define IDS_SEARCH_RESULTS_COMPUTERS                30521
+
+#define IDS_NEWEXT_SPECIFY_EXT                      10086
+#define IDS_NEWEXT_ALREADY_ASSOC                    10100
+#define IDS_NEWEXT_EXT_IN_USE                       10101
+#define IDS_NEWEXT_NEW                              10105
+#define IDS_NEWEXT_ADVANCED_LEFT                    10109
+#define IDS_NEWEXT_ADVANCED_RIGHT                   10110
 
 #define IDS_SPECIFY_ACTION                          30523
 #define IDS_INVALID_PROGRAM                         30524
@@ -276,7 +362,25 @@
 #define IDS_REMOVE_EXT                              30522
 
 #define IDS_NO_ICONS                                30529
-#define IDS_FILE_NOT_FOUND                          30530
+#define IDS_FILE_NOT_FOUND                          30530 // FIXME: "Animations in taskbar"
+#define IDS_LINK_INVALID                            30531
+#define IDS_COPYTOMENU                              30532
+#define IDS_COPYTOTITLE                             30533
+#define IDS_COPYITEMS                               30534
+#define IDS_COPYBUTTON                              30535
+#define IDS_MOVETOMENU                              30536
+#define IDS_MOVETOTITLE                             30537
+#define IDS_MOVEITEMS                               30538
+#define IDS_MOVEBUTTON                              30539 // FIXME: "Slide open combo boxes"
+
+#define IDS_SYSTEMFOLDER                            30540 // FIXME: "Show translucent selection rectangle"
+#define IDS_DESKTOPLABELDROPSHADOW                  30541
+#define IDS_FOLDERTYPEBACKGROUNDIMAGE               30543
+
+#define IDS_LOG_OFF_DESC                            35000
+#define IDS_SWITCH_USER_DESC                        35001
+#define IDS_LOG_OFF_TITLE                           35010
+#define IDS_SWITCH_USER_TITLE                       35011
 
 /* Dialogs */
 
@@ -289,13 +393,16 @@
 #define IDC_RUNDLG_LABEL       12305
 
 /* ShellAbout dialog */
-#define IDD_ABOUT              2
-#define IDC_ABOUT_ICON         0x3009
-#define IDC_ABOUT_APPNAME      0x3500
-#define IDC_ABOUT_OTHERSTUFF   0x350D
-#define IDC_ABOUT_REG_USERNAME 0x3507
-#define IDC_ABOUT_REG_ORGNAME  0x3508
-#define IDC_ABOUT_PHYSMEM      0x3503
+#define IDD_ABOUT                     2
+#define IDC_ABOUT_ICON                0x3009
+#define IDC_ABOUT_APPNAME             0x3500
+#define IDS_ABOUT_VERSION_STRING      0x3501
+#define IDC_ABOUT_VERSION             0x3502
+#define IDC_ABOUT_OTHERSTUFF          0x350D
+#define IDC_ABOUT_REG_TO              0x3506
+#define IDC_ABOUT_REG_USERNAME        0x3507
+#define IDC_ABOUT_REG_ORGNAME         0x3508
+#define IDC_ABOUT_PHYSMEM             0x3503
 
 /* About authors dialog */
 #define IDD_ABOUT_AUTHORS         3
@@ -425,6 +532,13 @@
 #define IDC_VIEW_TREEVIEW                   14003
 #define IDC_VIEW_RESTORE_DEFAULTS           14004
 
+/* Control IDs for IDD_LOG_OFF_FANCY dialog */
+#define IDC_LOG_OFF_BUTTON                  15001
+#define IDC_SWITCH_USER_BUTTON              15002
+#define IDC_LOG_OFF_STATIC                  15003
+#define IDC_SWITCH_USER_STATIC              15004
+#define IDC_LOG_OFF_TEXT_STATIC             15005
+
 /* Other dialogs */
 #define IDD_RUN_AS       23
 #define IDD_OPEN_WITH    24
@@ -435,6 +549,7 @@
 #define IDD_EDITTYPE     36
 #define IDD_ACTION       37
 #define IDD_FOLDER_CUSTOMIZE    38
+#define IDD_LINK_PROBLEM 39
 
 /* Control IDs for IDD_FOLDER_CUSTOMIZE dialog */
 #define IDC_FOLDERCUST_COMBOBOX             14001
@@ -445,6 +560,11 @@
 #define IDC_FOLDERCUST_ICON                 14006
 #define IDC_FOLDERCUST_CHANGE_ICON          14007
 
+/* Control IDs for IDD_LINK_PROBLEM dialog */
+#define IDC_LINK_PROBLEM_ICON               14008
+#define IDC_LINK_PROBLEM_LABEL1             14009
+#define IDC_LINK_PROBLEM_LABEL2             14010
+
 /* Not used dialogs */
 #define IDD_SHUTDOWN             29
 #define IDD_LOG_OFF              30
@@ -453,6 +573,7 @@
 #define IDD_AUTOPLAY1            33
 #define IDD_MIXED_CONTENT1       34
 #define IDD_MIXED_CONTENT2       35
+#define IDD_LOG_OFF_FANCY        600
 
 /* Icons */
 #define IDI_SHELL_DOCUMENT           1
@@ -504,6 +625,10 @@
 #define IDI_SHELL_UPDATE            47
 #define IDI_SHELL_LOCKED            48
 #define IDI_SHELL_DISCONN           49
+#define IDI_SHELL_NONE_50           50
+#define IDI_SHELL_NONE_51           51
+#define IDI_SHELL_NONE_52           52
+#define IDI_SHELL_NONE_53           53
 #define IDI_SHELL_NOT_CONNECTED_HDD 54
 #define IDI_SHELL_MULTIPLE_FILES   133
 #define IDI_SHELL_OPEN_WITH        134
@@ -743,6 +868,7 @@
 /* 0x7030-0x703f are used by the shellbrowser */
 #define FCIDM_SHVIEW_AUTOARRANGE 0x7031
 #define FCIDM_SHVIEW_SNAPTOGRID  0x7032
+#define FCIDM_SHVIEW_ALIGNTOGRID 0x7033
 
 #define FCIDM_SHVIEW_HELP       0x7041
 #define FCIDM_SHVIEW_RENAME     0x7050
@@ -760,6 +886,7 @@
 #define FCIDM_TB_REPORTVIEW 0xA004
 #define FCIDM_TB_DESKTOP    0xA005  /* FIXME */
 
+#define IDM_UNDO (FCIDM_SHVIEW_UNDO - 0x7000)
 #define IDM_CUT (FCIDM_SHVIEW_CUT - 0x7000)
 #define IDM_COPY (FCIDM_SHVIEW_COPY - 0x7000)
 #define IDM_INSERT (FCIDM_SHVIEW_INSERT - 0x7000)
@@ -767,13 +894,17 @@
 #define IDM_DELETE (FCIDM_SHVIEW_DELETE - 0x7000)
 #define IDM_RENAME (FCIDM_SHVIEW_RENAME - 0x7000)
 #define IDM_PROPERTIES (FCIDM_SHVIEW_PROPERTIES - 0x7000)
+#define IDM_COPYTO (FCIDM_SHVIEW_COPYTO - 0x7000)
+#define IDM_MOVETO (FCIDM_SHVIEW_MOVETO - 0x7000)
 
 #define IDM_DRAGFILE 0xce
 #define IDM_COPYHERE 0x7
 #define IDM_MOVEHERE 0x8
 #define IDM_LINKHERE 0xB
+#define IDM_DVSELECT 0x104
 
-
+#define IDM_MYDOCUMENTS 516
+#define IDM_MYPICTURES 518
 
 /* Registrar scripts (RGS) */
 #define IDR_ADMINFOLDERSHORTCUT 128
@@ -804,3 +935,9 @@
 #define IDR_REBARBANDSITE       154
 #define IDR_USERNOTIFICATION    155
 #define IDR_SHELL               156
+#define IDR_ACTIVEDESKTOP       157
+#define IDR_SENDTOMENU          158
+#define IDR_COPYTOMENU          159
+#define IDR_MOVETOMENU          160
+#define IDR_COPYASPATHMENU      161
+#define IDR_RECYCLEBINCLEANER   162

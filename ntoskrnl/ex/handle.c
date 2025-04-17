@@ -22,9 +22,15 @@ EX_PUSH_LOCK HandleTableListLock;
 
 /* PRIVATE FUNCTIONS *********************************************************/
 
+#ifdef _WIN64
+#define strtoulptr strtoull
+#else
+#define strtoulptr strtoul
+#endif
+
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 ExpInitializeHandleTables(VOID)
 {
     /* Initialize the list of handle tables and the lock */
@@ -102,6 +108,7 @@ ExpAllocateTablePagedPool(IN PEPROCESS Process OPTIONAL,
                           IN SIZE_T Size)
 {
     PVOID Buffer;
+    NTSTATUS Status;
 
     /* Do the allocation */
     Buffer = ExAllocatePoolWithTag(PagedPool, Size, TAG_OBJECT_TABLE);
@@ -113,7 +120,13 @@ ExpAllocateTablePagedPool(IN PEPROCESS Process OPTIONAL,
         /* Check if we have a process to charge quota */
         if (Process)
         {
-            /* FIXME: Charge quota */
+            /* Charge quota */
+            Status = PsChargeProcessPagedPoolQuota(Process, Size);
+            if (!NT_SUCCESS(Status))
+            {
+                ExFreePoolWithTag(Buffer, TAG_OBJECT_TABLE);
+                return NULL;
+            }
         }
     }
 
@@ -127,6 +140,7 @@ ExpAllocateTablePagedPoolNoZero(IN PEPROCESS Process OPTIONAL,
                                 IN SIZE_T Size)
 {
     PVOID Buffer;
+    NTSTATUS Status;
 
     /* Do the allocation */
     Buffer = ExAllocatePoolWithTag(PagedPool, Size, TAG_OBJECT_TABLE);
@@ -135,7 +149,13 @@ ExpAllocateTablePagedPoolNoZero(IN PEPROCESS Process OPTIONAL,
         /* Check if we have a process to charge quota */
         if (Process)
         {
-            /* FIXME: Charge quota */
+            /* Charge quota */
+            Status = PsChargeProcessPagedPoolQuota(Process, Size);
+            if (!NT_SUCCESS(Status))
+            {
+                ExFreePoolWithTag(Buffer, TAG_OBJECT_TABLE);
+                return NULL;
+            }
         }
     }
 
@@ -153,7 +173,8 @@ ExpFreeTablePagedPool(IN PEPROCESS Process OPTIONAL,
     ExFreePoolWithTag(Buffer, TAG_OBJECT_TABLE);
     if (Process)
     {
-        /* FIXME: Release quota */
+        /* Release quota */
+        PsReturnProcessPagedPoolQuota(Process, Size);
     }
 }
 
@@ -248,7 +269,8 @@ ExpFreeHandleTable(IN PHANDLE_TABLE HandleTable)
     ExFreePoolWithTag(HandleTable, TAG_OBJECT_TABLE);
     if (Process)
     {
-        /* FIXME: TODO */
+        /* Release the quota it was taking up */
+        PsReturnProcessPagedPoolQuota(Process, sizeof(HANDLE_TABLE));
     }
 }
 
@@ -312,6 +334,7 @@ ExpAllocateHandleTable(IN PEPROCESS Process OPTIONAL,
     PHANDLE_TABLE HandleTable;
     PHANDLE_TABLE_ENTRY HandleTableTable, HandleEntry;
     ULONG i;
+    NTSTATUS Status;
     PAGED_CODE();
 
     /* Allocate the table */
@@ -323,7 +346,13 @@ ExpAllocateHandleTable(IN PEPROCESS Process OPTIONAL,
     /* Check if we have a process */
     if (Process)
     {
-        /* FIXME: Charge quota */
+        /* Charge quota */
+        Status = PsChargeProcessPagedPoolQuota(Process, sizeof(HANDLE_TABLE));
+        if (!NT_SUCCESS(Status))
+        {
+            ExFreePoolWithTag(HandleTable, TAG_OBJECT_TABLE);
+            return NULL;
+        }
     }
 
     /* Clear the table */
@@ -335,6 +364,13 @@ ExpAllocateHandleTable(IN PEPROCESS Process OPTIONAL,
     {
         /* Failed, free the table */
         ExFreePoolWithTag(HandleTable, TAG_OBJECT_TABLE);
+
+        /* Return the quota it was taking up */
+        if (Process)
+        {
+            PsReturnProcessPagedPoolQuota(Process, sizeof(HANDLE_TABLE));
+        }
+
         return NULL;
     }
 
@@ -1282,3 +1318,185 @@ ExEnumHandleTable(IN PHANDLE_TABLE HandleTable,
     KeLeaveCriticalRegion();
     return Result;
 }
+
+#if DBG && defined(KDBG)
+
+#include <kdbg/kdb.h>
+
+BOOLEAN ExpKdbgExtHandle(ULONG Argc, PCHAR Argv[])
+{
+    USHORT i;
+    char *endptr;
+    HANDLE ProcessId;
+    EXHANDLE ExHandle;
+    PLIST_ENTRY Entry;
+    PEPROCESS Process;
+    WCHAR KeyPath[256];
+    PFILE_OBJECT FileObject;
+    PHANDLE_TABLE HandleTable;
+    POBJECT_HEADER ObjectHeader;
+    PHANDLE_TABLE_ENTRY TableEntry;
+    ULONG NeededLength = 0;
+    ULONG NameLength;
+    PCM_KEY_CONTROL_BLOCK Kcb, CurrentKcb;
+    POBJECT_HEADER_NAME_INFO ObjectNameInfo;
+
+    if (Argc > 1)
+    {
+        /* Get EPROCESS address or PID */
+        i = 0;
+        while (Argv[1][i])
+        {
+            if (!isdigit(Argv[1][i]))
+            {
+                i = 0;
+                break;
+            }
+
+            ++i;
+        }
+
+        if (i == 0)
+        {
+            if (!KdbpGetHexNumber(Argv[1], (PVOID)&Process))
+            {
+                KdbpPrint("Invalid parameter: %s\n", Argv[1]);
+                return TRUE;
+            }
+
+            /* In the end, we always want a PID */
+            ProcessId = PsGetProcessId(Process);
+        }
+        else
+        {
+            ProcessId = (HANDLE)strtoulptr(Argv[1], &endptr, 10);
+            if (*endptr != '\0')
+            {
+                KdbpPrint("Invalid parameter: %s\n", Argv[1]);
+                return TRUE;
+            }
+        }
+    }
+    else
+    {
+        ProcessId = PsGetCurrentProcessId();
+    }
+
+    for (Entry = HandleTableListHead.Flink;
+         Entry != &HandleTableListHead;
+         Entry = Entry->Flink)
+    {
+        /* Only return matching PID
+         * 0 matches everything
+         */
+        HandleTable = CONTAINING_RECORD(Entry, HANDLE_TABLE, HandleTableList);
+        if (ProcessId != 0 && HandleTable->UniqueProcessId != ProcessId)
+        {
+            continue;
+        }
+
+        KdbpPrint("\n");
+
+        KdbpPrint("Handle table at %p with %d entries in use\n", HandleTable, HandleTable->HandleCount);
+
+        ExHandle.Value = 0;
+        while ((TableEntry = ExpLookupHandleTableEntry(HandleTable, ExHandle)))
+        {
+            if ((TableEntry->Object) &&
+                (TableEntry->NextFreeTableEntry != -2))
+            {
+                ObjectHeader = ObpGetHandleObject(TableEntry);
+
+                KdbpPrint("%p: Object: %p GrantedAccess: %x Entry: %p\n", ExHandle.Value, &ObjectHeader->Body, TableEntry->GrantedAccess, TableEntry);
+                KdbpPrint("Object: %p Type: (%x) %wZ\n", &ObjectHeader->Body, ObjectHeader->Type, &ObjectHeader->Type->Name);
+                KdbpPrint("\tObjectHeader: %p\n", ObjectHeader);
+                KdbpPrint("\t\tHandleCount: %u PointerCount: %u\n", ObjectHeader->HandleCount, ObjectHeader->PointerCount);
+
+                /* Specific objects debug prints */
+
+                /* For file, display path */
+                if (ObjectHeader->Type == IoFileObjectType)
+                {
+                    FileObject = (PFILE_OBJECT)&ObjectHeader->Body;
+
+                    KdbpPrint("\t\t\tName: %wZ\n", &FileObject->FileName);
+                }
+
+                /* For directory, and win32k objects, display object name */
+                else if (ObjectHeader->Type == ObpDirectoryObjectType ||
+                         ObjectHeader->Type == ExWindowStationObjectType ||
+                         ObjectHeader->Type == ExDesktopObjectType ||
+                         ObjectHeader->Type == MmSectionObjectType)
+                {
+                    ObjectNameInfo = OBJECT_HEADER_TO_NAME_INFO(ObjectHeader);
+                    if (ObjectNameInfo != NULL && ObjectNameInfo->Name.Buffer != NULL)
+                    {
+                        KdbpPrint("\t\t\tName: %wZ\n", &ObjectNameInfo->Name);
+                    }
+                }
+
+                /* For registry keys, display full path */
+                else if (ObjectHeader->Type == CmpKeyObjectType)
+                {
+                    Kcb = ((PCM_KEY_BODY)&ObjectHeader->Body)->KeyControlBlock;
+                    if (!Kcb->Delete)
+                    {
+                        CurrentKcb = Kcb;
+
+                        /* See: CmpQueryNameInformation() */
+
+                        while (CurrentKcb != NULL)
+                        {
+                            if (CurrentKcb->NameBlock->Compressed)
+                                NeededLength += CmpCompressedNameSize(CurrentKcb->NameBlock->Name, CurrentKcb->NameBlock->NameLength);
+                            else
+                                NeededLength += CurrentKcb->NameBlock->NameLength;
+
+                            NeededLength += sizeof(OBJ_NAME_PATH_SEPARATOR);
+
+                            CurrentKcb = CurrentKcb->ParentKcb;
+                        }
+
+                        if (NeededLength < sizeof(KeyPath))
+                        {
+                            CurrentKcb = Kcb;
+
+                            while (CurrentKcb != NULL)
+                            {
+                                if (CurrentKcb->NameBlock->Compressed)
+                                {
+                                    NameLength = CmpCompressedNameSize(CurrentKcb->NameBlock->Name, CurrentKcb->NameBlock->NameLength);
+                                    CmpCopyCompressedName(&KeyPath[(NeededLength - NameLength)/sizeof(WCHAR)],
+                                                          NameLength,
+                                                          CurrentKcb->NameBlock->Name,
+                                                          CurrentKcb->NameBlock->NameLength);
+                                }
+                                else
+                                {
+                                    NameLength = CurrentKcb->NameBlock->NameLength;
+                                    RtlCopyMemory(&KeyPath[(NeededLength - NameLength)/sizeof(WCHAR)],
+                                                  CurrentKcb->NameBlock->Name,
+                                                  NameLength);
+                                }
+
+                                NeededLength -= NameLength;
+                                NeededLength -= sizeof(OBJ_NAME_PATH_SEPARATOR);
+                                KeyPath[NeededLength/sizeof(WCHAR)] = OBJ_NAME_PATH_SEPARATOR;
+
+                                CurrentKcb = CurrentKcb->ParentKcb;
+                            }
+                        }
+
+                        KdbpPrint("\t\t\tName: %S\n", KeyPath);
+                    }
+                }
+            }
+
+            ExHandle.Value += INDEX_TO_HANDLE_VALUE(1);
+        }
+    }
+
+    return TRUE;
+}
+
+#endif // DBG && defined(KDBG)

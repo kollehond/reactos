@@ -40,18 +40,45 @@ static BOOLEAN InputQueueEmpty;
 static BOOLEAN WaitForInput;
 static KEYBOARD_INPUT_DATA InputDataQueue; // Only one element!
 static IO_STATUS_BLOCK InputIosb;
+static UINT LastLoadedCodepage;
 
 /* FUNCTIONS *****************************************************************/
+
+typedef struct _CONSOLE_CABINET_CONTEXT
+{
+    CABINET_CONTEXT CabinetContext;
+    PVOID Data;
+    ULONG Size;
+} CONSOLE_CABINET_CONTEXT, *PCONSOLE_CABINET_CONTEXT;
+
+static PVOID
+ConsoleCreateFileHandler(
+    IN PCABINET_CONTEXT CabinetContext,
+    IN ULONG FileSize)
+{
+    PCONSOLE_CABINET_CONTEXT ConsoleCabinetContext;
+
+    ConsoleCabinetContext = (PCONSOLE_CABINET_CONTEXT)CabinetContext;
+    ConsoleCabinetContext->Data = RtlAllocateHeap(ProcessHeap, 0, FileSize);
+    if (!ConsoleCabinetContext->Data)
+    {
+        DPRINT("Failed to allocate %d bytes\n", FileSize);
+        return NULL;
+    }
+    ConsoleCabinetContext->Size = FileSize;
+    return ConsoleCabinetContext->Data;
+}
 
 BOOL
 WINAPI
 AllocConsole(VOID)
 {
+    NTSTATUS Status;
     UNICODE_STRING ScreenName = RTL_CONSTANT_STRING(L"\\??\\BlueScreen");
     UNICODE_STRING KeyboardName = RTL_CONSTANT_STRING(L"\\Device\\KeyboardClass0");
     OBJECT_ATTRIBUTES ObjectAttributes;
     IO_STATUS_BLOCK IoStatusBlock;
-    NTSTATUS Status;
+    ULONG Enable;
 
     /* Open the screen */
     InitializeObjectAttributes(&ObjectAttributes,
@@ -68,6 +95,27 @@ AllocConsole(VOID)
     if (!NT_SUCCESS(Status))
         return FALSE;
 
+    /* Enable it */
+    Enable = TRUE;
+    Status = NtDeviceIoControlFile(StdOutput,
+                                   NULL,
+                                   NULL,
+                                   NULL,
+                                   &IoStatusBlock,
+                                   IOCTL_CONSOLE_RESET_SCREEN,
+                                   &Enable,
+                                   sizeof(Enable),
+                                   NULL,
+                                   0);
+    if (!NT_SUCCESS(Status))
+    {
+        NtClose(StdOutput);
+        return FALSE;
+    }
+
+    /* Default to en-US output codepage */
+    SetConsoleOutputCP(437);
+
     /* Open the keyboard */
     InitializeObjectAttributes(&ObjectAttributes,
                                &KeyboardName,
@@ -81,7 +129,10 @@ AllocConsole(VOID)
                         FILE_OPEN,
                         0);
     if (!NT_SUCCESS(Status))
+    {
+        NtClose(StdOutput);
         return FALSE;
+    }
 
     /* Reset the queue state */
     InputQueueEmpty = TRUE;
@@ -417,7 +468,7 @@ WriteConsoleOutputCharacterW(
 
     UnicodeString.Length = nLength * sizeof(WCHAR);
     UnicodeString.MaximumLength = nLength * sizeof(WCHAR);
-    UnicodeString.Buffer = (LPWSTR)lpCharacter;
+    UnicodeString.Buffer = (PWSTR)lpCharacter;
 
     OemLength = RtlUnicodeStringToOemSize(&UnicodeString);
 
@@ -644,11 +695,53 @@ WINAPI
 SetConsoleOutputCP(
     IN UINT wCodepage)
 {
+    static PCWSTR FontFile = L"\\SystemRoot\\vgafonts.cab";
+    WCHAR FontName[20];
+    CONSOLE_CABINET_CONTEXT ConsoleCabinetContext;
+    PCABINET_CONTEXT CabinetContext = &ConsoleCabinetContext.CabinetContext;
+    CAB_SEARCH Search;
+    ULONG CabStatus;
     HANDLE hConsoleOutput;
     IO_STATUS_BLOCK IoStatusBlock;
     NTSTATUS Status;
 
+    if (wCodepage == LastLoadedCodepage)
+        return TRUE;
+
     hConsoleOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+
+    CabinetInitialize(CabinetContext);
+    CabinetSetEventHandlers(CabinetContext,
+                            NULL, NULL, NULL, ConsoleCreateFileHandler);
+    CabinetSetCabinetName(CabinetContext, FontFile);
+
+    CabStatus = CabinetOpen(CabinetContext);
+    if (CabStatus != CAB_STATUS_SUCCESS)
+    {
+        DPRINT("CabinetOpen('%S') returned 0x%08x\n", FontFile, CabStatus);
+        return FALSE;
+    }
+
+    RtlStringCbPrintfW(FontName, sizeof(FontName),
+                       L"%u-8x8.bin", wCodepage);
+    CabStatus = CabinetFindFirst(CabinetContext, FontName, &Search);
+    if (CabStatus != CAB_STATUS_SUCCESS)
+    {
+        DPRINT("CabinetFindFirst('%S', '%S') returned 0x%08x\n", FontFile, FontName, CabStatus);
+        CabinetClose(CabinetContext);
+        return FALSE;
+    }
+
+    CabStatus = CabinetExtractFile(CabinetContext, &Search);
+    CabinetClose(CabinetContext);
+    if (CabStatus != CAB_STATUS_SUCCESS)
+    {
+        DPRINT("CabinetExtractFile('%S', '%S') returned 0x%08x\n", FontFile, FontName, CabStatus);
+        if (ConsoleCabinetContext.Data)
+            RtlFreeHeap(ProcessHeap, 0, ConsoleCabinetContext.Data);
+        return FALSE;
+    }
+    ASSERT(ConsoleCabinetContext.Data);
 
     Status = NtDeviceIoControlFile(hConsoleOutput,
                                    NULL,
@@ -656,11 +749,18 @@ SetConsoleOutputCP(
                                    NULL,
                                    &IoStatusBlock,
                                    IOCTL_CONSOLE_LOADFONT,
-                                   &wCodepage,
-                                   sizeof(ULONG),
+                                   ConsoleCabinetContext.Data,
+                                   ConsoleCabinetContext.Size,
                                    NULL,
                                    0);
-    return NT_SUCCESS(Status);
+
+    RtlFreeHeap(ProcessHeap, 0, ConsoleCabinetContext.Data);
+
+    if (!NT_SUCCESS(Status))
+        return FALSE;
+
+    LastLoadedCodepage = wCodepage;
+    return TRUE;
 }
 
 

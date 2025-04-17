@@ -23,7 +23,7 @@
 
 /* TYPES **********************************************************************/
 
-// Used in ntdll/csr/connect.c
+// Used in csr/connect.c
 #define CSR_CSRSS_SECTION_SIZE  65536
 
 typedef struct _CSR_NT_SESSION
@@ -427,7 +427,7 @@ CsrValidateMessageBuffer(IN PCSR_API_MESSAGE ApiMessage,
 BOOLEAN
 NTAPI
 CsrValidateMessageString(IN PCSR_API_MESSAGE ApiMessage,
-                         IN LPWSTR *MessageString);
+                         IN PWSTR *MessageString);
 
 #endif // _CSRSRV_H
 

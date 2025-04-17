@@ -37,17 +37,33 @@ TODO:
     Implement Save
 */
 
+// Unique GUID of the DLL where this CAddressBand is implemented so we can tell if it's really us
+static const GUID THISMODULE_GUID = { 0x60ebab6e, 0x2e4b, 0x42f6, { 0x8a,0xbc,0x80,0x73,0x1c,0xa6,0x42,0x02} };
+
 CAddressBand::CAddressBand()
 {
     fEditControl = NULL;
     fGoButton = NULL;
     fComboBox = NULL;
     fGoButtonShown = false;
-    fAdjustNeeded = 0;
 }
 
 CAddressBand::~CAddressBand()
 {
+}
+
+BOOL CAddressBand::ShouldShowGoButton()
+{
+    return SHRegGetBoolUSValueW(L"Software\\Microsoft\\Internet Explorer\\Main", L"ShowGoButton", FALSE, TRUE);
+}
+
+BOOL CAddressBand::IsGoButtonVisible(IUnknown *pUnkBand)
+{
+    CComPtr<IAddressBand> pAB;
+    IUnknown_QueryService(pUnkBand, THISMODULE_GUID, IID_PPV_ARG(IAddressBand, &pAB));
+    if (pAB)
+        return static_cast<CAddressBand*>(pAB.p)->fGoButtonShown;
+    return ShouldShowGoButton(); // We don't know, return the global state
 }
 
 void CAddressBand::FocusChange(BOOL bFocus)
@@ -65,6 +81,7 @@ void CAddressBand::FocusChange(BOOL bFocus)
 
 HRESULT STDMETHODCALLTYPE CAddressBand::GetBandInfo(DWORD dwBandID, DWORD dwViewMode, DESKBANDINFO *pdbi)
 {
+    if (!m_hWnd || !pdbi)  return E_FAIL;  /* Verify window exists */
     if (pdbi->dwMask & DBIM_MINSIZE)
     {
         if (fGoButtonShown)
@@ -168,7 +185,7 @@ HRESULT STDMETHODCALLTYPE CAddressBand::SetSite(IUnknown *pUnkSite)
     if (FAILED_UNEXPECTEDLY(hResult))
         return hResult;
 
-    fGoButtonShown = SHRegGetBoolUSValueW(L"Software\\Microsoft\\Internet Explorer\\Main", L"ShowGoButton", FALSE, TRUE);
+    fGoButtonShown = ShouldShowGoButton();
     if (fGoButtonShown)
         CreateGoButton();
 
@@ -259,8 +276,66 @@ HRESULT STDMETHODCALLTYPE CAddressBand::HasFocusIO()
     return S_FALSE;
 }
 
+static WCHAR GetAccessKeyFromText(WCHAR chAccess, LPCWSTR pszText)
+{
+    for (const WCHAR *pch = pszText; *pch != UNICODE_NULL; ++pch)
+    {
+        if (*pch == L'&' && pch[1] == L'&')
+        {
+            /* Skip the first '&', the second is skipped by the for-loop */
+            ++pch;
+            continue;
+        }
+        if (*pch == L'&')
+        {
+            ++pch;
+            chAccess = *pch;
+            break;
+        }
+    }
+
+    ::CharUpperBuffW(&chAccess, 1);
+    return chAccess;
+}
+
+static WCHAR GetAddressBarAccessKey(WCHAR chAccess)
+{
+    static WCHAR s_chCache = 0;
+    static LANGID s_ThreadLocale = 0;
+    if (s_chCache && s_ThreadLocale == ::GetThreadLocale())
+        return s_chCache;
+
+    WCHAR szText[80];
+    if (!LoadStringW(_AtlBaseModule.GetResourceInstance(), IDS_ADDRESSBANDLABEL,
+                     szText, _countof(szText)))
+    {
+        return chAccess;
+    }
+
+    s_chCache = GetAccessKeyFromText(chAccess, szText);
+    s_ThreadLocale = ::GetThreadLocale();
+    return s_chCache;
+}
+
 HRESULT STDMETHODCALLTYPE CAddressBand::TranslateAcceleratorIO(LPMSG lpMsg)
 {
+    // Enable Address bar access key (Alt+D)
+    switch (lpMsg->message)
+    {
+        case WM_SYSKEYDOWN:
+        case WM_SYSCHAR:
+        {
+            WCHAR chAccess = GetAddressBarAccessKey(L'D');
+            if (lpMsg->wParam == chAccess)
+            {
+                ::PostMessageW(fEditControl, EM_SETSEL, 0, -1);
+                ::SetFocus(fEditControl);
+                return S_FALSE;
+            }
+            break;
+        }
+    }
+
     if (lpMsg->hwnd == fEditControl)
     {
         switch (lpMsg->message)
@@ -307,7 +382,7 @@ HRESULT STDMETHODCALLTYPE CAddressBand::OnWinEvent(
         case WM_COMMAND:
             if (wParam == IDM_TOOLBARS_GOBUTTON)
             {
-                fGoButtonShown = !SHRegGetBoolUSValueW(L"Software\\Microsoft\\Internet Explorer\\Main", L"ShowGoButton", FALSE, TRUE);
+                fGoButtonShown = !IsGoButtonVisible(static_cast<IAddressBand*>(this));
                 SHRegSetUSValueW(L"Software\\Microsoft\\Internet Explorer\\Main", L"ShowGoButton", REG_SZ, fGoButtonShown ? (LPVOID)L"yes" : (LPVOID)L"no", fGoButtonShown ? 8 : 6, SHREGSET_FORCE_HKCU);
                 if (!fGoButton)
                     CreateGoButton();
@@ -363,6 +438,8 @@ HRESULT STDMETHODCALLTYPE CAddressBand::Refresh(long param8)
 
 HRESULT STDMETHODCALLTYPE CAddressBand::QueryService(REFGUID guidService, REFIID riid, void **ppvObject)
 {
+    if (guidService == THISMODULE_GUID)
+        return QueryInterface(riid, ppvObject);
     return E_NOTIMPL;
 }
 
@@ -467,8 +544,6 @@ LRESULT CAddressBand::OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHan
     long                                    newHeight;
     long                                    newWidth;
 
-    fAdjustNeeded = 1;
-
     if (fGoButtonShown == false)
     {
         bHandled = FALSE;
@@ -524,23 +599,6 @@ LRESULT CAddressBand::OnWindowPosChanging(UINT uMsg, WPARAM wParam, LPARAM lPara
     newHeight = positionInfoCopy.cy;
     newWidth = positionInfoCopy.cx;
 
-/*
-    Sometimes when we get here newWidth = 100 which comes from GetBandInfo and is less than the 200 that we need.
-    We need room for the "Address" text (50 pixels), the "GoButton" (50 pixels), the left and right borders (30 pixels)
-    the icon (20 pixels) and the ComboBox (50 pixels) for handling the text of the current directory. This is 200 pixels.
-    When newWidth = 100 the Addressband ComboBox will only have a single character because it becomes 2 pixels wide.
-    The hack below readjusts the width to the minimum required to allow seeing the whole text and prints out a debug message.
-*/
-
-    if ((newWidth < 200) && (newWidth != 0))
-    {
-        if (fAdjustNeeded == 1)
-        {
-            ERR("CORE-13003 HACK: Addressband ComboBox width readjusted from %ld to 200.\n", newWidth);
-            newWidth = 200;
-            fAdjustNeeded = 0;
-        }
-    }
     SendMessage(fGoButton, TB_GETITEMRECT, 0, reinterpret_cast<LPARAM>(&buttonBounds));
 
     buttonWidth = buttonBounds.right - buttonBounds.left;
@@ -567,10 +625,10 @@ void CAddressBand::CreateGoButton()
     HINSTANCE             shellInstance;
 
     shellInstance = _AtlBaseModule.GetResourceInstance();
-    m_himlNormal = ImageList_LoadImageW(shellInstance, MAKEINTRESOURCE(IDB_GOBUTTON_NORMAL),
-                                           20, 0, RGB(255, 0, 255), IMAGE_BITMAP, LR_CREATEDIBSECTION);
-    m_himlHot = ImageList_LoadImageW(shellInstance, MAKEINTRESOURCE(IDB_GOBUTTON_HOT),
+    m_himlNormal = ImageList_LoadImageW(shellInstance, MAKEINTRESOURCEW(IDB_GOBUTTON_NORMAL),
                                         20, 0, RGB(255, 0, 255), IMAGE_BITMAP, LR_CREATEDIBSECTION);
+    m_himlHot = ImageList_LoadImageW(shellInstance, MAKEINTRESOURCEW(IDB_GOBUTTON_HOT),
+                                     20, 0, RGB(255, 0, 255), IMAGE_BITMAP, LR_CREATEDIBSECTION);
 
     fGoButton = CreateWindowEx(WS_EX_TOOLWINDOW, TOOLBARCLASSNAMEW, 0, WS_CHILD | WS_CLIPSIBLINGS |
                                WS_CLIPCHILDREN | TBSTYLE_LIST | TBSTYLE_FLAT | TBSTYLE_TOOLTIPS | CCS_NODIVIDER |

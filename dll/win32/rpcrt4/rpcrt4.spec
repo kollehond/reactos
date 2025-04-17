@@ -44,7 +44,7 @@
 44 stub I_RpcConnectionSetSockBuffSize
 45 stub I_RpcDeleteMutex
 46 stub I_RpcEnableWmiTrace
-47 stdcall I_RpcExceptionFilter(long)
+47 stdcall I_RpcExceptionFilter(long) RpcExceptionFilter
 48 stdcall I_RpcFree(ptr)
 49 stdcall I_RpcFreeBuffer(ptr)
 50 stub I_RpcFreePipeBuffer
@@ -71,7 +71,7 @@
 # I_RpcRecordCalloutFailure
 # I_RpcReplyToClientWithStatus
 73 stub I_RpcRequestMutex
-# I_RpcSNCHOption
+74 stub I_RpcSNCHOption
 75 stdcall I_RpcSend(ptr)
 76 stdcall I_RpcSendReceive(ptr)
 77 stub I_RpcServerAllocateIpPort
@@ -179,7 +179,7 @@
 179 stdcall NdrCorrelationFree(ptr)
 180 stdcall NdrCorrelationInitialize(ptr ptr long long)
 181 stdcall NdrCorrelationPass(ptr)
-# NdrCreateServerInterfaceFromStub
+182 stub NdrCreateServerInterfaceFromStub
 183 stub NdrDcomAsyncClientCall
 184 stub NdrDcomAsyncStubCall
 185 stdcall NdrDllCanUnloadNow(ptr)
@@ -267,7 +267,8 @@
 267 stdcall NdrSendReceive(ptr ptr)
 268 stdcall NdrServerCall2(ptr)
 269 stdcall NdrServerCall(ptr)
-270 stdcall NdrServerContextMarshall(ptr ptr long)
+@ stdcall -arch=x86_64 NdrServerCallAll(ptr)
+270 stdcall NdrServerContextMarshall(ptr ptr ptr)
 271 stdcall NdrServerContextNewMarshall(ptr ptr ptr ptr)
 272 stdcall NdrServerContextNewUnmarshall(ptr ptr)
 273 stdcall NdrServerContextUnmarshall(ptr)
@@ -378,7 +379,7 @@
 378 stdcall RpcErrorStartEnumeration(ptr)
 379 stub RpcFreeAuthorizationContext
 380 stdcall RpcGetAsyncCallStatus(ptr) RpcAsyncGetCallStatus
-# RpcGetAuthorizationContextForClient
+381 stdcall RpcGetAuthorizationContextForClient(ptr long ptr ptr int64 long ptr ptr)
 382 stub RpcIfIdVectorFree
 383 stub RpcIfInqId
 384 stdcall RpcImpersonateClient(ptr)
@@ -405,8 +406,8 @@
 405 stdcall RpcMgmtWaitServerListen()
 406 stdcall RpcNetworkInqProtseqsA(ptr)
 407 stdcall RpcNetworkInqProtseqsW(ptr)
-408 stdcall RpcNetworkIsProtseqValidA(ptr)
-409 stdcall RpcNetworkIsProtseqValidW(ptr)
+408 stdcall RpcNetworkIsProtseqValidA(str)
+409 stdcall RpcNetworkIsProtseqValidW(wstr)
 410 stub RpcNsBindingInqEntryNameA
 411 stub RpcNsBindingInqEntryNameW
 412 stub RpcObjectInqType
@@ -511,9 +512,9 @@
 511 stub long_from_ndr
 512 stub long_from_ndr_temp
 513 stub pfnFreeRoutines
-514 stub pfnMarshallRouteines
+514 stub pfnMarshallRoutines
 515 stub pfnSizeRoutines
-516 stub pfnUnmarshallRouteines
+516 stub pfnUnmarshallRoutines
 517 stub short_array_from_ndr
 518 stub short_from_ndr
 519 stub short_from_ndr_temp

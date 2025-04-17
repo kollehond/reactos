@@ -86,36 +86,32 @@ list(APPEND SOURCE
     src/write.c
     inc/ext2fs.h)
 
-add_library(ext2fs SHARED ${SOURCE} ext2fs.rc)
+add_library(ext2fs MODULE ${SOURCE} ext2fs.rc)
 
-if(USE_CLANG_CL)
-    set_property(SOURCE src/create.c src/fileinfo.c src/memory.c src/read.c APPEND_STRING PROPERTY COMPILE_FLAGS " /fallback")
+if(CMAKE_C_COMPILER_ID STREQUAL "MSVC")
+    # Disable warning C4101: 'i': unreferenced local variable
+    # Disable warning C4189: 'sbi': local variable is initialized but not referenced
+    # Disable warning C4267: '=': conversion from 'size_t' to 'USHORT', possible loss of data
+    target_compile_options(ext2fs PRIVATE /wd4101 /wd4189 /wd4267)
 endif()
 
-if(MSVC AND (NOT USE_CLANG_CL))
-    # Disable warnings: "unreferenced local variable", "initialized, but not used variable", "benign include"
-    replace_compile_flags("/we4189" " ")
-    add_target_compile_flags(ext2fs "/wd4189 /wd4142 /wd4101")
-else()
-    add_target_compile_flags(ext2fs "-Wno-pointer-sign -Wno-unused-function")
-    add_target_compile_flags(ext2fs "-Wno-unused-variable -Wno-missing-braces")
-    if(USE_CLANG_CL)
-        add_target_compile_flags(ext2fs "-Wno-unused-value -Wno-parentheses-equality")
-        add_target_compile_flags(ext2fs "-Wno-incompatible-pointer-types-discards-qualifiers")
-        add_target_compile_flags(ext2fs "-Wno-#pragma-messages -Wno-cast-calling-convention")
-    else()
-        add_target_compile_flags(ext2fs "-Wno-unused-but-set-variable")
-    endif()
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(ext2fs PRIVATE
+        -Wno-pointer-sign -Wno-unused-function -Wno-unused-variable -Wno-missing-braces -Wno-unused-but-set-variable)
+endif()
+
+if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(ext2fs PRIVATE
+        -Wno-parentheses-equality
+        -Wno-incompatible-pointer-types-discards-qualifiers
+        "-Wno-#pragma-messages;-Wno-cast-calling-convention")
 endif()
 
 target_link_libraries(ext2fs memcmp ${PSEH_LIB})
-add_definitions(-D__KERNEL__)
+add_definitions(-D__KERNEL__ -D_CRT_NO_POSIX_ERROR_CODES -D_CRT_DECLARE_NONSTDC_NAMES=1)
 set_module_type(ext2fs kernelmodedriver)
 add_importlibs(ext2fs ntoskrnl hal)
-
-if(NOT USE_CLANG_CL)
-    # The fallback we have above prevents cl and clang-cl from using the same PCH
-    add_pch(ext2fs inc/ext2fs.h SOURCE)
-endif()
+add_pch(ext2fs inc/ext2fs.h SOURCE)
 
 add_cd_file(TARGET ext2fs DESTINATION reactos/system32/drivers FOR all)
+add_registry_inf(ext2fs_reg.inf)

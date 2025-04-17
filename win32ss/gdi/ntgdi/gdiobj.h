@@ -73,7 +73,7 @@ enum _GDIOBJLAGS
     GDIOBJFLAG_IGNORELOCK = 0x02
 };
 
-INIT_FUNCTION
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
 InitGdiHandleTable(VOID);
@@ -111,7 +111,7 @@ NTAPI
 GreGetObject(
     IN HGDIOBJ hobj,
     IN INT cbCount,
-    IN PVOID pvBuffer);
+    OUT PVOID pvBuffer);
 
 POBJ
 NTAPI
@@ -195,6 +195,7 @@ GDIOBJ_pvGetObjectAttr(
     POBJ pobj);
 
 BOOL    NTAPI GDIOBJ_ConvertToStockObj(HGDIOBJ *hObj);
+BOOL    NTAPI GDIOBJ_ConvertFromStockObj(HGDIOBJ *phObj);
 POBJ    NTAPI GDIOBJ_AllocObjWithHandle(ULONG ObjectType, ULONG cjSize);
 PGDIOBJ NTAPI GDIOBJ_ShareLockObj(HGDIOBJ hObj, DWORD ObjectType);
 PVOID   NTAPI GDI_MapHandleTable(PEPROCESS Process);

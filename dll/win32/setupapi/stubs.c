@@ -39,6 +39,24 @@ INT WINAPI SetupPromptReboot( HSPFILEQ file_queue, HWND owner, BOOL scan_only )
 }
 
 /***********************************************************************
+ *      SetupAddToSourceListA (SETUPAPI.@)
+ */
+BOOL WINAPI SetupAddToSourceListA(DWORD flags, PCSTR source)
+{
+    FIXME("0x%08x %s: stub\n", flags, debugstr_a(source));
+    return TRUE;
+}
+
+/***********************************************************************
+ *      SetupAddToSourceListW (SETUPAPI.@)
+ */
+BOOL WINAPI SetupAddToSourceListW(DWORD flags, PCWSTR source)
+{
+    FIXME("0x%08x %s: stub\n", flags, debugstr_w(source));
+    return TRUE;
+}
+
+/***********************************************************************
  *      SetupSetSourceListA (SETUPAPI.@)
  */
 BOOL WINAPI SetupSetSourceListA(DWORD flags, PCSTR *list, UINT count)
@@ -103,13 +121,6 @@ WINSETUPAPI BOOL WINAPI SetupDiGetDeviceInterfaceAlias(IN HDEVINFO  DeviceInfoSe
     return FALSE;
 }
 
-WINSETUPAPI BOOL WINAPI SetupSetNonInteractiveMode(BOOL NonInteractiveFlag)
-{
-    FIXME("(%d) stub\n", NonInteractiveFlag);
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
-    return FALSE;
-}
-
 /***********************************************************************
  *      SetupVerifyInfFileA(SETUPAPI.@)
  */
@@ -138,3 +149,26 @@ SetupVerifyInfFileW(
     return FALSE;
 }
 
+BOOL WINAPI
+SetupDiSetDriverInstallParamsA(
+    _In_ HDEVINFO DeviceInfoSet,
+    _In_opt_ PSP_DEVINFO_DATA DeviceInfoData,
+    _In_ PSP_DRVINFO_DATA_A DriverInfoData,
+    _In_ PSP_DRVINSTALL_PARAMS DriverInstallParams)
+{
+    FIXME("Stub %p %p %p %p\n", DeviceInfoSet, DeviceInfoData, DriverInfoData, DriverInstallParams);
+    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    return FALSE;
+}
+
+BOOL WINAPI
+SetupDiSetDriverInstallParamsW(
+    _In_ HDEVINFO DeviceInfoSet,
+    _In_opt_ PSP_DEVINFO_DATA DeviceInfoData,
+    _In_ PSP_DRVINFO_DATA_W DriverInfoData,
+    _In_ PSP_DRVINSTALL_PARAMS DriverInstallParams)
+{
+    FIXME("Stub %p %p %p %p\n", DeviceInfoSet, DeviceInfoData, DriverInfoData, DriverInstallParams);
+    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    return FALSE;
+}

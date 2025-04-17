@@ -7,6 +7,8 @@
 
 #include "precomp.h"
 
+#include <pseh/pseh2.h>
+
 typedef struct _TEST_RESOURCES
 {
     IMAGE_RESOURCE_DIRECTORY TypeDirectory;
@@ -65,7 +67,7 @@ InitializeNamedEntry(
     DirEntry->OffsetToData = (PUCHAR)Data - (PUCHAR)Resource;
     if (DirEntry < Resource->Lang1Entries)
         DirEntry->DataIsDirectory = 1;
-    Resource->StringBuffer[Resource->StringIndex] = wcslen(Name);
+    Resource->StringBuffer[Resource->StringIndex] = (USHORT)wcslen(Name);
     wcscpy(&Resource->StringBuffer[Resource->StringIndex + 1], Name);
     Resource->StringIndex += Resource->StringBuffer[Resource->StringIndex] * 2 + 1;
 }
@@ -160,7 +162,7 @@ InitializeTestImage(
 
     TestImage->NtHeaders.Signature = IMAGE_NT_SIGNATURE;
 
-    TestImage->NtHeaders.FileHeader.Machine = IMAGE_FILE_MACHINE_I386;
+    TestImage->NtHeaders.FileHeader.Machine = IMAGE_FILE_MACHINE_NATIVE;
     TestImage->NtHeaders.FileHeader.NumberOfSections = 1;
     TestImage->NtHeaders.FileHeader.TimeDateStamp = 0;
     TestImage->NtHeaders.FileHeader.PointerToSymbolTable = 0;
@@ -168,10 +170,15 @@ InitializeTestImage(
     TestImage->NtHeaders.FileHeader.SizeOfOptionalHeader = sizeof(IMAGE_OPTIONAL_HEADER);
     TestImage->NtHeaders.FileHeader.Characteristics = 0;
 
+#ifdef _WIN64
+    TestImage->NtHeaders.OptionalHeader.Magic = IMAGE_NT_OPTIONAL_HDR64_MAGIC;
+#else
     TestImage->NtHeaders.OptionalHeader.Magic = IMAGE_NT_OPTIONAL_HDR32_MAGIC;
+#endif
     TestImage->NtHeaders.OptionalHeader.ImageBase = (DWORD_PTR)TestImage;
     TestImage->NtHeaders.OptionalHeader.SizeOfImage = sizeof(TEST_IMAGE);
     TestImage->NtHeaders.OptionalHeader.SizeOfHeaders = sizeof(IMAGE_DOS_HEADER) + sizeof(IMAGE_NT_HEADERS);
+    TestImage->NtHeaders.OptionalHeader.NumberOfRvaAndSizes = ARRAYSIZE(TestImage->NtHeaders.OptionalHeader.DataDirectory);
 
     ResourceDirectory = &TestImage->NtHeaders.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE];
     ResourceDirectory->VirtualAddress = FIELD_OFFSET(TEST_IMAGE, Resources);
@@ -199,7 +206,7 @@ InitializeTestImage(
     ok_dec((_Res)->Type, _Type); \
     if ((ULONG_PTR)(_Name) > 0xFFFF) \
     { \
-        ok_dec(*(WORD*)((_Res)->Name), wcslen((PWCHAR)(_Name))); \
+        ok_size_t(*(WORD*)((_Res)->Name), wcslen((PWCHAR)(_Name))); \
         ok_nwstr((PWCHAR)((_Res)->Name + 2), (PWCHAR)_Name, *(WORD*)((_Res)->Name)); \
     } \
     else \
@@ -359,6 +366,7 @@ Test_Parameters(PTEST_IMAGE TestImage)
 START_TEST(LdrEnumResources)
 {
     TEST_IMAGE TestImage;
+    RtlZeroMemory(&TestImage, sizeof(TestImage));
 
     Test_Parameters(&TestImage);
     Test_Data(&TestImage);

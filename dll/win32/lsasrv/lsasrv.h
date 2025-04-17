@@ -28,6 +28,8 @@
 #include <ndk/obfuncs.h>
 #include <ndk/psfuncs.h>
 #include <ndk/rtlfuncs.h>
+#include <ndk/sefuncs.h>
+#include <ndk/ketypes.h>
 #include <ndk/setypes.h>
 
 #include <ntsam.h>
@@ -77,6 +79,7 @@ typedef struct _LSAP_LOGON_CONTEXT
     LIST_ENTRY Entry;
     HANDLE ClientProcessHandle;
     HANDLE ConnectionHandle;
+    BOOL TrustedCaller;
 } LSAP_LOGON_CONTEXT, *PLSAP_LOGON_CONTEXT;
 
 typedef struct _SAMPR_ULONG_ARRAY
@@ -84,6 +87,8 @@ typedef struct _SAMPR_ULONG_ARRAY
     unsigned long Count;
     unsigned long *Element;
 } SAMPR_ULONG_ARRAY, *PSAMPR_ULONG_ARRAY;
+
+extern NT_PRODUCT_TYPE LsapProductType;
 
 extern SID_IDENTIFIER_AUTHORITY NullSidAuthority;
 extern SID_IDENTIFIER_AUTHORITY WorldSidAuthority;
@@ -120,6 +125,11 @@ LsapCallAuthenticationPackage(PLSA_API_MSG RequestMsg,
 NTSTATUS
 LsapLogonUser(PLSA_API_MSG RequestMsg,
               PLSAP_LOGON_CONTEXT LogonContext);
+
+VOID
+LsapTerminateLogon(
+    _In_ PLUID LogonId);
+
 
 /* authport.c */
 NTSTATUS
@@ -425,6 +435,12 @@ LsapCreateAccountSd(PSECURITY_DESCRIPTOR *AccountSd,
 NTSTATUS
 LsapCreateSecretSd(PSECURITY_DESCRIPTOR *SecretSd,
                    PULONG SecretSdSize);
+
+NTSTATUS
+LsapCreateTokenSd(
+    _In_ const TOKEN_USER *User,
+    _Outptr_ PSECURITY_DESCRIPTOR *TokenSd,
+    _Out_ PULONG TokenSdSize);
 
 /* session.c */
 VOID

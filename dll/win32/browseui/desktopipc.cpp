@@ -343,48 +343,67 @@ cleanup0:
 
 static HRESULT ExplorerMessageLoop(IEThreadParamBlock * parameters)
 {
-    CComPtr<IBrowserService2> browser;
-    HRESULT                   hResult;
+    HRESULT hResult;
     MSG Msg;
     BOOL Ret;
 
     // Tell the thread ref we are using it.
-    if (parameters && parameters->offsetF8)
-        parameters->offsetF8->AddRef();
+    if (parameters && parameters->pExplorerInstance)
+        parameters->pExplorerInstance->AddRef();
 
     /* Handle /e parameter */
      UINT wFlags = 0;
-     if ((parameters->dwFlags & SH_EXPLORER_CMDLINE_FLAG_E))
+     if (parameters->dwFlags & SH_EXPLORER_CMDLINE_FLAG_E)
         wFlags |= SBSP_EXPLOREMODE;
 
     /* Handle /select parameter */
     PUITEMID_CHILD pidlSelect = NULL;
-    if ((parameters->dwFlags & SH_EXPLORER_CMDLINE_FLAG_SELECT) && 
+    if ((parameters->dwFlags & SH_EXPLORER_CMDLINE_FLAG_SELECT) &&
         (ILGetNext(parameters->directoryPIDL) != NULL))
     {
         pidlSelect = ILClone(ILFindLastID(parameters->directoryPIDL));
         ILRemoveLastID(parameters->directoryPIDL);
     }
 
-    hResult = CShellBrowser_CreateInstance(parameters->directoryPIDL, wFlags, IID_PPV_ARG(IBrowserService2, &browser));
+    CComPtr<IShellBrowser> psb;
+#if 0
+    if (!(parameters->dwFlags & (SH_EXPLORER_CMDLINE_FLAG_E | SH_EXPLORER_CMDLINE_FLAG_NOREUSE)))
+    {
+        // TODO: IShellWindows::FindWindowSW(...) and reuse the existing IShellBrowser
+    }
+#endif
+    hResult = CShellBrowser_CreateInstance(IID_PPV_ARG(IShellBrowser, &psb));
+    if (FAILED_UNEXPECTEDLY(hResult))
+        return hResult;
+
+    if (parameters->dwFlags & SH_EXPLORER_CMDLINE_FLAG_EMBED)
+    {
+        CComPtr<IBrowserService> pbs;
+        if (SUCCEEDED(psb->QueryInterface(IID_PPV_ARG(IBrowserService, &pbs))))
+            pbs->SetFlags(BSF_UISETBYAUTOMATION, BSF_UISETBYAUTOMATION);
+    }
+
+    hResult = psb->BrowseObject(parameters->directoryPIDL, wFlags);
     if (FAILED_UNEXPECTEDLY(hResult))
         return hResult;
 
     if (pidlSelect != NULL)
     {
-        CComPtr<IShellBrowser> pisb;
-        hResult = browser->QueryInterface(IID_PPV_ARG(IShellBrowser, &pisb));
+        CComPtr<IShellView> shellView;
+        hResult = psb->QueryActiveShellView(&shellView);
         if (SUCCEEDED(hResult))
         {
-            CComPtr<IShellView> shellView;
-            hResult = pisb->QueryActiveShellView(&shellView);
-            if (SUCCEEDED(hResult))
-            {
-                shellView->SelectItem(pidlSelect, SVSI_SELECT|SVSI_ENSUREVISIBLE);
-            }
+            shellView->SelectItem(pidlSelect, SVSI_SELECT | SVSI_FOCUSED | SVSI_ENSUREVISIBLE);
         }
         ILFree(pidlSelect);
     }
+
+    CComPtr<IBrowserService2> browser;
+    hResult = psb->QueryInterface(IID_PPV_ARG(IBrowserService2, &browser));
+    if (FAILED_UNEXPECTEDLY(hResult))
+        return hResult;
+
+    psb.Release();
 
     while ((Ret = GetMessage(&Msg, NULL, 0, 0)) != 0)
     {
@@ -404,17 +423,11 @@ static HRESULT ExplorerMessageLoop(IEThreadParamBlock * parameters)
         }
     }
 
-    int nrc = browser->Release();
-    if (nrc > 0)
-    {
-        DbgPrint("WARNING: There are %d references to the CShellBrowser active or leaked.\n", nrc);
-    }
-
-    browser.Detach();
+    ReleaseCComPtrExpectZero(browser);
 
     // Tell the thread ref we are not using it anymore.
-    if (parameters && parameters->offsetF8)
-        parameters->offsetF8->Release();
+    if (parameters && parameters->pExplorerInstance)
+        parameters->pExplorerInstance->Release();
 
     return hResult;
 }
@@ -448,7 +461,7 @@ extern "C" IEThreadParamBlock *WINAPI SHCreateIETHREADPARAM(
 
     TRACE("SHCreateIETHREADPARAM\n");
 
-    result = (IEThreadParamBlock *) LocalAlloc(LMEM_ZEROINIT, 256);
+    result = (IEThreadParamBlock *) LocalAlloc(LMEM_ZEROINIT, sizeof(*result));
     if (result == NULL)
         return NULL;
     result->offset0 = param8;
@@ -471,10 +484,10 @@ extern "C" IEThreadParamBlock *WINAPI SHCloneIETHREADPARAM(IEThreadParamBlock *p
 
     TRACE("SHCloneIETHREADPARAM\n");
 
-    result = (IEThreadParamBlock *) LocalAlloc(LMEM_FIXED, 256);
+    result = (IEThreadParamBlock *) LocalAlloc(LMEM_FIXED, sizeof(*result));
     if (result == NULL)
         return NULL;
-    memcpy(result, param, 0x40 * 4);
+    *result = *param;
     if (result->directoryPIDL != NULL)
         result->directoryPIDL = ILClone(result->directoryPIDL);
     if (result->offset7C != NULL)
@@ -513,8 +526,8 @@ extern "C" void WINAPI SHDestroyIETHREADPARAM(IEThreadParamBlock *param)
         param->offset78->Release();
     if (param->offsetC != NULL)
         param->offsetC->Release();
-    if (param->offsetF8 != NULL)
-        param->offsetF8->Release();
+    if (param->pExplorerInstance != NULL)
+        param->pExplorerInstance->Release();
     LocalFree(param);
 }
 
@@ -544,14 +557,20 @@ extern "C" HRESULT WINAPI SHOpenFolderWindow(PIE_THREAD_PARAM_BLOCK parameters)
     HANDLE                                  threadHandle;
     DWORD                                   threadID;
 
-    WCHAR debugStr[MAX_PATH + 1];
-    SHGetPathFromIDListW(parameters->directoryPIDL, debugStr);
-
-    TRACE("SHOpenFolderWindow %p(%S)\n", parameters->directoryPIDL, debugStr);
+    // Only try to convert the pidl when it is going to be printed
+    if (TRACE_ON(browseui))
+    {
+        WCHAR debugStr[MAX_PATH + 2] = { 0 };
+        if (!ILGetDisplayName(parameters->directoryPIDL, debugStr))
+        {
+            debugStr[0] = UNICODE_NULL;
+        }
+        TRACE("SHOpenFolderWindow %p(%S)\n", parameters->directoryPIDL, debugStr);
+    }
 
     PIE_THREAD_PARAM_BLOCK paramsCopy = SHCloneIETHREADPARAM(parameters);
 
-    SHGetInstanceExplorer(&(paramsCopy->offsetF8));
+    SHGetInstanceExplorer(&(paramsCopy->pExplorerInstance));
     threadHandle = CreateThread(NULL, 0x10000, BrowserThreadProc, paramsCopy, 0, &threadID);
     if (threadHandle != NULL)
     {
@@ -585,11 +604,11 @@ extern "C" HRESULT WINAPI SHOpenNewFrame(LPITEMIDLIST pidl, IUnknown *paramC, lo
         parameters->offset10 = param10;
     parameters->directoryPIDL = pidl;
     parameters->dwFlags = dwFlags;
-    
+
     HRESULT hr = SHOpenFolderWindow(parameters);
-    
+
     SHDestroyIETHREADPARAM(parameters);
-    
+
     return hr;
 }
 
@@ -597,7 +616,7 @@ extern "C" HRESULT WINAPI SHOpenNewFrame(LPITEMIDLIST pidl, IUnknown *paramC, lo
 * SHCreateFromDesktop			[BROWSEUI.106]
 * parameter is a FolderInfo
 */
-BOOL WINAPI SHCreateFromDesktop(ExplorerCommandLineParseResults * parseResults)
+BOOL WINAPI SHCreateFromDesktop(_In_ PEXPLORER_CMDLINE_PARSE_RESULTS parseResults)
 {
     TRACE("SHCreateFromDesktop\n");
 
@@ -617,7 +636,7 @@ BOOL WINAPI SHCreateFromDesktop(ExplorerCommandLineParseResults * parseResults)
     }
 
     parameters->dwFlags = parseResults->dwFlags;
-    parameters->offset8 = parseResults->offsetC;
+    parameters->offset8 = parseResults->nCmdShow;
 
     LPITEMIDLIST pidl = parseResults->pidlPath ? ILClone(parseResults->pidlPath) : NULL;
     if (!pidl && parseResults->dwFlags & SH_EXPLORER_CMDLINE_FLAG_STRING)

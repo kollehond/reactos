@@ -3,9 +3,33 @@
  *
  * \brief Function declarations for alternative implementation of elliptic curve
  * point arithmetic.
+ */
+/*
+ *  Copyright The Mbed TLS Contributors
+ *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
  *
- *  Copyright (C) 2016, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
+ *  This file is provided under the Apache License 2.0, or the
+ *  GNU General Public License v2.0 or later.
+ *
+ *  **********
+ *  Apache License 2.0:
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *  not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ *  **********
+ *
+ *  **********
+ *  GNU General Public License v2.0 or later:
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,7 +45,7 @@
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ *  **********
  */
 
 /*
@@ -49,7 +73,7 @@
  * [6] Digital Signature Standard (DSS), FIPS 186-4.
  *     <http://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-4.pdf>
  *
- * [7] Elliptic Curve Cryptography (ECC) Cipher Suites for Transport Layer 
+ * [7] Elliptic Curve Cryptography (ECC) Cipher Suites for Transport Layer
  *     Security (TLS), RFC 4492.
  *     <https://tools.ietf.org/search/rfc4492>
  *
@@ -61,6 +85,12 @@
 
 #ifndef MBEDTLS_ECP_INTERNAL_H
 #define MBEDTLS_ECP_INTERNAL_H
+
+#if !defined(MBEDTLS_CONFIG_FILE)
+#include "config.h"
+#else
+#include MBEDTLS_CONFIG_FILE
+#endif
 
 #if defined(MBEDTLS_ECP_INTERNAL_ALT)
 

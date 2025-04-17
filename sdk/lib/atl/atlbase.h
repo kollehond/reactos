@@ -20,28 +20,19 @@
 
 #pragma once
 
+#include "atldef.h"
 #include "atlcore.h"
 #include "statreg.h"
 #include "atlcomcli.h"
 #include "atlalloc.h"
+#include "atlexcept.h"
+#include "atltrace.h"
 #include "comcat.h"
 #include "tchar.h"
 
 #ifdef _MSC_VER
 // It is common to use this in ATL constructors. They only store this for later use, so the usage is safe.
 #pragma warning(disable:4355)
-#endif
-
-#ifndef _ATL_PACKING
-#define _ATL_PACKING 8
-#endif
-
-#ifndef _ATL_FREE_THREADED
-#ifndef _ATL_APARTMENT_THREADED
-#ifndef _ATL_SINGLE_THREADED
-#define _ATL_FREE_THREADED
-#endif
-#endif
 #endif
 
 #ifndef ATLTRY
@@ -58,7 +49,6 @@
 #define ATL_DEPRECATED __declspec(deprecated)
 #endif
 
-#define offsetofclass(base, derived) (reinterpret_cast<DWORD_PTR>(static_cast<base *>(reinterpret_cast<derived *>(_ATL_PACKING))) - _ATL_PACKING)
 
 namespace ATL
 {
@@ -68,7 +58,15 @@ class CComModule;
 class CAtlComModule;
 __declspec(selectany) CAtlModule *_pAtlModule = NULL;
 __declspec(selectany) CComModule *_pModule = NULL;
-extern CAtlComModule _AtlComModule;
+
+template <bool isDll, typename T> struct CAtlValidateModuleConfiguration
+{
+#if !defined(_WINDLL) && !defined(_USRDLL)
+    static_assert(!isDll, "_WINDLL or _USRDLL must be defined when 'CAtlDllModuleT<T>' is used");
+#else
+    static_assert(isDll, "_WINDLL or _USRDLL must be defined when 'CAtlExeModuleT<T>' is used");
+#endif
+};
 
 
 struct _ATL_CATMAP_ENTRY
@@ -183,6 +181,46 @@ struct _ATL_WIN_MODULE70
 #endif
 };
 typedef _ATL_WIN_MODULE70 _ATL_WIN_MODULE;
+
+
+// Auto object map
+
+#if defined(_MSC_VER)
+#pragma section("ATL$__a", read, write)
+#pragma section("ATL$__z", read, write)
+#pragma section("ATL$__m", read, write)
+#define _ATLALLOC(x) __declspec(allocate(x))
+
+#if defined(_M_IX86)
+#define OBJECT_ENTRY_PRAGMA(class) __pragma(comment(linker, "/include:___pobjMap_" #class));
+#elif defined(_M_IA64) || defined(_M_AMD64) || (_M_ARM) || defined(_M_ARM64)
+#define OBJECT_ENTRY_PRAGMA(class) __pragma(comment(linker, "/include:__pobjMap_" #class));
+#else
+#error  Your platform is not supported.
+#endif
+
+#elif defined(__GNUC__)
+
+// GCC completely ignores __attribute__((unused)) on the __pobjMap_ pointer, so we pass it to a function that is not allowed to be optimized....
+static int __attribute__((optimize("O0"), unused)) hack_for_gcc(const _ATL_OBJMAP_ENTRY * const *)
+{
+    return 1;
+}
+
+#define _ATLALLOC(x) __attribute__((section(x)))
+#define OBJECT_ENTRY_PRAGMA(class) static int __pobjMap_hack_##class = hack_for_gcc(&__pobjMap_##class);
+
+#else
+#error Your compiler is not supported.
+#endif
+
+
+extern "C"
+{
+    __declspec(selectany) _ATLALLOC("ATL$__a") _ATL_OBJMAP_ENTRY *__pobjMapEntryFirst = NULL;
+    __declspec(selectany) _ATLALLOC("ATL$__z") _ATL_OBJMAP_ENTRY *__pobjMapEntryLast = NULL;
+}
+
 
 struct _ATL_REGMAP_ENTRY
 {
@@ -562,8 +600,9 @@ public:
     CAtlComModule()
     {
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, (LPCWSTR)this, &m_hInstTypeLib);
-        m_ppAutoObjMapFirst = NULL;
-        m_ppAutoObjMapLast = NULL;
+
+        m_ppAutoObjMapFirst = &__pobjMapEntryFirst + 1;
+        m_ppAutoObjMapLast = &__pobjMapEntryLast;
         if (FAILED(m_csObjMap.Init()))
         {
             ATLASSERT(0);
@@ -588,18 +627,41 @@ public:
         return AtlComModuleUnregisterServer(this, bUnRegTypeLib, pCLSID);
     }
 
-
     void Term()
     {
         if (cbSize != 0)
         {
-            ATLASSERT(m_ppAutoObjMapFirst == NULL);
-            ATLASSERT(m_ppAutoObjMapLast == NULL);
+            for (_ATL_OBJMAP_ENTRY **iter = m_ppAutoObjMapFirst; iter < m_ppAutoObjMapLast; iter++)
+            {
+                _ATL_OBJMAP_ENTRY *ptr = *iter;
+                if (!ptr)
+                    continue;
+
+                if (!ptr->pCF)
+                    continue;
+
+                ptr->pCF->Release();
+                ptr->pCF = NULL;
+            }
             m_csObjMap.Term();
             cbSize = 0;
         }
     }
+
+    void ExecuteObjectMain(bool bStarting)
+    {
+        for (_ATL_OBJMAP_ENTRY **iter = m_ppAutoObjMapFirst; iter < m_ppAutoObjMapLast; iter++)
+        {
+            if (!*iter)
+                continue;
+
+            (*iter)->pfnObjectMain(bStarting);
+        }
+    }
 };
+
+__declspec(selectany) CAtlComModule _AtlComModule;
+
 
 template <class T>
 HRESULT CAtlModuleT<T>::RegisterServer(BOOL bRegTypeLib, const CLSID *pCLSID)
@@ -614,11 +676,20 @@ HRESULT CAtlModuleT<T>::UnregisterServer(BOOL bUnRegTypeLib, const CLSID *pCLSID
 }
 
 template <class T>
-class CAtlDllModuleT : public CAtlModuleT<T>
+class CAtlDllModuleT
+    : public CAtlModuleT<T>
+    , private CAtlValidateModuleConfiguration<true, T>
+
 {
 public:
     CAtlDllModuleT()
     {
+        _AtlComModule.ExecuteObjectMain(true);
+    }
+
+    ~CAtlDllModuleT()
+    {
+        _AtlComModule.ExecuteObjectMain(false);
     }
 
     HRESULT DllCanUnloadNow()
@@ -667,7 +738,9 @@ public:
 
 
 template <class T>
-class CAtlExeModuleT : public CAtlModuleT<T>
+class CAtlExeModuleT
+    : public CAtlModuleT<T>
+    , private CAtlValidateModuleConfiguration<false, T>
 {
 public:
     DWORD m_dwMainThreadID;
@@ -678,10 +751,12 @@ public:
     CAtlExeModuleT()
         :m_dwMainThreadID(::GetCurrentThreadId())
     {
+        _AtlComModule.ExecuteObjectMain(true);
     }
 
     ~CAtlExeModuleT()
     {
+        _AtlComModule.ExecuteObjectMain(false);
     }
 
     int WinMain(int nShowCmd)
@@ -774,7 +849,12 @@ public:
 
     static HRESULT InitializeCom()
     {
-        return ::CoInitializeEx(NULL, COINIT_MULTITHREADED);
+#if defined(_ATL_FREE_THREADED)
+        constexpr COINIT coInit = COINIT_MULTITHREADED;
+#else
+        constexpr COINIT coInit = COINIT_APARTMENTTHREADED;
+#endif
+        return ::CoInitializeEx(NULL, coInit);
     }
 
     static void UninitializeCom()
@@ -823,12 +903,19 @@ public:
                 }
             }
         }
+
+        for (_ATL_OBJMAP_ENTRY **iter = _AtlComModule.m_ppAutoObjMapFirst; iter < _AtlComModule.m_ppAutoObjMapLast; iter++)
+        {
+            if (*iter != NULL)
+                (*iter)->pfnObjectMain(true);
+        }
+
         return S_OK;
     }
 
     void Term()
     {
-        _ATL_OBJMAP_ENTRY                    *objectMapEntry;
+        _ATL_OBJMAP_ENTRY *objectMapEntry;
 
         if (m_pObjMap != NULL)
         {
@@ -842,12 +929,19 @@ public:
                 objectMapEntry++;
             }
         }
+
+        for (_ATL_OBJMAP_ENTRY **iter = _AtlComModule.m_ppAutoObjMapFirst; iter < _AtlComModule.m_ppAutoObjMapLast; iter++)
+        {
+            if (*iter != NULL)
+                (*iter)->pfnObjectMain(false);
+        }
+
     }
 
     HRESULT GetClassObject(REFCLSID rclsid, REFIID riid, LPVOID *ppv)
     {
-        _ATL_OBJMAP_ENTRY                    *objectMapEntry;
-        HRESULT                                hResult;
+        _ATL_OBJMAP_ENTRY *objectMapEntry;
+        HRESULT hResult;
 
         ATLASSERT(ppv != NULL);
         if (ppv == NULL)
@@ -877,8 +971,7 @@ public:
         }
         if (hResult == S_OK && *ppv == NULL)
         {
-            // FIXME: call AtlComModuleGetClassObject
-            hResult = CLASS_E_CLASSNOTAVAILABLE;
+            hResult = AtlComModuleGetClassObject(&_AtlComModule, rclsid, riid, ppv);
         }
         return hResult;
     }
@@ -994,7 +1087,8 @@ public:
     }
 };
 
-extern CAtlWinModule _AtlWinModule;
+__declspec(selectany) CAtlWinModule _AtlWinModule;
+
 
 class CComAllocator
 {
@@ -1026,39 +1120,40 @@ public:
 
 public:
 
-    CRegKey() throw()
+    CRegKey() noexcept
         : m_hKey(NULL)
     {
     }
 
-    CRegKey(CRegKey& key) throw()
+    CRegKey(CRegKey& key) noexcept
         : m_hKey(key.Detach())
     {
     }
 
-    explicit CRegKey(HKEY hKey) throw()
+    explicit CRegKey(HKEY hKey) noexcept
         : m_hKey(hKey)
     {
     }
 
 #if 0
     // FIXME & TODO:
-    CRegKey(CAtlTransactionManager* pTM) throw()
+    CRegKey(CAtlTransactionManager* pTM) noexcept
     {
         ...
     }
 #endif
 
-    ~CRegKey() throw()
+    ~CRegKey() noexcept
     {
+        Close();
     }
 
-    void Attach(HKEY hKey) throw()
+    void Attach(HKEY hKey) noexcept
     {
         m_hKey = hKey;
     }
 
-    LONG Close() throw()
+    LONG Close() noexcept
     {
         if (m_hKey)
         {
@@ -1068,7 +1163,7 @@ public:
         return ERROR_SUCCESS;
     }
 
-    HKEY Detach() throw()
+    HKEY Detach() noexcept
     {
         HKEY hKey = m_hKey;
         m_hKey = NULL;
@@ -1076,18 +1171,13 @@ public:
     }
 
     LONG Open(HKEY hKeyParent, LPCTSTR lpszKeyName,
-              REGSAM samDesired = KEY_READ | KEY_WRITE) throw()
+              REGSAM samDesired = KEY_READ | KEY_WRITE) noexcept
     {
         ATLASSERT(hKeyParent);
         ATLASSERT(lpszKeyName);
 
         HKEY hKey = NULL;
-        LONG lRes = ::RegOpenKeyEx(hKeyParent, lpszKeyName, NULL, samDesired, &hKey);
-        if (lRes != ERROR_SUCCESS)
-        {
-            samDesired |= KEY_WOW64_64KEY;
-            lRes = ::RegOpenKeyEx(hKeyParent, lpszKeyName, NULL, samDesired, &hKey);
-        }
+        LONG lRes = ::RegOpenKeyEx(hKeyParent, lpszKeyName, 0, samDesired, &hKey);
         if (lRes == ERROR_SUCCESS)
         {
             Close();
@@ -1101,22 +1191,15 @@ public:
                 DWORD dwOptions = REG_OPTION_NON_VOLATILE,
                 REGSAM samDesired = KEY_READ | KEY_WRITE,
                 LPSECURITY_ATTRIBUTES lpSecAttr = NULL,
-                LPDWORD lpdwDisposition = NULL) throw()
+                LPDWORD lpdwDisposition = NULL) noexcept
     {
         ATLASSERT(hKeyParent);
         ATLASSERT(lpszKeyName);
 
         HKEY hKey = NULL;
-        LONG lRes = ::RegCreateKeyEx(hKeyParent, lpszKeyName, NULL, lpszClass,
+        LONG lRes = ::RegCreateKeyEx(hKeyParent, lpszKeyName, 0, lpszClass,
                                      dwOptions, samDesired, lpSecAttr, &hKey,
                                      lpdwDisposition);
-        if (lRes != ERROR_SUCCESS)
-        {
-            samDesired |= KEY_WOW64_64KEY;
-            lRes = ::RegCreateKeyEx(hKeyParent, lpszKeyName, NULL, lpszClass,
-                                    dwOptions, samDesired, lpSecAttr, &hKey,
-                                    lpdwDisposition);
-        }
         if (lRes == ERROR_SUCCESS)
         {
             Close();
@@ -1125,13 +1208,13 @@ public:
         return lRes;
     }
 
-    LONG QueryValue(LPCTSTR pszValueName, DWORD* pdwType, void* pData, ULONG* pnBytes) throw()
+    LONG QueryValue(LPCTSTR pszValueName, DWORD* pdwType, void* pData, ULONG* pnBytes) noexcept
     {
         ATLASSERT(m_hKey);
         return ::RegQueryValueEx(m_hKey, pszValueName, NULL, pdwType, (LPBYTE)pData, pnBytes);
     }
 
-    LONG QueryDWORDValue(LPCTSTR pszValueName, DWORD& dwValue) throw()
+    LONG QueryDWORDValue(LPCTSTR pszValueName, DWORD& dwValue) noexcept
     {
         ULONG size = sizeof(DWORD);
         DWORD type = 0;
@@ -1143,7 +1226,7 @@ public:
         return lRet;
     }
 
-    LONG QueryBinaryValue(LPCTSTR pszValueName, void* pValue, ULONG* pnBytes) throw()
+    LONG QueryBinaryValue(LPCTSTR pszValueName, void* pValue, ULONG* pnBytes) noexcept
     {
         DWORD type = 0;
         LONG lRet = QueryValue(pszValueName, &type, pValue, pnBytes);
@@ -1154,7 +1237,7 @@ public:
         return lRet;
     }
 
-    LONG QueryStringValue(LPCTSTR pszValueName, LPTSTR pszValue, ULONG* pnChars) throw()
+    LONG QueryStringValue(LPCTSTR pszValueName, LPTSTR pszValue, ULONG* pnChars) noexcept
     {
         ULONG size = (*pnChars) * sizeof(TCHAR);
         DWORD type = 0;
@@ -1167,7 +1250,7 @@ public:
         return lRet;
     }
 
-    LONG QueryGUIDValue(LPCTSTR pszValueName, GUID& guidValue) throw()
+    LONG QueryGUIDValue(LPCTSTR pszValueName, GUID& guidValue) noexcept
     {
         OLECHAR buf[40] = {0};
         ULONG nChars = 39;
@@ -1192,7 +1275,7 @@ public:
         return lRet;
     }
 
-    LONG QueryQWORDValue(LPCTSTR pszValueName, ULONGLONG& qwValue) throw()
+    LONG QueryQWORDValue(LPCTSTR pszValueName, ULONGLONG& qwValue) noexcept
     {
         ULONG size = sizeof(ULONGLONG);
         DWORD type = 0;
@@ -1205,7 +1288,7 @@ public:
     }
 
     LONG QueryMultiStringValue(LPCTSTR pszValueName, LPTSTR pszValue,
-                               ULONG* pnChars) throw()
+                               ULONG* pnChars) noexcept
     {
         ULONG size = (*pnChars) * sizeof(TCHAR);
         DWORD type;
@@ -1218,20 +1301,20 @@ public:
         return lRet;
     }
 
-    LONG SetValue(LPCTSTR pszValueName, DWORD dwType, const void* pValue, ULONG nBytes) throw()
+    LONG SetValue(LPCTSTR pszValueName, DWORD dwType, const void* pValue, ULONG nBytes) noexcept
     {
         ATLASSERT(m_hKey);
-        return ::RegSetValueEx(m_hKey, pszValueName, NULL, dwType, (const BYTE*)pValue, nBytes);
+        return ::RegSetValueEx(m_hKey, pszValueName, 0, dwType, (const BYTE*)pValue, nBytes);
     }
 
-    LONG SetDWORDValue(LPCTSTR pszValueName, DWORD dwValue) throw()
+    LONG SetDWORDValue(LPCTSTR pszValueName, DWORD dwValue) noexcept
     {
         return SetValue(pszValueName, REG_DWORD, &dwValue, sizeof(DWORD));
     }
 
-    LONG SetStringValue(LPCTSTR pszValueName, LPCTSTR pszValue, DWORD dwType = REG_SZ) throw()
+    LONG SetStringValue(LPCTSTR pszValueName, LPCTSTR pszValue, DWORD dwType = REG_SZ) noexcept
     {
-        ULONG length;
+        SIZE_T length;
         switch (dwType)
         {
         case REG_SZ:
@@ -1245,7 +1328,7 @@ public:
         }
     }
 
-    LONG SetGUIDValue(LPCTSTR pszValueName, REFGUID guidValue) throw()
+    LONG SetGUIDValue(LPCTSTR pszValueName, REFGUID guidValue) noexcept
     {
         OLECHAR buf[40] = {0};
         ::StringFromGUID2(guidValue, buf, 39);
@@ -1258,25 +1341,25 @@ public:
 #endif
     }
 
-    LONG SetBinaryValue(LPCTSTR pszValueName, const void* pValue, ULONG nBytes) throw()
+    LONG SetBinaryValue(LPCTSTR pszValueName, const void* pValue, ULONG nBytes) noexcept
     {
         return SetValue(pszValueName, REG_BINARY, pValue, nBytes);
     }
 
-    LONG SetMultiStringValue(LPCTSTR pszValueName, LPCTSTR pszValue) throw()
+    LONG SetMultiStringValue(LPCTSTR pszValueName, LPCTSTR pszValue) noexcept
     {
         ULONG dwSize = CRegKey::_GetMultiStringSize(pszValue);
         return SetValue(pszValueName, REG_MULTI_SZ, pszValue, dwSize);
     }
 
-    LONG SetQWORDValue(LPCTSTR pszValueName, ULONGLONG qwValue) throw()
+    LONG SetQWORDValue(LPCTSTR pszValueName, ULONGLONG qwValue) noexcept
     {
         ULONG dwSize = sizeof(ULONGLONG);
         return SetValue(pszValueName, REG_QWORD, &qwValue, dwSize);
     }
 
     LONG NotifyChangeKeyValue(BOOL bWatchSubtree, DWORD dwNotifyFilter,
-                              HANDLE hEvent, BOOL bAsync = TRUE) throw()
+                              HANDLE hEvent, BOOL bAsync = TRUE) noexcept
     {
         ATLASSERT(m_hKey);
         LONG ret = ::RegNotifyChangeKeyValue(m_hKey, bWatchSubtree,
@@ -1284,7 +1367,7 @@ public:
         return ret;
     }
 
-    LONG Flush() throw()
+    LONG Flush() noexcept
     {
         ATLASSERT(m_hKey);
         LONG ret = ::RegFlushKey(m_hKey);
@@ -1304,7 +1387,7 @@ public:
     }
 
     LONG SetKeyValue(LPCTSTR lpszKeyName, LPCTSTR lpszValue,
-                     LPCTSTR lpszValueName = NULL) throw()
+                     LPCTSTR lpszValueName = NULL) noexcept
     {
         CRegKey key;
         LONG lRet = key.Create(m_hKey, lpszKeyName);
@@ -1315,20 +1398,20 @@ public:
         return lRet;
     }
 
-    LONG DeleteValue(LPCTSTR lpszValue) throw()
+    LONG DeleteValue(LPCTSTR lpszValue) noexcept
     {
         ATLASSERT(m_hKey);
         return ::RegDeleteValue(m_hKey, lpszValue);
     }
 
-    LONG DeleteSubKey(LPCTSTR lpszSubKey) throw()
+    LONG DeleteSubKey(LPCTSTR lpszSubKey) noexcept
     {
         ATLASSERT(m_hKey);
         ATLASSERT(lpszSubKey);
         return ::RegDeleteKey(m_hKey, lpszSubKey);
     }
 
-    LONG RecurseDeleteKey(LPCTSTR lpszKey) throw()
+    LONG RecurseDeleteKey(LPCTSTR lpszKey) noexcept
     {
         ATLASSERT(m_hKey);
         ATLASSERT(lpszKey);
@@ -1336,7 +1419,7 @@ public:
     }
 
     LONG EnumKey(DWORD iIndex, LPTSTR pszName, LPDWORD pnNameLength,
-                 FILETIME* pftLastWriteTime = NULL) throw()
+                 FILETIME* pftLastWriteTime = NULL) noexcept
     {
         ATLASSERT(m_hKey);
         LONG ret = ::RegEnumKeyEx(m_hKey, iIndex, pszName, pnNameLength, NULL,
@@ -1345,7 +1428,7 @@ public:
     }
 
     LONG GetKeySecurity(SECURITY_INFORMATION si, PSECURITY_DESCRIPTOR psd,
-                        LPDWORD pnBytes) throw()
+                        LPDWORD pnBytes) noexcept
     {
         ATLASSERT(m_hKey);
         LONG ret = ::RegGetKeySecurity(m_hKey, si, psd, pnBytes);
@@ -1353,21 +1436,25 @@ public:
     }
 
     LONG SetKeySecurity(SECURITY_INFORMATION si,
-                        PSECURITY_DESCRIPTOR psd) throw()
+                        PSECURITY_DESCRIPTOR psd) noexcept
     {
         ATLASSERT(m_hKey);
         LONG ret = ::RegSetKeySecurity(m_hKey, si, psd);
         return ret;
     }
 
-    operator HKEY() const throw()
+    operator HKEY() const noexcept
     {
         return m_hKey;
     }
 
-    CRegKey& operator=(CRegKey& key) throw()
+    CRegKey& operator=(CRegKey& key) noexcept
     {
-        Attach(key.Detach());
+        if (m_hKey != key.m_hKey)
+        {
+            Close();
+            Attach(key.Detach());
+        }
         return *this;
     }
 
@@ -1375,15 +1462,16 @@ protected:
     // get the total size of a multistring
     static ULONG _GetMultiStringSize(LPCTSTR pszz)
     {
-        int count = 0;
+        size_t count = 0;
         do
         {
-            int len = _tcslen(pszz);
+            size_t len = _tcslen(pszz);
             count += len + 1;
             pszz += len + 1;
         } while (*pszz != TEXT('\0'));
         ++count;
-        return count * sizeof(TCHAR);
+        ATLASSERT(count * sizeof(TCHAR) <= ULONG_MAX);
+        return (ULONG)count * sizeof(TCHAR);
     }
 
     // delete key recursively
@@ -1493,9 +1581,9 @@ inline HRESULT __stdcall AtlAdvise(IUnknown *pUnkCP, IUnknown *pUnk, const IID &
 
 inline HRESULT __stdcall AtlUnadvise(IUnknown *pUnkCP, const IID &iid, DWORD dw)
 {
-    CComPtr<IConnectionPointContainer>        container;
-    CComPtr<IConnectionPoint>                connectionPoint;
-    HRESULT                                    hResult;
+    CComPtr<IConnectionPointContainer> container;
+    CComPtr<IConnectionPoint> connectionPoint;
+    HRESULT hResult;
 
     if (pUnkCP == NULL)
         return E_INVALIDARG;
@@ -1517,7 +1605,7 @@ inline HRESULT __stdcall AtlInternalQueryInterface(void *pThis, const _ATL_INTMA
     ATLASSERT(pThis != NULL && pEntries != NULL);
     if (pThis == NULL || pEntries == NULL)
         return E_INVALIDARG;
-    ATLASSERT(ppvObject != NULL);
+
     if (ppvObject == NULL)
         return E_POINTER;
 
@@ -1822,14 +1910,18 @@ inline HRESULT WINAPI AtlComModuleRegisterClassObjects(_ATL_COM_MODULE *module, 
 
     for (iter = module->m_ppAutoObjMapFirst; iter < module->m_ppAutoObjMapLast; iter++)
     {
-        if (!(*iter)->pfnGetClassObject)
+        _ATL_OBJMAP_ENTRY *ptr = *iter;
+        if (!ptr)
             continue;
 
-        hr = (*iter)->pfnGetClassObject((void*)(*iter)->pfnCreateInstance, IID_IUnknown, (void**)&unk);
+        if (!ptr->pfnGetClassObject)
+            continue;
+
+        hr = ptr->pfnGetClassObject((void*)ptr->pfnCreateInstance, IID_IUnknown, (void**)&unk);
         if (FAILED(hr))
             return hr;
 
-        hr = CoRegisterClassObject(*(*iter)->pclsid, unk, context, flags, &(*iter)->dwRegister);
+        hr = CoRegisterClassObject(*ptr->pclsid, unk, context, flags, &ptr->dwRegister);
         unk->Release();
         if (FAILED(hr))
             return hr;
@@ -1850,12 +1942,50 @@ inline HRESULT WINAPI AtlComModuleRevokeClassObjects(_ATL_COM_MODULE *module)
 
     for (iter = module->m_ppAutoObjMapFirst; iter < module->m_ppAutoObjMapLast; iter++)
     {
-        hr = CoRevokeClassObject((*iter)->dwRegister);
+        _ATL_OBJMAP_ENTRY *ptr = *iter;
+        if (!ptr)
+            continue;
+
+        hr = CoRevokeClassObject(ptr->dwRegister);
         if (FAILED(hr))
             return hr;
     }
 
     return S_OK;
+}
+
+// Adapted from dll/win32/atl/atl.c
+inline HRESULT WINAPI
+AtlComModuleGetClassObject(_ATL_COM_MODULE *pm, REFCLSID rclsid, REFIID riid, void **ppv)
+{
+    if (!pm)
+        return E_INVALIDARG;
+
+    for (_ATL_OBJMAP_ENTRY **iter = pm->m_ppAutoObjMapFirst; iter < pm->m_ppAutoObjMapLast; iter++)
+    {
+        _ATL_OBJMAP_ENTRY *ptr = *iter;
+        if (!ptr)
+            continue;
+
+        if (IsEqualCLSID(*ptr->pclsid, rclsid) && ptr->pfnGetClassObject)
+        {
+            HRESULT hr = CLASS_E_CLASSNOTAVAILABLE;
+
+            if (!ptr->pCF)
+            {
+                CComCritSecLock<CComCriticalSection> lock(_AtlComModule.m_csObjMap, true);
+                if (!ptr->pCF)
+                {
+                    hr = ptr->pfnGetClassObject((void *)ptr->pfnCreateInstance, IID_IUnknown, (void **)&ptr->pCF);
+                }
+            }
+            if (ptr->pCF)
+                hr = ptr->pCF->QueryInterface(riid, ppv);
+            return hr;
+        }
+    }
+
+    return CLASS_E_CLASSNOTAVAILABLE;
 }
 
 

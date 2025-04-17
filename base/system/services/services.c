@@ -27,7 +27,10 @@ int WINAPI RegisterServicesProcess(DWORD ServicesProcessId);
 
 BOOL ScmInitialize = FALSE;
 BOOL ScmShutdown = FALSE;
+BOOL ScmLiveSetup = FALSE;
+BOOL ScmSetupInProgress = FALSE;
 static HANDLE hScmShutdownEvent = NULL;
+static HANDLE hScmSecurityServicesEvent = NULL;
 
 
 /* FUNCTIONS *****************************************************************/
@@ -45,6 +48,125 @@ PrintString(LPCSTR fmt, ...)
 
     OutputDebugStringA(buffer);
 #endif
+}
+
+DWORD
+CheckForLiveCD(VOID)
+{
+    WCHAR CommandLine[MAX_PATH];
+    HKEY hSetupKey;
+    DWORD dwSetupType;
+    DWORD dwSetupInProgress;
+    DWORD dwType;
+    DWORD dwSize;
+    DWORD dwError;
+
+    DPRINT1("CheckSetup()\n");
+
+    /* Open the Setup key */
+    dwError = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+                            L"SYSTEM\\Setup",
+                            0,
+                            KEY_QUERY_VALUE,
+                            &hSetupKey);
+    if (dwError != ERROR_SUCCESS)
+        return dwError;
+
+    /* Read the SetupType value */
+    dwSize = sizeof(DWORD);
+    dwError = RegQueryValueExW(hSetupKey,
+                               L"SetupType",
+                               NULL,
+                               &dwType,
+                               (LPBYTE)&dwSetupType,
+                               &dwSize);
+
+    if (dwError != ERROR_SUCCESS ||
+        dwType != REG_DWORD ||
+        dwSize != sizeof(DWORD) ||
+        dwSetupType == 0)
+        goto done;
+
+    /* Read the CmdLine value */
+    dwSize = sizeof(CommandLine);
+    dwError = RegQueryValueExW(hSetupKey,
+                               L"CmdLine",
+                               NULL,
+                               &dwType,
+                               (LPBYTE)CommandLine,
+                               &dwSize);
+
+    if (dwError != ERROR_SUCCESS ||
+        (dwType != REG_SZ &&
+         dwType != REG_EXPAND_SZ &&
+         dwType != REG_MULTI_SZ))
+        goto done;
+
+    /* Check for the '-mini' option */
+    if (wcsstr(CommandLine, L" -mini") != NULL)
+    {
+        DPRINT1("Running on LiveCD\n");
+        ScmLiveSetup = TRUE;
+    }
+
+    /* Read the SystemSetupInProgress value */
+    dwSize = sizeof(DWORD);
+    dwError = RegQueryValueExW(hSetupKey,
+                               L"SystemSetupInProgress",
+                               NULL,
+                               &dwType,
+                               (LPBYTE)&dwSetupInProgress,
+                               &dwSize);
+    if (dwError != ERROR_SUCCESS ||
+        dwType != REG_DWORD ||
+        dwSize != sizeof(DWORD) ||
+        dwSetupType == 0)
+    {
+        goto done;
+    }
+
+    if (dwSetupInProgress == 1)
+    {
+        DPRINT1("ReactOS Setup currently in progress!\n");
+        ScmSetupInProgress = TRUE;
+    }
+
+done:
+    RegCloseKey(hSetupKey);
+
+    return dwError;
+}
+
+
+DWORD
+SetSecurityServicesEvent(VOID)
+{
+    DWORD dwError;
+
+    if (hScmSecurityServicesEvent != NULL)
+        return ERROR_SUCCESS;
+
+    /* Create or open the SECURITY_SERVICES_STARTED event */
+    hScmSecurityServicesEvent = CreateEventW(NULL,
+                                             TRUE,
+                                             FALSE,
+                                             L"SECURITY_SERVICES_STARTED");
+    if (hScmSecurityServicesEvent == NULL)
+    {
+        dwError = GetLastError();
+        if (dwError != ERROR_ALREADY_EXISTS)
+            return dwError;
+
+        hScmSecurityServicesEvent = OpenEventW(EVENT_MODIFY_STATE,
+                                               FALSE,
+                                               L"SECURITY_SERVICES_STARTED");
+        if (hScmSecurityServicesEvent == NULL)
+            return GetLastError();
+    }
+
+    SetEvent(hScmSecurityServicesEvent);
+
+    return ERROR_SUCCESS;
 }
 
 
@@ -91,9 +213,9 @@ ScmWaitForLsa(VOID)
     }
     else
     {
-        DPRINT("Wait for the LSA server!\n");
+        DPRINT("Wait for the LSA server\n");
         WaitForSingleObject(hEvent, INFINITE);
-        DPRINT("LSA server running!\n");
+        DPRINT("LSA server running\n");
         CloseHandle(hEvent);
     }
 
@@ -108,7 +230,7 @@ ShutdownHandlerRoutine(DWORD dwCtrlType)
 
     if (dwCtrlType & (CTRL_SHUTDOWN_EVENT | CTRL_LOGOFF_EVENT))
     {
-        DPRINT1("Shutdown event received!\n");
+        DPRINT1("Shutdown event received\n");
         ScmShutdown = TRUE;
 
         ScmAutoShutdownServices();
@@ -136,6 +258,13 @@ wWinMain(HINSTANCE hInstance,
 
     DPRINT("SERVICES: Service Control Manager\n");
 
+    dwError = CheckForLiveCD();
+    if (dwError != ERROR_SUCCESS)
+    {
+        DPRINT1("SERVICES: Failed to check for LiveCD (Error %lu)\n", dwError);
+        goto done;
+    }
+
     /* Make us critical */
     RtlSetProcessIsCritical(TRUE, NULL, TRUE);
 
@@ -149,7 +278,7 @@ wWinMain(HINSTANCE hInstance,
         DPRINT1("SERVICES: Failed to create the start event\n");
         goto done;
     }
-    DPRINT("SERVICES: Created start event with handle %p.\n", hScmStartEvent);
+    DPRINT("SERVICES: Created start event with handle %p\n", hScmStartEvent);
 
     /* Create the auto-start complete event */
     hScmAutoStartCompleteEvent = CreateEventW(NULL, TRUE, FALSE, SCM_AUTOSTARTCOMPLETE_EVENT);
@@ -158,7 +287,7 @@ wWinMain(HINSTANCE hInstance,
         DPRINT1("SERVICES: Failed to create the auto-start complete event\n");
         goto done;
     }
-    DPRINT("SERVICES: created auto-start complete event with handle %p.\n", hScmAutoStartCompleteEvent);
+    DPRINT("SERVICES: created auto-start complete event with handle %p\n", hScmAutoStartCompleteEvent);
 
     /* Create the shutdown event */
     hScmShutdownEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
@@ -178,10 +307,11 @@ wWinMain(HINSTANCE hInstance,
 
     /* FIXME: more initialization */
 
-    /* Read the control set values */
-    if (!ScmGetControlSetValues())
+    /* Create the 'Last Known Good' control set */
+    dwError = ScmCreateLastKnownGoodControlSet();
+    if (dwError != ERROR_SUCCESS)
     {
-        DPRINT1("SERVICES: Failed to read the control set values\n");
+        DPRINT1("SERVICES: Failed to create the 'Last Known Good' control set (Error %lu)\n", dwError);
         goto done;
     }
 
@@ -210,7 +340,7 @@ wWinMain(HINSTANCE hInstance,
     dwError = ScmAcquireServiceStartLock(TRUE, &Lock);
     if (dwError != ERROR_SUCCESS)
     {
-        DPRINT1("SERVICES: Failed to acquire the service start lock (Error %lu)\n", dwError);
+        DPRINT1("SERVICES: Failed to acquire service start lock (Error %lu)\n", dwError);
         goto done;
     }
 
@@ -220,7 +350,7 @@ wWinMain(HINSTANCE hInstance,
     /* Signal start event */
     SetEvent(hScmStartEvent);
 
-    DPRINT("SERVICES: Initialized.\n");
+    DPRINT("SERVICES: Initialized\n");
 
     /* Register event handler (used for system shutdown) */
     SetConsoleCtrlHandler(ShutdownHandlerRoutine, TRUE);
@@ -245,7 +375,7 @@ wWinMain(HINSTANCE hInstance,
     /* Initialization finished */
     ScmInitialize = FALSE;
 
-    DPRINT("SERVICES: Running.\n");
+    DPRINT("SERVICES: Running\n");
 
     /* Wait until the shutdown event gets signaled */
     WaitForSingleObject(hScmShutdownEvent, INFINITE);
@@ -256,6 +386,9 @@ done:
     /* Delete our communication named pipe's critical section */
     if (bCanDeleteNamedPipeCriticalSection != FALSE)
         ScmDeleteNamedPipeCriticalSection();
+
+    if (hScmSecurityServicesEvent != NULL)
+        CloseHandle(hScmSecurityServicesEvent);
 
     /* Close the shutdown event */
     if (hScmShutdownEvent != NULL)
@@ -269,7 +402,7 @@ done:
     if (hScmStartEvent != NULL)
         CloseHandle(hScmStartEvent);
 
-    DPRINT("SERVICES: Finished.\n");
+    DPRINT("SERVICES: Finished\n");
 
     ExitThread(0);
     return 0;

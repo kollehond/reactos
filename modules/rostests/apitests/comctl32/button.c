@@ -22,7 +22,7 @@ void Test_TextMargin()
     RECT rc;
     BOOL ret;
     HWND hwnd1;
-    
+
     hwnd1 = CreateWindowW(L"Button", L"Test1", 0, 10, 10, 100, 100, 0, NULL, NULL, NULL);
     ok (hwnd1 != NULL, "Expected CreateWindowW to succeed\n");
     SetWindowTheme(hwnd1, L"", L"");
@@ -30,19 +30,19 @@ void Test_TextMargin()
     ret = SendMessageW(hwnd1, BCM_GETTEXTMARGIN, 0, (LPARAM)&rc);
     ok (ret == TRUE, "Expected BCM_GETTEXTMARGIN to succeed\n");
     ok_rect(rc, 1, 1, 1, 1);
-    
+
     SetRect(&rc, 0,0,0,0);
     ret = SendMessageW(hwnd1, BCM_SETTEXTMARGIN, 0, (LPARAM)&rc);
     ok (ret == TRUE, "Expected BCM_SETTEXTMARGIN to succeed\n");
-    
+
     ret = SendMessageW(hwnd1, BCM_GETTEXTMARGIN, 0, (LPARAM)&rc);
     ok (ret == TRUE, "Expected BCM_GETTEXTMARGIN to succeed\n");
     ok_rect(rc, 0, 0, 0, 0);
-    
+
     SetRect(&rc, -1,-1,-1,-1);
     ret = SendMessageW(hwnd1, BCM_SETTEXTMARGIN, 0, (LPARAM)&rc);
     ok (ret == TRUE, "Expected BCM_SETTEXTMARGIN to succeed\n");
-    
+
     ret = SendMessageW(hwnd1, BCM_GETTEXTMARGIN, 0, (LPARAM)&rc);
     ok (ret == TRUE, "Expected BCM_GETTEXTMARGIN to succeed\n");
     ok_rect(rc, -1, -1, -1, -1);
@@ -50,11 +50,11 @@ void Test_TextMargin()
     SetRect(&rc, 1000,1000,1000,1000);
     ret = SendMessageW(hwnd1, BCM_SETTEXTMARGIN, 0, (LPARAM)&rc);
     ok (ret == TRUE, "Expected BCM_SETTEXTMARGIN to succeed\n");
-    
+
     ret = SendMessageW(hwnd1, BCM_GETTEXTMARGIN, 0, (LPARAM)&rc);
     ok (ret == TRUE, "Expected BCM_GETTEXTMARGIN to succeed\n");
     ok_rect(rc, 1000, 1000, 1000, 1000);
-    
+
     DestroyWindow(hwnd1);
 
     hwnd1 = CreateWindowW(L"Button", L"Test1", BS_DEFPUSHBUTTON, 10, 10, 100, 100, 0, NULL, NULL, NULL);
@@ -83,7 +83,7 @@ void Test_Imagelist()
     ok (imlData.himl == 0, "Expected 0 himl\n");
     ok (imlData.uAlign == 0, "Expected 0 uAlign\n");
     ok_rect(imlData.margin, 0, 0, 0, 0);
-    
+
     SetRect(&imlData.margin, 0,0,0,1);
     ret = SendMessageW(hwnd1, BCM_SETIMAGELIST, 0, (LPARAM)&imlData);
     ok (ret == FALSE, "Expected BCM_SETIMAGELIST to fail\n"); /* This works in win10 */
@@ -91,7 +91,7 @@ void Test_Imagelist()
     imlData.himl = (HIMAGELIST)0xdead;
     ret = SendMessageW(hwnd1, BCM_SETIMAGELIST, 0, (LPARAM)&imlData);
     ok (ret == TRUE, "Expected BCM_SETIMAGELIST to fail\n");
-    
+
     ret = SendMessageW(hwnd1, BCM_GETIMAGELIST, 0, (LPARAM)&imlData);
     ok (ret == TRUE, "Expected BCM_GETIMAGELIST to succeed\n");
     ok (imlData.himl == (HIMAGELIST)0xdead, "Expected 0 himl\n");
@@ -134,7 +134,7 @@ void Test_GetIdealSizeNoThemes()
     memset(&s, 0, sizeof(s));
     ret = SendMessageW(hwnd1, BCM_GETIDEALSIZE, 0, (LPARAM)&s);
     ok (ret == TRUE, "Expected BCM_GETIDEALSIZE to succeed\n");
-    ok_size(s, textent.cx + 5 + 2, 
+    ok_size(s, textent.cx + 5 + 2,
                textent.cy + 7 + 2); /* the last +2 is the text margin */
 
     DestroyWindow(hwnd1);
@@ -147,7 +147,7 @@ void Test_GetIdealSizeNoThemes()
     memset(&s, 0, sizeof(s));
     ret = SendMessageW(hwnd1, BCM_GETIDEALSIZE, 0, (LPARAM)&s);
     ok (ret == TRUE, "Expected BCM_GETIDEALSIZE to succeed\n");
-    ok_size(s, textent.cx + 5 + 2, 
+    ok_size(s, textent.cx + 5 + 2,
                textent.cy + 7 + 2); /* the last +2 is the text margin */
 
     DestroyWindow(hwnd1);
@@ -218,7 +218,7 @@ void Test_GetIdealSizeNoThemes()
     ok (ret == TRUE, "Expected BCM_GETIDEALSIZE to succeed\n");
 
     /* In xp and 2k3 the image is ignored, in vista+ its width is added to the text width */
-    ok_size(s, textent.cx + 5 + 2, 
+    ok_size(s, textent.cx + 5 + 2,
                textent.cy + 7 + 2); /* the last +2 is the text margin */
 
     DestroyWindow(hwnd1);
@@ -236,7 +236,7 @@ void Test_GetIdealSizeNoThemes()
     memset(&s, 0, sizeof(s));
     ret = SendMessageW(hwnd1, BCM_GETIDEALSIZE, 0, (LPARAM)&s);
     ok (ret == TRUE, "Expected BCM_GETIDEALSIZE to succeed\n");
-    ok_size(s, textent.cx + 5, 
+    ok_size(s, textent.cx + 5,
                textent.cy + 7);
 
     SetRect(&rc, 50,50,50,50);
@@ -246,7 +246,7 @@ void Test_GetIdealSizeNoThemes()
     memset(&s, 0, sizeof(s));
     ret = SendMessageW(hwnd1, BCM_GETIDEALSIZE, 0, (LPARAM)&s);
     ok (ret == TRUE, "Expected BCM_GETIDEALSIZE to succeed\n");
-    ok_size(s, textent.cx + 5 + 100, 
+    ok_size(s, textent.cx + 5 + 100,
                textent.cy + 7 + 100);
 
     SetRect(&rc, 1,1,1,1);
@@ -400,7 +400,7 @@ void Test_GetIdealSizeNoThemes()
         ok (ret == TRUE, "Expected BCM_GETIDEALSIZE to succeed\n");
         ok_size(s, 72, 72);
         DestroyWindow(hwnd1);
-        
+
         hwnd1 = CreateWindowW(L"Button", L"", i|WS_CHILD, 0, 0, 150, 72, hwnd2, NULL, NULL, NULL);
         ok (hwnd1 != NULL, "Expected CreateWindowW to succeed\n");
         memset(&s, 0, sizeof(s));
@@ -661,6 +661,7 @@ MSG_ENTRY enable_nonthemed_sequence[]={
 MSG_ENTRY btndown_nonthemed_sequence[]={
     {2, WM_LBUTTONDOWN, SENT},
     {1, WM_KILLFOCUS, SENT},
+    {1, WM_IME_SETCONTEXT, SENT},
     {2, WM_SETFOCUS, SENT},
     {2, BM_SETSTATE, SENT},
     {2, WM_PAINT, POST},
@@ -753,7 +754,7 @@ void Test_MessagesNonThemed()
     COMPARE_CACHE(pseudoleave_sequence);
 
     state = SendMessageW(hWnd2, BM_GETSTATE,0,0);
-    ok(state == 0, "Expected state 0, got %lu\n", state);
+    ok_hex(state, 0);
     EMPTY_CACHE();
 
     MOVE_CURSOR(150,150);
@@ -761,7 +762,7 @@ void Test_MessagesNonThemed()
     COMPARE_CACHE(mouseenter_nonthemed_sequence);
 
     state = SendMessageW(hWnd2, BM_GETSTATE,0,0);
-    ok(state == BST_HOT, "Expected state BST_HOT, got %lu\n", state);
+    ok_hex(state, BST_HOT);
     EMPTY_CACHE();
 
     MOVE_CURSOR(151,151);
@@ -769,7 +770,7 @@ void Test_MessagesNonThemed()
     COMPARE_CACHE(mousemove_sequence);
 
     state = SendMessageW(hWnd2, BM_GETSTATE,0,0);
-    ok(state == BST_HOT, "Expected state BST_HOT, got %lu\n", state);
+    ok_hex(state, BST_HOT);
     EMPTY_CACHE();
 
     MOVE_CURSOR(0,0);
@@ -789,13 +790,13 @@ void Test_MessagesNonThemed()
     SendMessageW(hWnd2, WM_ENABLE, TRUE, 0);
     FlushMessages();
     COMPARE_CACHE(enable_nonthemed_sequence);
-    
+
     SendMessageW(hWnd2, WM_LBUTTONDOWN, 0, 0);
     FlushMessages();
     COMPARE_CACHE(btndown_nonthemed_sequence);
 
     state = SendMessageW(hWnd2, BM_GETSTATE,0,0);
-    ok(state == 0, "Expected state 0, got %lu\n", state);
+    ok_hex(state, BST_PUSHED | BST_FOCUS | 0x20 | 0x40);
     EMPTY_CACHE();
 
     SendMessageW(hWnd2, WM_LBUTTONDOWN, 0, 0);
@@ -803,15 +804,15 @@ void Test_MessagesNonThemed()
     COMPARE_CACHE(btndown_repeat_nonthemed_sequence);
 
     state = SendMessageW(hWnd2, BM_GETSTATE,0,0);
-    ok(state == 0, "Expected state 0, got %lu\n", state);
+    ok_hex(state, BST_PUSHED | BST_FOCUS | 0x20 | 0x40);
     EMPTY_CACHE();
 
     SendMessageW(hWnd2, BM_CLICK, 0, 0);
     FlushMessages();
-    COMPARE_CACHE(btnclick_nonthemed_sequence);    
+    COMPARE_CACHE(btnclick_nonthemed_sequence);
 
     state = SendMessageW(hWnd2, BM_GETSTATE,0,0);
-    ok(state == 0, "Expected state 0, got %lu\n", state);
+    ok_hex(state, BST_FOCUS);
     EMPTY_CACHE();
 
     SendMessageW(hWnd2, WM_LBUTTONUP, 0, 0);
@@ -819,7 +820,7 @@ void Test_MessagesNonThemed()
     COMPARE_CACHE(btnup_stray_sequence);
 
     state = SendMessageW(hWnd2, BM_GETSTATE,0,0);
-    ok(state == 0, "Expected state 0, got %lu\n", state);
+    ok_hex(state, BST_FOCUS);
     EMPTY_CACHE();
 
     DestroyWindow(hWnd1);

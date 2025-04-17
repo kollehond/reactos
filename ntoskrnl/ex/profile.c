@@ -13,12 +13,6 @@
 #define NDEBUG
 #include <debug.h>
 
-#if defined (ALLOC_PRAGMA)
-#pragma alloc_text(INIT, ExpInitializeProfileImplementation)
-#endif
-
-#define TAG_PROFILE 'forP'
-
 /* GLOBALS *******************************************************************/
 
 POBJECT_TYPE ExProfileObjectType = NULL;
@@ -62,8 +56,8 @@ ExpDeleteProfile(PVOID ObjectBody)
     if (Profile->Process) ObDereferenceObject(Profile->Process);
 }
 
+CODE_SEG("INIT")
 BOOLEAN
-INIT_FUNCTION
 NTAPI
 ExpInitializeProfileImplementation(VOID)
 {
@@ -110,6 +104,7 @@ NtCreateProfile(OUT PHANDLE ProfileHandle,
     NTSTATUS Status;
     ULONG Log2 = 0;
     ULONG_PTR Segment = 0;
+    ULONG BucketsRequired;
     PAGED_CODE();
 
     /* Easy way out */
@@ -142,7 +137,12 @@ NtCreateProfile(OUT PHANDLE ProfileHandle,
     }
 
     /* Make sure that the buckets can map the range */
-    if ((RangeSize >> (BucketSize - 2)) > BufferSize)
+    BucketsRequired = RangeSize >> BucketSize;
+    if (RangeSize & ((1 << BucketSize) - 1))
+    {
+        BucketsRequired++;
+    }
+    if (BucketsRequired > BufferSize / sizeof(ULONG))
     {
         DPRINT1("Bucket size too small\n");
         return STATUS_BUFFER_TOO_SMALL;

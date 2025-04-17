@@ -1162,7 +1162,7 @@ LocationsEnumProc(GEOID gId)
     WCHAR loc[MAX_STR_SIZE];
     INT index;
 
-    if (GetGeoInfoW(gId, GEO_FRIENDLYNAME, loc, MAX_STR_SIZE, LANG_SYSTEM_DEFAULT) == 0)
+    if (GetGeoInfoW(gId, GEO_FRIENDLYNAME, loc, MAX_STR_SIZE, GetThreadLocale()) == 0)
         return TRUE;
 
     index = (INT)SendMessageW(hGeoList,
@@ -1196,7 +1196,7 @@ CreateLocationsList(HWND hWnd)
                 GEO_FRIENDLYNAME,
                 loc,
                 MAX_STR_SIZE,
-                LANG_SYSTEM_DEFAULT);
+                GetThreadLocale());
 
     SendMessageW(hGeoList,
                  CB_SELECTSTRING,
@@ -1324,6 +1324,22 @@ InitPropSheetPage(
     psp->lParam = (LPARAM)pGlobalData;
 }
 
+static int CALLBACK
+PropSheetProc(HWND hwndDlg, UINT uMsg, LPARAM lParam)
+{
+    // NOTE: This callback is needed to set large icon correctly.
+    HICON hIcon;
+    switch (uMsg)
+    {
+        case PSCB_INITIALIZED:
+        {
+            hIcon = LoadIconW(hApplet, MAKEINTRESOURCEW(IDC_CPLICON));
+            SendMessageW(hwndDlg, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+            break;
+        }
+    }
+    return 0;
+}
 
 INT_PTR
 APIENTRY
@@ -1333,20 +1349,18 @@ CustomizeLocalePropertySheet(
 {
     PROPSHEETPAGEW PsPage[NUM_SHEETS + 1];
     PROPSHEETHEADERW psh;
-    WCHAR Caption[MAX_STR_SIZE];
-
-    LoadStringW(hApplet, IDS_CUSTOMIZE_TITLE, Caption, sizeof(Caption) / sizeof(TCHAR));
 
     ZeroMemory(&psh, sizeof(PROPSHEETHEADER));
     psh.dwSize = sizeof(PROPSHEETHEADER);
-    psh.dwFlags =  PSH_PROPSHEETPAGE | PSH_USECALLBACK;
+    psh.dwFlags =  PSH_PROPSHEETPAGE | PSH_USEICONID | PSH_USECALLBACK;
     psh.hwndParent = hwndDlg;
     psh.hInstance = hApplet;
-    psh.hIcon = LoadIcon(hApplet, MAKEINTRESOURCE(IDC_CPLICON));
-    psh.pszCaption = Caption;
+    psh.pszIcon = MAKEINTRESOURCE(IDC_CPLICON);
+    psh.pszCaption = MAKEINTRESOURCE(IDS_CUSTOMIZE_TITLE);
     psh.nPages = (sizeof(PsPage) / sizeof(PROPSHEETPAGE)) - 1;
     psh.nStartPage = 0;
     psh.ppsp = PsPage;
+    psh.pfnCallback = PropSheetProc;
 
     InitPropSheetPage(&PsPage[0], IDD_NUMBERSPAGE, NumbersPageProc, pGlobalData);
     InitPropSheetPage(&PsPage[1], IDD_CURRENCYPAGE, CurrencyPageProc, pGlobalData);

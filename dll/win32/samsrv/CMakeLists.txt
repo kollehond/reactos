@@ -9,6 +9,7 @@ spec2def(samsrv.dll samsrv.spec ADD_IMPORTLIB)
 list(APPEND SOURCE
     alias.c
     database.c
+    display.c
     domain.c
     group.c
     registry.c
@@ -22,7 +23,7 @@ list(APPEND SOURCE
     ${CMAKE_CURRENT_BINARY_DIR}/sam_s.c
     ${CMAKE_CURRENT_BINARY_DIR}/samsrv_stubs.c)
 
-add_library(samsrv SHARED
+add_library(samsrv MODULE
     ${SOURCE}
     samsrv.rc
     ${CMAKE_CURRENT_BINARY_DIR}/samsrv.def)

@@ -185,9 +185,9 @@ CmpDelayCloseWorker(IN PVOID Context)
     CmpUnlockRegistry();
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 CmpInitializeDelayedCloseTable(VOID)
 {
 
@@ -262,9 +262,9 @@ CmpDelayDerefKCBWorker(IN PVOID Context)
     CmpUnlockRegistry();
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 CmpInitDelayDerefKCBEngine(VOID)
 {
     /* Initialize lock and list */

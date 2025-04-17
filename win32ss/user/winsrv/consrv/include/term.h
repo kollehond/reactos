@@ -35,6 +35,8 @@
     (Console)->TermIFace.Vtbl->GetLargestConsoleWindowSize(&(Console)->TermIFace, (pSize))
 #define TermSetPalette(Console, PaletteHandle, PaletteUsage) \
     (Console)->TermIFace.Vtbl->SetPalette(&(Console)->TermIFace, (PaletteHandle), (PaletteUsage))
+#define TermSetCodePage(Console, CodePage) \
+    (Console)->TermIFace.Vtbl->SetCodePage(&(Console)->TermIFace, (CodePage))
 #define TermShowMouseCursor(Console, Show) \
     (Console)->TermIFace.Vtbl->ShowMouseCursor(&(Console)->TermIFace, (Show))
 
@@ -47,6 +49,8 @@
     (Console)->FrontEndIFace.Vtbl->ChangeTitle(&(Console)->FrontEndIFace)
 #define TermChangeIcon(Console, IconHandle) \
     (Console)->FrontEndIFace.Vtbl->ChangeIcon(&(Console)->FrontEndIFace, (IconHandle))
+#define TermGetThreadConsoleDesktop(Console) \
+    (Console)->FrontEndIFace.Vtbl->GetThreadConsoleDesktop(&(Console)->FrontEndIFace)
 #define TermGetConsoleWindowHandle(Console) \
     (Console)->FrontEndIFace.Vtbl->GetConsoleWindowHandle(&(Console)->FrontEndIFace)
 #define TermGetSelectionInfo(Console, pSelectionInfo) \

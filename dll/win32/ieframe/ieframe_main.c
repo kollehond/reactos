@@ -91,7 +91,7 @@ static void release_typelib(void)
     if(!typelib)
         return;
 
-    for(i=0; i < sizeof(typeinfos)/sizeof(*typeinfos); i++) {
+    for(i=0; i < ARRAY_SIZE(typeinfos); i++) {
         if(typeinfos[i])
             ITypeInfo_Release(typeinfos[i]);
     }
@@ -178,6 +178,20 @@ static const IClassFactoryVtbl CUrlHistoryFactoryVtbl = {
 
 static IClassFactory CUrlHistoryFactory = { &CUrlHistoryFactoryVtbl };
 
+#ifdef __REACTOS__
+extern HRESULT WINAPI CInternetFolder_CreateInstance(IClassFactory *iface, IUnknown *outer, REFIID riid, void **ppv);
+
+static const IClassFactoryVtbl CInternetFolderFactoryVtbl = {
+    ClassFactory_QueryInterface,
+    ClassFactory_AddRef,
+    ClassFactory_Release,
+    CInternetFolder_CreateInstance,
+    ClassFactory_LockServer
+};
+
+static IClassFactory CInternetFolderFactory = { &CInternetFolderFactoryVtbl };
+#endif
+
 /******************************************************************
  *              DllMain (ieframe.@)
  */
@@ -187,8 +201,6 @@ BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD fdwReason, LPVOID lpv)
 
     switch(fdwReason)
     {
-    case DLL_WINE_PREATTACH:
-        return FALSE;  /* prefer native version */
     case DLL_PROCESS_ATTACH:
         ieframe_instance = hInstDLL;
         register_iewindow_class();
@@ -227,6 +239,13 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID *ppv)
         TRACE("(CLSID_CUrlHistory %s %p)\n", debugstr_guid(riid), ppv);
         return IClassFactory_QueryInterface(&CUrlHistoryFactory, riid, ppv);
     }
+
+#ifdef __REACTOS__
+    if(IsEqualGUID(&CLSID_Internet, rclsid)) {
+        TRACE("(CLSID_Internet %s %p)\n", debugstr_guid(riid), ppv);
+        return IClassFactory_QueryInterface(&CInternetFolderFactory, riid, ppv);
+    }
+#endif
 
     FIXME("%s %s %p\n", debugstr_guid(rclsid), debugstr_guid(riid), ppv);
     return CLASS_E_CLASSNOTAVAILABLE;

@@ -83,7 +83,8 @@ extern POBJECT_TYPE NTSYSAPI PsJobType;
 #define FLG_ENABLE_HANDLE_TYPE_TAGGING          0x01000000
 #define FLG_HEAP_PAGE_ALLOCS                    0x02000000
 #define FLG_DEBUG_INITIAL_COMMAND_EX            0x04000000
-#define FLG_VALID_BITS                          0x07FFFFFF
+#define FLG_DISABLE_DEBUG_PROMPTS               0x08000000 // ReactOS-specific
+#define FLG_VALID_BITS                          0x0FFFFFFF
 
 //
 // Flags for NtCreateProcessEx
@@ -133,6 +134,14 @@ extern POBJECT_TYPE NTSYSAPI PsJobType;
 #define PSP_FIXED_QUANTUMS                      0x08
 #define PSP_LONG_QUANTUMS                       0x10
 #define PSP_SHORT_QUANTUMS                      0x20
+
+//
+// Process Handle Tracing Values
+//
+#define PROCESS_HANDLE_TRACE_TYPE_OPEN          1
+#define PROCESS_HANDLE_TRACE_TYPE_CLOSE         2
+#define PROCESS_HANDLE_TRACE_TYPE_BADREF        3
+#define PROCESS_HANDLE_TRACING_MAX_STACKS       16
 
 #ifndef NTOS_MODE_USER
 //
@@ -215,6 +224,14 @@ extern POBJECT_TYPE NTSYSAPI PsJobType;
 #define JOB_OBJECT_LIMIT_BREAKAWAY_OK           0x800
 #define JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK    0x1000
 #define JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE      0x2000
+
+//
+// Job Security Limit Flags
+//
+#define JOB_OBJECT_SECURITY_NO_ADMIN            0x0001
+#define JOB_OBJECT_SECURITY_RESTRICTED_TOKEN    0x0002
+#define JOB_OBJECT_SECURITY_ONLY_TOKEN          0x0004
+#define JOB_OBJECT_SECURITY_FILTER_TOKENS       0x0008
 
 //
 // Cross Thread Flags
@@ -895,18 +912,54 @@ typedef struct _POOLED_USAGE_AND_LIMITS
     SIZE_T PagefileLimit;
 } POOLED_USAGE_AND_LIMITS, *PPOOLED_USAGE_AND_LIMITS;
 
+typedef struct _PROCESS_WS_WATCH_INFORMATION
+{
+    PVOID FaultingPc;
+    PVOID FaultingVa;
+} PROCESS_WS_WATCH_INFORMATION, *PPROCESS_WS_WATCH_INFORMATION;
+
 typedef struct _PROCESS_SESSION_INFORMATION
 {
     ULONG SessionId;
 } PROCESS_SESSION_INFORMATION, *PPROCESS_SESSION_INFORMATION;
 
+typedef struct _PROCESS_HANDLE_TRACING_ENTRY
+{
+    HANDLE Handle;
+    CLIENT_ID ClientId;
+    ULONG Type;
+    PVOID Stacks[PROCESS_HANDLE_TRACING_MAX_STACKS];
+} PROCESS_HANDLE_TRACING_ENTRY, *PPROCESS_HANDLE_TRACING_ENTRY;
+
+typedef struct _PROCESS_HANDLE_TRACING_QUERY
+{
+    HANDLE Handle;
+    ULONG TotalTraces;
+    PROCESS_HANDLE_TRACING_ENTRY HandleTrace[ANYSIZE_ARRAY];
+} PROCESS_HANDLE_TRACING_QUERY, *PPROCESS_HANDLE_TRACING_QUERY;
+
 #endif
+
+typedef struct _PROCESS_LDT_INFORMATION
+{
+    ULONG Start;
+    ULONG Length;
+    LDT_ENTRY LdtEntries[ANYSIZE_ARRAY];
+} PROCESS_LDT_INFORMATION, *PPROCESS_LDT_INFORMATION;
+
+typedef struct _PROCESS_LDT_SIZE
+{
+    ULONG Length;
+} PROCESS_LDT_SIZE, *PPROCESS_LDT_SIZE;
 
 typedef struct _PROCESS_PRIORITY_CLASS
 {
     BOOLEAN Foreground;
     UCHAR PriorityClass;
 } PROCESS_PRIORITY_CLASS, *PPROCESS_PRIORITY_CLASS;
+
+// Compatibility with windows, see CORE-16757, CORE-17106, CORE-17247
+C_ASSERT(sizeof(PROCESS_PRIORITY_CLASS) == 2);
 
 typedef struct _PROCESS_FOREGROUND_BACKGROUND
 {
@@ -962,6 +1015,23 @@ typedef struct _JOB_SET_ARRAY
 } JOB_SET_ARRAY, *PJOB_SET_ARRAY;
 
 //
+// Process Quota Type
+//
+typedef enum _PS_QUOTA_TYPE
+{
+    PsNonPagedPool = 0,
+    PsPagedPool,
+    PsPageFile,
+#if (NTDDI_VERSION >= NTDDI_LONGHORN)
+    PsWorkingSet,
+#endif
+#if (NTDDI_VERSION == NTDDI_LONGHORN)
+    PsCpuRate,
+#endif
+    PsQuotaTypes
+} PS_QUOTA_TYPE;
+
+//
 // EPROCESS Quota Structures
 //
 typedef struct _EPROCESS_QUOTA_ENTRY
@@ -974,7 +1044,7 @@ typedef struct _EPROCESS_QUOTA_ENTRY
 
 typedef struct _EPROCESS_QUOTA_BLOCK
 {
-    EPROCESS_QUOTA_ENTRY QuotaEntry[3];
+    EPROCESS_QUOTA_ENTRY QuotaEntry[PsQuotaTypes];
     LIST_ENTRY QuotaList;
     ULONG ReferenceCount;
     ULONG ProcessCount;
@@ -1197,8 +1267,8 @@ typedef struct _EPROCESS
     EX_RUNDOWN_REF RundownProtect;
     HANDLE UniqueProcessId;
     LIST_ENTRY ActiveProcessLinks;
-    SIZE_T QuotaUsage[3]; /* 0=PagedPool, 1=NonPagedPool, 2=Pagefile */
-    SIZE_T QuotaPeak[3];  /* ditto */
+    SIZE_T QuotaUsage[PsQuotaTypes];
+    SIZE_T QuotaPeak[PsQuotaTypes];
     SIZE_T CommitCharge;
     SIZE_T PeakVirtualSize;
     SIZE_T VirtualSize;

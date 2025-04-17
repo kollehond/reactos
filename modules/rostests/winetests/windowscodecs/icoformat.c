@@ -26,72 +26,114 @@
 #include "wincodec.h"
 #include "wine/test.h"
 
-static unsigned char testico_bad_icondirentry_size[] = {
-    /* ICONDIR */
-    0, 0, /* reserved */
-    1, 0, /* type */
-    1, 0, /* count */
-    /* ICONDIRENTRY */
-    2, /* width */
-    2, /* height */
-    2, /* colorCount */
-    0, /* reserved */
-    1,0, /* planes */
-    8,0, /* bitCount */
-    (40+2*4+16*16+16*4) & 0xFF,((40+2*4+16*16+16*4) >> 8) & 0xFF,0,0, /* bytesInRes */
-    22,0,0,0, /* imageOffset */
-    /* BITMAPINFOHEADER */
-    40,0,0,0, /* header size */
-    16,0,0,0, /* width */
-    2*16,0,0,0, /* height (XOR+AND rows) */
-    1,0, /* planes */
-    8,0, /* bit count */
-    0,0,0,0, /* compression */
-    0,0,0,0, /* sizeImage */
-    0,0,0,0, /* x pels per meter */
-    0,0,0,0, /* y pels per meter */
-    2,0,0,0, /* clrUsed */
-    0,0,0,0, /* clrImportant */
-    /* palette */
-    0,0,0,0,
-    0xFF,0xFF,0xFF,0,
-    /* XOR mask */
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-    0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,
-    0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,
-    0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,
-    0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,
-    0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,
-    0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,
-    0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,
-    0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,
-    0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,
-    0,0,0,0,1,0,1,0,1,0,1,0,0,0,0,0,
-    0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-    /* AND mask */
-    0,0,0,0,
-    0,0,0,0,
-    0,0,0,0,
-    0,0,0,0,
-    0,0,0,0,
-    0,0,0,0,
-    0,0,0,0,
-    0,0,0,0,
-    0,0,0,0,
-    0,0,0,0,
-    0,0,0,0,
-    0,0,0,0,
-    0,0,0,0,
-    0,0,0,0,
-    0,0,0,0,
-    0,0,0,0
+#include "pshpack1.h"
+
+struct ICONHEADER
+{
+    WORD idReserved;
+    WORD idType;
+    WORD idCount;
 };
 
-static void test_bad_icondirentry_size(void)
+struct ICONDIRENTRY
+{
+    BYTE bWidth;
+    BYTE bHeight;
+    BYTE bColorCount;
+    BYTE bReserved;
+    WORD wPlanes;
+    WORD wBitCount;
+    DWORD dwDIBSize;
+    DWORD dwDIBOffset;
+};
+
+struct test_ico
+{
+    struct ICONHEADER header;
+    struct ICONDIRENTRY direntry;
+    BITMAPINFOHEADER bmi;
+    unsigned char data[512];
+};
+
+static const struct test_ico ico_1 =
+{
+    /* ICONHEADER */
+    {
+      0, /* reserved */
+      1, /* type */
+      1, /* count */
+    },
+    /* ICONDIRENTRY */
+    {
+      16, /* width */
+      16, /* height */
+      2, /* color count */
+      0, /* reserved */
+      1, /* planes */
+      8, /* bitcount*/
+      40 + 2*4 + 16 * 16 + 16 * 4, /* data size */
+      22 /* data offset */
+    },
+    /* BITMAPINFOHEADER */
+    {
+      sizeof(BITMAPINFOHEADER), /* header size */
+      16, /* width */
+      2*16, /* height (XOR+AND rows) */
+      1, /* planes */
+      8, /* bit count */
+      0, /* compression */
+      0, /* sizeImage */
+      0, /* x pels per meter */
+      0, /* y pels per meter */
+      2, /* clrUsed */
+      0, /* clrImportant */
+    },
+    {
+      /* palette */
+      0,0,0,0,
+      0xFF,0xFF,0xFF,0,
+      /* XOR mask */
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,
+      0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,
+      0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,
+      0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,
+      0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,
+      0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,
+      0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,
+      0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,
+      0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,
+      0,0,0,0,1,0,1,0,1,0,1,0,0,0,0,0,
+      0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      /* AND mask */
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0
+    }
+};
+
+#include "poppack.h"
+
+#define test_ico_data(a, b, c) test_ico_data_(a, b, c,  0, __LINE__)
+#define test_ico_data_todo(a, b, c) test_ico_data_(a, b, c, 1, __LINE__)
+static void test_ico_data_(void *data, DWORD data_size, HRESULT init_hr, int todo, unsigned int line)
 {
     IWICBitmapDecoder *decoder;
     IWICImagingFactory *factory;
@@ -101,34 +143,34 @@ static void test_bad_icondirentry_size(void)
 
     hr = CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER,
         &IID_IWICImagingFactory, (void**)&factory);
-    ok(hr == S_OK, "CoCreateInstance failed, hr=%x\n", hr);
+    ok(hr == S_OK, "CoCreateInstance failed, hr=%lx\n", hr);
     if (FAILED(hr)) return;
 
     hr = IWICImagingFactory_CreateStream(factory, &icostream);
-    ok(hr == S_OK, "CreateStream failed, hr=%x\n", hr);
+    ok(hr == S_OK, "CreateStream failed, hr=%lx\n", hr);
     if (SUCCEEDED(hr))
     {
-        hr = IWICStream_InitializeFromMemory(icostream, testico_bad_icondirentry_size,
-            sizeof(testico_bad_icondirentry_size));
-        ok(hr == S_OK, "InitializeFromMemory failed, hr=%x\n", hr);
+        hr = IWICStream_InitializeFromMemory(icostream, data, data_size);
+        ok(hr == S_OK, "InitializeFromMemory failed, hr=%lx\n", hr);
 
         if (SUCCEEDED(hr))
         {
             hr = CoCreateInstance(&CLSID_WICIcoDecoder, NULL, CLSCTX_INPROC_SERVER,
                 &IID_IWICBitmapDecoder, (void**)&decoder);
-            ok(hr == S_OK, "CoCreateInstance failed, hr=%x\n", hr);
+            ok(hr == S_OK, "CoCreateInstance failed, hr=%lx\n", hr);
         }
 
         if (SUCCEEDED(hr))
         {
             hr = IWICBitmapDecoder_Initialize(decoder, (IStream*)icostream,
                 WICDecodeMetadataCacheOnDemand);
-            ok(hr == S_OK, "Initialize failed, hr=%x\n", hr);
+            todo_wine_if(todo)
+            ok_(__FILE__, line)(hr == init_hr, "Initialize failed, hr=%lx\n", hr);
 
             if (SUCCEEDED(hr))
             {
                 hr = IWICBitmapDecoder_GetFrame(decoder, 0, &framedecode);
-                ok(hr == S_OK, "GetFrame failed, hr=%x\n", hr);
+                ok(hr == S_OK, "GetFrame failed, hr=%lx\n", hr);
             }
 
             if (SUCCEEDED(hr))
@@ -138,16 +180,16 @@ static void test_bad_icondirentry_size(void)
 
                 width = height = 0;
                 hr = IWICBitmapFrameDecode_GetSize(framedecode, &width, &height);
-                ok(hr == S_OK, "GetFrameSize failed, hr=%x\n", hr);
+                ok(hr == S_OK, "GetFrameSize failed, hr=%lx\n", hr);
                 ok(width == 16 && height == 16, "framesize=%ux%u\n", width, height);
 
                 hr = IWICBitmapFrameDecode_GetThumbnail(framedecode, &thumbnail);
-                ok(hr == S_OK, "GetThumbnail failed, hr=%x\n", hr);
+                ok(hr == S_OK, "GetThumbnail failed, hr=%lx\n", hr);
                 if (hr == S_OK)
                 {
                     width = height = 0;
                     hr = IWICBitmapSource_GetSize(thumbnail, &width, &height);
-                    ok(hr == S_OK, "GetFrameSize failed, hr=%x\n", hr);
+                    ok(hr == S_OK, "GetFrameSize failed, hr=%lx\n", hr);
                     ok(width == 16 && height == 16, "framesize=%ux%u\n", width, height);
                     IWICBitmapSource_Release(thumbnail);
                 }
@@ -163,11 +205,44 @@ static void test_bad_icondirentry_size(void)
     IWICImagingFactory_Release(factory);
 }
 
+static void test_decoder(void)
+{
+    struct test_ico ico;
+
+    /* Icon size specified in ICONDIRENTRY does not match bitmap header. */
+    ico = ico_1;
+    ico.direntry.bWidth = 2;
+    ico.direntry.bHeight = 2;
+    test_ico_data(&ico, sizeof(ico), S_OK);
+
+    /* Invalid DIRENTRY data size/offset. */
+    ico = ico_1;
+    ico.direntry.dwDIBOffset = sizeof(ico);
+    test_ico_data(&ico, sizeof(ico), WINCODEC_ERR_BADIMAGE);
+
+    ico = ico_1;
+    ico.direntry.dwDIBSize = sizeof(ico);
+    test_ico_data(&ico, sizeof(ico), WINCODEC_ERR_BADIMAGE);
+
+    /* Header fields validation. */
+    ico = ico_1;
+    ico.header.idReserved = 1;
+    test_ico_data_todo(&ico, sizeof(ico), S_OK);
+    ico.header.idReserved = 0;
+    ico.header.idType = 100;
+    test_ico_data_todo(&ico, sizeof(ico), S_OK);
+
+    /* Premature end of data. */
+    ico = ico_1;
+    test_ico_data(&ico, sizeof(ico.header) - 1, WINCODEC_ERR_STREAMREAD);
+    test_ico_data(&ico, sizeof(ico.header) + sizeof(ico.direntry) - 1, WINCODEC_ERR_BADIMAGE);
+}
+
 START_TEST(icoformat)
 {
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
 
-    test_bad_icondirentry_size();
+    test_decoder();
 
     CoUninitialize();
 }

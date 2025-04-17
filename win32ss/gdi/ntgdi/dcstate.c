@@ -57,12 +57,13 @@ DC_vCopyState(PDC pdcSrc, PDC pdcDst, BOOL To)
             REGION_Delete(pdcDst->dclevel.prgnMeta);
             pdcDst->dclevel.prgnMeta = NULL;
         }
+        /* The only way to reset the Meta Region to its original state is to return to a previously saved version of the DC with SaveDC. */
         if (pdcSrc->dclevel.prgnMeta)
         {
             pdcDst->dclevel.prgnMeta = IntSysCreateRectpRgn(0, 0, 0, 0);
             IntGdiCombineRgn(pdcDst->dclevel.prgnMeta, pdcSrc->dclevel.prgnMeta, NULL, RGN_COPY);
         }
-        pdcDst->fs |= DC_FLAG_DIRTY_RAO;
+        pdcDst->fs |= DC_DIRTY_RAO;
     }
 }
 
@@ -108,7 +109,7 @@ IntGdiCleanDC(HDC hDC)
         REGION_Delete(dc->prgnAPI);
     dc->prgnRao = dc->prgnAPI = NULL;
 
-    dc->fs |= DC_FLAG_DIRTY_RAO;
+    dc->fs |= DC_DIRTY_RAO;
 
     DC_UnlockDc(dc);
 
@@ -281,7 +282,7 @@ NtGdiSaveDC(
     }
     hdcSave = pdcSave->BaseObject.hHmgr;
 
-    InterlockedIncrement(&pdc->ppdev->cPdevRefs);
+    PDEVOBJ_vReference(pdc->ppdev);
     DC_vInitDc(pdcSave, DCTYPE_MEMORY, pdc->ppdev);
 
     /* Handle references here correctly */

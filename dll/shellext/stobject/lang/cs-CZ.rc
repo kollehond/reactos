@@ -9,7 +9,7 @@ BEGIN
     CONTROL "Stav napájení", 1001, "Button", BS_GROUPBOX | WS_CHILD | WS_VISIBLE, 9, 20, 234, 189
     CONTROL "&Vždy zobrazovat ikonu", 1002, "Button", BS_AUTOCHECKBOX | WS_CHILD | WS_VISIBLE | WS_GROUP | WS_TABSTOP, 6, 6, 120, 10
     CONTROL "Zobrazit detaily pro každou &baterii.", 1003, "Button", BS_AUTOCHECKBOX | WS_CHILD | WS_VISIBLE | WS_GROUP | WS_TABSTOP, 135, 6, 120, 8
-    CONTROL "", 1000, "Static", SS_LEFT | WS_CHILD | WS_GROUP, 11, 29, 229, 178 
+    CONTROL "", 1000, "Static", SS_LEFT | WS_CHILD | WS_GROUP, 11, 29, 229, 178
 END
 
 STRINGTABLE
@@ -18,12 +18,13 @@ BEGIN
     IDS_PWR_PROPERTIES        "&Upravit možnosti napájení"
     IDS_PWR_METER             "&Otevřít ukazatel spotřeby"
     IDS_PWR_RUN               "shell32.dll,Control_RunDLL PowerCfg.cpl"
-    IDS_PWR_PERCENT_REMAINING "zbývá %.2f%%"
-    IDS_PWR_CHARGING          "%.2f%% and charging"
+    IDS_PWR_PERCENT_REMAINING "zbývá %u%%"
+    IDS_PWR_CHARGING          "%u%% and charging"
     IDS_PWR_UNKNOWN_REMAINING "Zbývá neznámo"
     IDS_PWR_AC "On AC power"
     IDS_PWR_HOURS_REMAINING "zbývá %1!u!:%2!02u! hodin (%3!u!%%)"
     IDS_PWR_MINUTES_REMAINING "zbývá %1!u! minut (%2!u!%%)"
+    IDS_PWR_FULLY_CHARGED "Fully charged"
 
     //Hotplug related strings
     IDS_HOTPLUG_REMOVE_1 "Bezpečně odebrat hardware"

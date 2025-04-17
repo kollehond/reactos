@@ -94,7 +94,7 @@ static inline int16_t ftoi16(float x)
 
 /* This is the old new mpg123 WRITE_SAMPLE, fixed for newer GCC by MPlayer folks.
    Makes a huge difference on old machines. */
-#if WORDS_BIGENDIAN 
+#if WORDS_BIGENDIAN
 #define MANTISSA_OFFSET 1
 #else
 #define MANTISSA_OFFSET 0
@@ -124,10 +124,10 @@ static inline int16_t ftoi16(float x)
   else { *(samples) = REAL_TO_SHORT_ACCURATE(sum); }
 
 /*
-	32bit signed 
+	32bit signed
 	We do clipping with the same old borders... but different conversion.
 	We see here that we need extra work for non-16bit output... we optimized for 16bit.
-	-0x7fffffff-1 is the minimum 32 bit signed integer value expressed so that MSVC 
+	-0x7fffffff-1 is the minimum 32 bit signed integer value expressed so that MSVC
 	does not give a compile time warning.
 */
 #define WRITE_S32_SAMPLE(samples,sum,clip) \
@@ -149,6 +149,47 @@ static inline int16_t ftoi16(float x)
 }
 #ifndef REAL_IS_FIXED
 #define WRITE_REAL_SAMPLE(samples,sum,clip) *(samples) = ((real)1./SHORT_SCALE)*(sum)
+#endif
+
+/* Finished 32 bit sample to unsigned 32 bit sample. */
+#define CONV_SU32(s) \
+( (s >= 0) \
+	?	((uint32_t)s + (uint32_t)2147483648UL) \
+	:	(s == -2147483647-1 /* Work around to prevent a non-conformant MSVC warning/error */ \
+		?	0 /* Separate because negation would overflow. */  \
+		:	(uint32_t)2147483648UL - (uint32_t)(-s) ) \
+)
+
+/* Finished 16 bit sample to unsigned 16 bit sample. */
+#define CONV_SU16(s) (uint16_t)((int32_t)(s)+32768)
+
+/* Same style for syn123 generic conversion. */
+#define CONV_SU8(s) (uint8_t)((int16_t)s+128)
+
+/* Unsigned 32 bit sample to signed 32 bit sample. */
+#define CONV_US32(u) \
+( (u >= 2147483648UL) \
+	?	(int32_t)((uint32_t)u - (uint32_t)2147483648UL) \
+	:	((u == 0) \
+		?	(int32_t)-2147483648UL \
+		:	-(int32_t)((uint32_t)2147483648UL - u) ) \
+)
+
+/* Unsigned 16 bit sample to signed 16 bit sample. */
+#define CONV_US16(s) (int16_t)((int32_t)s-32768)
+
+/* Same style for syn123 generic conversion. */
+#define CONV_US8(s) (int8_t)((int16_t)s-128)
+
+/* 24 bit conversion: drop or add a least significant byte. */
+#ifdef WORDS_BIGENDIAN
+/* Highest byte first. Drop last. */
+#define DROP4BYTE(w,r) {(w)[0]=(r)[0]; (w)[1]=(r)[1]; (w)[2]=(r)[2];}
+#define ADD4BYTE(w,r)  {(w)[0]=(r)[0]; (w)[1]=(r)[1]; (w)[2]=(r)[2]; (w)[3]=0;}
+#else
+/* Lowest byte first, drop that. */
+#define DROP4BYTE(w,r) {(w)[0]=(r)[1]; (w)[1]=(r)[2]; (w)[2]=(r)[3];}
+#define ADD4BYTE(w,r)  {(w)[0]=0; (w)[1]=(r)[0]; (w)[2]=(r)[1]; (w)[3]=(r)[2];}
 #endif
 
 #endif

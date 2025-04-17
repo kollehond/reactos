@@ -28,7 +28,9 @@ class CSysTray :
 
     // TODO: keep icon handlers here
 
-    HWND hwndSysTray;
+    DWORD dwServicesEnabled;
+    UINT wm_SHELLHOOK;
+    UINT wm_DESTROYWINDOW;
 
     static DWORD WINAPI s_SysTrayThreadProc(PVOID param);
     HRESULT SysTrayMessageLoop();
@@ -44,10 +46,15 @@ class CSysTray :
     HRESULT InitNetShell();
     HRESULT ShutdownNetShell();
 
+    VOID GetServicesEnabled();
+
 public:
     HRESULT NotifyIcon(INT code, UINT uId, HICON hIcon, LPCWSTR szTip, DWORD dwstate = 0);
 
     HWND GetHWnd() { return m_hWnd; }
+
+    VOID EnableService(DWORD dwServiceFlag, BOOL bEnable);
+    BOOL IsServiceEnabled(DWORD dwServiceFlag);
 
 protected:
     BOOL ProcessWindowMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, LRESULT &lResult, DWORD dwMsgMapID = 0);

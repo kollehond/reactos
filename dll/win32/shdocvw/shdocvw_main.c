@@ -20,17 +20,20 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
-
 #include <stdarg.h>
 #include <stdio.h>
 
-#include "wine/unicode.h"
 #include "wine/debug.h"
 
 #include "shdocvw.h"
 
 #include "winreg.h"
+#ifdef __REACTOS__
+#include "winnls.h"
+#include <shlguid_undoc.h>
+#include <rpcproxy.h> /* for __wine_register_resources / __wine_unregister_resources */
+#include "objects.h"
+#endif
 #include "shlwapi.h"
 #include "wininet.h"
 #include "isguids.h"
@@ -43,6 +46,9 @@ LONG SHDOCVW_refCount = 0;
 
 static HMODULE SHDOCVW_hshell32 = 0;
 static HINSTANCE ieframe_instance;
+#ifdef __REACTOS__
+HINSTANCE instance;
+#endif
 
 static HINSTANCE get_ieframe_instance(void)
 {
@@ -87,6 +93,14 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void **ppv)
        || IsEqualGUID(&CLSID_TaskbarList, rclsid))
         return get_ieframe_object(rclsid, riid, ppv);
 
+#ifdef __REACTOS__
+    {
+        HRESULT hr = SHDOCVW_DllGetClassObject(rclsid, riid, ppv);
+        if (SUCCEEDED(hr))
+            return hr;
+    }
+#endif
+
     /* As a last resort, figure if the CLSID belongs to a 'Shell Instance Object' */
     return SHDOCVW_GetShellInstanceObjectClassObject(rclsid, riid, ppv);
 }
@@ -97,7 +111,12 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void **ppv)
 HRESULT WINAPI DllRegisterServer(void)
 {
     TRACE("\n");
+#ifdef __REACTOS__
+    SHDOCVW_DllRegisterServer();
+    return __wine_register_resources(instance);
+#else
     return S_OK;
+#endif
 }
 
 /***********************************************************************
@@ -106,7 +125,12 @@ HRESULT WINAPI DllRegisterServer(void)
 HRESULT WINAPI DllUnregisterServer(void)
 {
     TRACE("\n");
+#ifdef __REACTOS__
+    SHDOCVW_DllUnregisterServer();
+    return __wine_unregister_resources(instance);
+#else
     return S_OK;
+#endif
 }
 
 /******************************************************************
@@ -147,6 +171,10 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD fdwReason, LPVOID fImpLoad)
     switch (fdwReason)
     {
     case DLL_PROCESS_ATTACH:
+#ifdef __REACTOS__
+        instance = hinst;
+        SHDOCVW_Init(hinst);
+#endif
         DisableThreadLibraryCalls(hinst);
         break;
     case DLL_PROCESS_DETACH:
@@ -163,6 +191,10 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD fdwReason, LPVOID fImpLoad)
  */
 HRESULT WINAPI DllCanUnloadNow(void)
 {
+#ifdef __REACTOS__
+    if (SHDOCVW_DllCanUnloadNow() != S_OK)
+        return S_FALSE;
+#endif
     return SHDOCVW_refCount ? S_FALSE : S_OK;
 }
 
@@ -204,6 +236,7 @@ static BOOL SHDOCVW_LoadShell32(void)
      return ((SHDOCVW_hshell32 = LoadLibraryA("shell32.dll")) != NULL);
 }
 
+#ifndef __REACTOS__ /* See winlist.cpp */
 /***********************************************************************
  *		@ (SHDOCVW.110)
  *
@@ -215,6 +248,7 @@ DWORD WINAPI WinList_Init(void)
     FIXME("(), stub!\n");
     return 0x0deadfeed;
 }
+#endif /* ndef __REACTOS__ */
 
 /***********************************************************************
  *		@ (SHDOCVW.118)
@@ -385,7 +419,7 @@ DWORD WINAPI ParseURLFromOutsideSourceW(LPCWSTR url, LPWSTR out, LPDWORD plen, L
             plen ? *plen : 0, unknown ? *unknown : 0);
 
     if (!PathIsURLW(ptr)) {
-        len = sizeof(buffer_in) / sizeof(buffer_in[0]);
+        len = ARRAY_SIZE(buffer_in);
         buffer_in[0] = 0;
         hr = UrlApplySchemeW(ptr, buffer_in, &len, URL_APPLY_GUESSSCHEME | URL_APPLY_DEFAULT);
         TRACE("got 0x%x with %s\n", hr, debugstr_w(buffer_in));
@@ -399,7 +433,7 @@ DWORD WINAPI ParseURLFromOutsideSourceW(LPCWSTR url, LPWSTR out, LPDWORD plen, L
         }
     }
 
-    len = sizeof(buffer_out) / sizeof(buffer_out[0]);
+    len = ARRAY_SIZE(buffer_out);
     buffer_out[0] = '\0';
     hr = UrlCanonicalizeW(ptr, buffer_out, &len, URL_ESCAPE_SPACES_ONLY);
     needed = lstrlenW(buffer_out)+1;
@@ -443,7 +477,7 @@ DWORD WINAPI ParseURLFromOutsideSourceA(LPCSTR url, LPSTR out, LPDWORD plen, LPD
         MultiByteToWideChar(CP_ACP, 0, url, -1, urlW, len);
     }
 
-    len = sizeof(buffer) / sizeof(buffer[0]);
+    len = ARRAY_SIZE(buffer);
     ParseURLFromOutsideSourceW(urlW, buffer, &len, unknown);
     HeapFree(GetProcessHeap(), 0, urlW);
 

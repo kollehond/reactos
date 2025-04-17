@@ -354,7 +354,7 @@ UDFCommonSetSecurity(
 //DACL_SECURITY_INFORMATION
         if(IrpSp->Parameters.SetSecurity.SecurityInformation & DACL_SECURITY_INFORMATION)
             DesiredAccess |= WRITE_DAC;
-//SACL_SECURITY_INFORMATION 
+//SACL_SECURITY_INFORMATION
         if(IrpSp->Parameters.SetSecurity.SecurityInformation & SACL_SECURITY_INFORMATION)
             DesiredAccess |= ACCESS_SYSTEM_SECURITY;
 
@@ -934,9 +934,9 @@ UDFCheckAccessRights(
     )
 {
     NTSTATUS RC;
-    BOOLEAN SecurityCheck = TRUE;
     BOOLEAN ROCheck = FALSE;
 #ifdef UDF_ENABLE_SECURITY
+    BOOLEAN SecurityCheck;
     PSECURITY_DESCRIPTOR SecDesc;
     SECURITY_SUBJECT_CONTEXT SubjectContext;
     ACCESS_MASK LocalAccessMask;
@@ -963,7 +963,7 @@ UDFCheckAccessRights(
 treat_as_ro:
 #endif //UDF_READ_ONLY_BUILD
         ACCESS_MASK  DesiredAccessMask = 0;
-       
+
         if(Fcb->Vcb->CompatFlags & UDF_VCB_IC_WRITE_IN_RO_DIR) {
             if(Fcb->FCBFlags & UDF_FCB_DIRECTORY) {
                 DesiredAccessMask = (FILE_WRITE_EA |
@@ -1011,8 +1011,7 @@ treat_as_ro:
         } else
 #endif //UDF_ENABLE_SECURITY
         if(DesiredAccess & ACCESS_SYSTEM_SECURITY) {
-            SecurityCheck = SeSinglePrivilegeCheck(SeExports->SeSecurityPrivilege, UserMode);
-            if(!SecurityCheck)
+            if (!SeSinglePrivilegeCheck(SeExports->SeSecurityPrivilege, UserMode))
                 return STATUS_ACCESS_DENIED;
             Ccb->PreviouslyGrantedAccess |= ACCESS_SYSTEM_SECURITY;
         }

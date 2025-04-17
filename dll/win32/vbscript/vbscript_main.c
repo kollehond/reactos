@@ -35,64 +35,19 @@ DEFINE_GUID(GUID_NULL,0,0,0,0,0,0,0,0,0,0,0);
 
 static HINSTANCE vbscript_hinstance;
 
-static ITypeLib *typelib;
-static ITypeInfo *typeinfos[LAST_tid];
-
-static REFIID tid_ids[] = {
-#define XDIID(iface) &DIID_ ## iface,
-TID_LIST
-#undef XDIID
-};
-
-HRESULT get_typeinfo(tid_t tid, ITypeInfo **typeinfo)
+BSTR get_vbscript_string(int id)
 {
-    HRESULT hres;
-
-    if (!typelib) {
-        ITypeLib *tl;
-
-        static const WCHAR vbscript_dll1W[] = {'v','b','s','c','r','i','p','t','.','d','l','l','\\','1',0};
-
-        hres = LoadTypeLib(vbscript_dll1W, &tl);
-        if(FAILED(hres)) {
-            ERR("LoadRegTypeLib failed: %08x\n", hres);
-            return hres;
-        }
-
-        if(InterlockedCompareExchangePointer((void**)&typelib, tl, NULL))
-            ITypeLib_Release(tl);
-    }
-
-    if(!typeinfos[tid]) {
-        ITypeInfo *ti;
-
-        hres = ITypeLib_GetTypeInfoOfGuid(typelib, tid_ids[tid], &ti);
-        if(FAILED(hres)) {
-            ERR("GetTypeInfoOfGuid(%s) failed: %08x\n", debugstr_guid(tid_ids[tid]), hres);
-            return hres;
-        }
-
-        if(InterlockedCompareExchangePointer((void**)(typeinfos+tid), ti, NULL))
-            ITypeInfo_Release(ti);
-    }
-
-    *typeinfo = typeinfos[tid];
-    return S_OK;
+    WCHAR buf[512];
+    if(!LoadStringW(vbscript_hinstance, id, buf, ARRAY_SIZE(buf))) return NULL;
+    return SysAllocString(buf);
 }
 
-static void release_typelib(void)
+BSTR get_vbscript_error_string(HRESULT error)
 {
-    unsigned i;
-
-    if(!typelib)
-        return;
-
-    for(i=0; i < sizeof(typeinfos)/sizeof(*typeinfos); i++) {
-        if(typeinfos[i])
-            ITypeInfo_Release(typeinfos[i]);
-    }
-
-    ITypeLib_Release(typelib);
+    BSTR ret;
+    if(HRESULT_FACILITY(error) != FACILITY_VBS || !(ret = get_vbscript_string(HRESULT_CODE(error))))
+        ret = get_vbscript_string(VBS_UNKNOWN_RUNTIME_ERROR);
+    return ret;
 }
 
 #define MIN_BLOCK_SIZE  128
@@ -293,15 +248,16 @@ BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD fdwReason, LPVOID lpv)
 
     switch(fdwReason)
     {
+#ifndef __REACTOS__
     case DLL_WINE_PREATTACH:
         return FALSE;  /* prefer native version */
+#endif
     case DLL_PROCESS_ATTACH:
         DisableThreadLibraryCalls(hInstDLL);
         vbscript_hinstance = hInstDLL;
         break;
     case DLL_PROCESS_DETACH:
         if (lpv) break;
-        release_typelib();
         release_regexp_typelib();
     }
 

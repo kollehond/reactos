@@ -34,11 +34,17 @@
 #include "winuser.h"
 #include "winnls.h"
 #include "commctrl.h"
+#include "windowsx.h"
+
+#ifdef __REACTOS__
+// This is really ComCtl32 v5.82, the last one not supporting SxS
+#undef  COMCTL32_VERSION // Undefines what the PSDK gave to us
+#define COMCTL32_VERSION        5
+#define COMCTL32_VERSION_MINOR 82
+#endif
 
 extern HMODULE COMCTL32_hModule DECLSPEC_HIDDEN;
 extern HBRUSH  COMCTL32_hPattern55AABrush DECLSPEC_HIDDEN;
-
-#define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 
 /* Property sheet / Wizard */
 #define IDD_PROPSHEET 1006
@@ -82,6 +88,9 @@ extern HBRUSH  COMCTL32_hPattern55AABrush DECLSPEC_HIDDEN;
 
 #define IDT_CHECK        401
 
+/* Command Link arrow */
+#define IDB_CMDLINK      402
+
 
 /* Cursors */
 #define IDC_MOVEBUTTON                  102
@@ -108,6 +117,9 @@ extern HBRUSH  COMCTL32_hPattern55AABrush DECLSPEC_HIDDEN;
 #define IDS_BUTTON_OK     3003
 #define IDS_BUTTON_CANCEL 3004
 #define IDS_BUTTON_CLOSE  3005
+
+#define IDS_TD_EXPANDED   3020
+#define IDS_TD_COLLAPSED  3021
 
 #ifndef __REACTOS__
 #define WM_SYSTIMER     0x0118
@@ -147,8 +159,9 @@ typedef struct
    RECT           droppedRect;
    INT            droppedIndex;
    INT            fixedOwnerDrawHeight;
-   INT            droppedWidth;   /* last two are not used unless set */
-   INT            editHeight;     /* explicitly */
+   INT            droppedWidth;   /* not used unless set explicitly */
+   INT            item_height;
+   INT            visibleItems;
 } HEADCOMBO, *LPHEADCOMBO;
 
 extern BOOL COMBO_FlipListbox(HEADCOMBO *lphc, BOOL ok, BOOL bRedrawButton) DECLSPEC_HIDDEN;
@@ -188,7 +201,9 @@ INT  Str_GetPtrAtoW (LPCSTR lpSrc, LPWSTR lpDest, INT nMaxLen) DECLSPEC_HIDDEN;
 BOOL Str_SetPtrAtoW (LPWSTR *lppDest, LPCSTR lpSrc) DECLSPEC_HIDDEN;
 BOOL Str_SetPtrWtoA (LPSTR *lppDest, LPCWSTR lpSrc) DECLSPEC_HIDDEN;
 
+#ifndef __REACTOS__
 #define COMCTL32_VERSION_MINOR 81
+#endif
 
 /* Our internal stack structure of the window procedures to subclass */
 typedef struct _SUBCLASSPROCS {
@@ -290,6 +305,11 @@ extern void THEMING_Initialize(void) DECLSPEC_HIDDEN;
 #endif
 extern void THEMING_Uninitialize(void) DECLSPEC_HIDDEN;
 extern LRESULT THEMING_CallOriginalClass(HWND, UINT, WPARAM, LPARAM) DECLSPEC_HIDDEN;
-extern void THEMING_SetSubclassData(HWND, ULONG_PTR) DECLSPEC_HIDDEN;
+
+#ifdef __REACTOS__
+#define IDI_SHIELD  32518
+#define wcsnicmp _wcsnicmp
+#define GetDpiForWindow(PVOID) 96
+#endif
 
 #endif  /* __WINE_COMCTL32_H */

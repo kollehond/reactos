@@ -7,7 +7,7 @@
 #ifndef _TIME_H_
 #define _TIME_H_
 
-#include <crtdefs.h>
+#include <corecrt.h>
 
 #ifndef _WIN32
 #error Only Win32 target is supported!
@@ -60,14 +60,6 @@ extern "C" {
 #endif
 #else
   typedef unsigned int size_t;
-#endif
-#endif
-
-#ifndef NULL
-#ifdef __cplusplus
-#define NULL 0
-#else
-#define NULL ((void *)0)
 #endif
 #endif
 
@@ -388,10 +380,8 @@ extern "C" {
 #ifdef _USE_32BIT_TIME_T
 /* Do it like this to be compatible to msvcrt.dll on 32 bit windows XP and before */
 __CRT_INLINE wchar_t *__cdecl _wctime(const time_t *_Time) { return _wctime32(_Time); }
-__CRT_INLINE errno_t  __cdecl _wctime_s(wchar_t *_Buffer, size_t _SizeInWords,const __time32_t *_Time) { return _wctime32_s(_Buffer, _SizeInWords, _Time); }
 #else
 __CRT_INLINE wchar_t *__cdecl _wctime(const time_t *_Time) { return _wctime64(_Time); }
-__CRT_INLINE errno_t  __cdecl _wctime_s(wchar_t *_Buffer, size_t _SizeInWords,const time_t *_Time) { return _wctime64_s(_Buffer, _SizeInWords, _Time); }
 #endif
 #endif
 

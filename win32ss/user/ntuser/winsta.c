@@ -28,7 +28,7 @@ UNICODE_STRING gustrWindowStationsDir;
 
 /* INITIALIZATION FUNCTIONS ****************************************************/
 
-INIT_FUNCTION
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
 InitWindowStationImpl(VOID)
@@ -127,6 +127,8 @@ IntWinStaObjectDelete(
     UserEmptyClipboardData(WinSta);
 
     RtlDestroyAtomTable(WinSta->AtomTable);
+
+    UserAssignmentUnlock((PVOID*)&WinSta->spklList);
 
     return STATUS_SUCCESS;
 }
@@ -263,6 +265,12 @@ co_IntInitializeDesktopGraphics(VOID)
     UNICODE_STRING DriverName = RTL_CONSTANT_STRING(L"DISPLAY");
     PDESKTOP pdesk;
 
+    if (PDEVOBJ_lChangeDisplaySettings(NULL, NULL, NULL, &gpmdev, TRUE) != DISP_CHANGE_SUCCESSFUL)
+    {
+        ERR("PDEVOBJ_lChangeDisplaySettings() failed.\n");
+        return FALSE;
+    }
+
     ScreenDeviceContext = IntGdiCreateDC(&DriverName, NULL, NULL, NULL, FALSE);
     if (NULL == ScreenDeviceContext)
     {
@@ -271,7 +279,7 @@ co_IntInitializeDesktopGraphics(VOID)
     }
     GreSetDCOwner(ScreenDeviceContext, GDI_OBJ_HMGR_PUBLIC);
 
-    if (! IntCreatePrimarySurface())
+    if (!IntCreatePrimarySurface())
     {
         return FALSE;
     }
@@ -281,9 +289,15 @@ co_IntInitializeDesktopGraphics(VOID)
     NtGdiSelectFont(hSystemBM, NtGdiGetStockObject(SYSTEM_FONT));
     GreSetDCOwner(hSystemBM, GDI_OBJ_HMGR_PUBLIC);
 
+    /* Update the system metrics */
+    InitMetrics();
+
+    /* Set new size of the monitor */
+    UserUpdateMonitorSize((HDEV)gpmdev->ppdevGlobal);
+
     /* Update the SERVERINFO */
-    gpsi->aiSysMet[SM_CXSCREEN] = gppdevPrimary->gdiinfo.ulHorzRes;
-    gpsi->aiSysMet[SM_CYSCREEN] = gppdevPrimary->gdiinfo.ulVertRes;
+    gpsi->aiSysMet[SM_CXSCREEN] = gpmdev->ppdevGlobal->gdiinfo.ulHorzRes;
+    gpsi->aiSysMet[SM_CYSCREEN] = gpmdev->ppdevGlobal->gdiinfo.ulVertRes;
     gpsi->Planes        = NtGdiGetDeviceCaps(ScreenDeviceContext, PLANES);
     gpsi->BitsPixel     = NtGdiGetDeviceCaps(ScreenDeviceContext, BITSPIXEL);
     gpsi->BitCount      = gpsi->Planes * gpsi->BitsPixel;
@@ -293,7 +307,9 @@ co_IntInitializeDesktopGraphics(VOID)
         gpsi->PUSIFlags |= PUSIF_PALETTEDISPLAY;
     }
     else
+    {
         gpsi->PUSIFlags &= ~PUSIF_PALETTEDISPLAY;
+    }
     // Font is realized and this dc was previously set to internal DC_ATTR.
     gpsi->cxSysFontChar = IntGetCharDimensions(hSystemBM, &tmw, (DWORD*)&gpsi->cySysFontChar);
     gpsi->tmSysFont     = tmw;
@@ -303,7 +319,7 @@ co_IntInitializeDesktopGraphics(VOID)
     gpsi->ptCursor.y = gpsi->aiSysMet[SM_CYSCREEN] / 2;
 
     /* Attach monitor */
-    UserAttachMonitor((HDEV)gppdevPrimary);
+    UserAttachMonitor((HDEV)gpmdev->ppdevGlobal);
 
     /* Setup the cursor */
     co_IntLoadDefaultCursors();
@@ -318,6 +334,22 @@ co_IntInitializeDesktopGraphics(VOID)
     pdesk = IntGetActiveDesktop();
     ASSERT(pdesk);
     co_IntShowDesktop(pdesk, gpsi->aiSysMet[SM_CXSCREEN], gpsi->aiSysMet[SM_CYSCREEN], TRUE);
+
+    /* HACK: display wallpaper on all secondary displays */
+    {
+        PGRAPHICS_DEVICE pGraphicsDevice;
+        UNICODE_STRING DriverName = RTL_CONSTANT_STRING(L"DISPLAY");
+        UNICODE_STRING DisplayName;
+        HDC hdc;
+        ULONG iDevNum;
+
+        for (iDevNum = 1; (pGraphicsDevice = EngpFindGraphicsDevice(NULL, iDevNum)) != NULL; iDevNum++)
+        {
+            RtlInitUnicodeString(&DisplayName, pGraphicsDevice->szWinDeviceName);
+            hdc = IntGdiCreateDC(&DriverName, &DisplayName, NULL, NULL, FALSE);
+            IntPaintDesktop(hdc);
+        }
+    }
 
     return TRUE;
 }
@@ -363,6 +395,18 @@ CheckWinstaAttributeAccess(ACCESS_MASK DesiredAccess)
     return TRUE;
 }
 
+// Win: _GetProcessWindowStation
+PWINSTATION_OBJECT FASTCALL
+IntGetProcessWindowStation(HWINSTA *phWinSta OPTIONAL)
+{
+    PWINSTATION_OBJECT pWinSta;
+    PPROCESSINFO ppi = GetW32ProcessInfo();
+    HWINSTA hWinSta = ppi->hwinsta;
+    if (phWinSta)
+        *phWinSta = hWinSta;
+    IntValidateWindowStationHandle(hWinSta, UserMode, 0, &pWinSta, 0);
+    return pWinSta;
+}
 
 /* PUBLIC FUNCTIONS ***********************************************************/
 
@@ -497,7 +541,20 @@ IntCreateWindowStation(
 
         InputWindowStation = WindowStation;
         WindowStation->Flags &= ~WSS_NOIO;
+
         InitCursorImpl();
+
+        UserCreateSystemThread(ST_DESKTOP_THREAD);
+        UserCreateSystemThread(ST_RIT);
+
+        /* Desktop functions require the desktop thread running so wait for it to initialize */
+        UserLeaveCo();
+        KeWaitForSingleObject(gpDesktopThreadStartedEvent,
+                              UserRequest,
+                              UserMode,
+                              FALSE,
+                              NULL);
+        UserEnterCo();
     }
     else
     {
@@ -508,6 +565,8 @@ IntCreateWindowStation(
           ObjectAttributes->ObjectName, WindowStation, hWinSta);
 
     *phWinSta = hWinSta;
+    EngSetLastError(ERROR_SUCCESS);
+
     return STATUS_SUCCESS;
 }
 
@@ -742,6 +801,8 @@ NtUserCreateWindowStation(
         return NULL;
     }
 
+    UserEnterExclusive();
+
     /* Create the window station */
     Status = IntCreateWindowStation(&hWinSta,
                                     ObjectAttributes,
@@ -753,6 +814,8 @@ NtUserCreateWindowStation(
                                     Unknown4,
                                     Unknown5,
                                     Unknown6);
+    UserLeave();
+
     if (NT_SUCCESS(Status))
     {
         TRACE("NtUserCreateWindowStation created window station '%wZ' with handle 0x%p\n",

@@ -41,10 +41,6 @@
 #include "v6util.h"
 #include "resources.h"
 
-#ifdef __REACTOS__
-#include <ole2.h>
-#endif
-
 #define IMAGELIST_MAGIC (('L' << 8) | 'I')
 
 #include "pshpack2.h"
@@ -922,7 +918,6 @@ static void check_ilhead_data(const ILHEAD *ilh, INT cx, INT cy, INT cur, INT ma
     }
     else
     {
-        grow = (WORD)(grow + 3) & ~3;
         ok(ilh->cMaxImage == max, "wrong cMaxImage %d (expected %d)\n", ilh->cMaxImage, max);
         ok(ilh->cGrow == grow_aligned, "Unexpected cGrow %d, expected %d\n", ilh->cGrow, grow_aligned);
     }
@@ -1100,7 +1095,7 @@ static void image_list_init(HIMAGELIST himl, INT grow)
 
     check_iml_data(himl, BMP_CX, BMP_CX, 0, 2, grow, ILC_COLOR24, "total 0");
 
-    for (i = 0; i < sizeof(td)/sizeof(td[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(td); i++)
     {
         image_list_add_bitmap(himl, td[i].grey, i + 1);
         check_iml_data(himl, td[i].cx, td[i].cy, td[i].cur, td[i].max, grow, td[i].bpp, td[i].comment);
@@ -1564,8 +1559,7 @@ cleanup:
     if(hbmDst)
         DeleteObject(hbmDst);
 
-    if(hdcDst)
-        DeleteDC(hdcDst);
+    DeleteDC(hdcDst);
 
     if(hbmMask)
         DeleteObject(hbmMask);
@@ -2029,7 +2023,11 @@ static void check_color_table(const char *name, HDC hdc, HIMAGELIST himl, UINT i
 {
     IMAGEINFO info;
     INT ret;
+#ifdef __REACTOS__
     char bmi_buffer[FIELD_OFFSET(BITMAPINFO, bmiColors) + 256 * sizeof(RGBQUAD)];
+#else
+    char bmi_buffer[FIELD_OFFSET( BITMAPINFO, bmiColors[256] )];
+#endif
     BITMAPINFO *bmi = (BITMAPINFO *)bmi_buffer;
     int i, depth = ilc & 0xfe;
 
@@ -2061,7 +2059,11 @@ static void check_color_table(const char *name, HDC hdc, HIMAGELIST himl, UINT i
 
 static void get_default_color_table(HDC hdc, int bpp, RGBQUAD *table)
 {
-    char bmi_buffer[FIELD_OFFSET(BITMAPINFO, bmiColors) + 256 * sizeof(RGBQUAD)];
+#ifdef __REACTOS__
+     char bmi_buffer[FIELD_OFFSET(BITMAPINFO, bmiColors) + 256 * sizeof(RGBQUAD)];
+#else
+    char bmi_buffer[FIELD_OFFSET( BITMAPINFO, bmiColors[256] )];
+#endif
     BITMAPINFO *bmi = (BITMAPINFO *)bmi_buffer;
     HBITMAP tmp;
     int i;
@@ -2109,7 +2111,11 @@ static void test_color_table(UINT ilc)
 {
     HIMAGELIST himl;
     INT ret;
+#ifdef __REACTOS__
     char bmi_buffer[FIELD_OFFSET(BITMAPINFO, bmiColors) + 256 * sizeof(RGBQUAD)];
+#else
+    char bmi_buffer[FIELD_OFFSET( BITMAPINFO, bmiColors[256] )];
+#endif
     BITMAPINFO *bmi = (BITMAPINFO *)bmi_buffer;
     HDC hdc = CreateCompatibleDC(0);
     HBITMAP dib4, dib8, dib32;
@@ -2170,7 +2176,7 @@ static void test_color_table(UINT ilc)
     rgb[2].rgbBlue = 0xff;
     check_color_table("remove all, add 8", hdc, himl, ilc, rgb, default_table);
 
-    /* remove all, add 4. Color table remains the same since it's inplicitly
+    /* remove all, add 4. Color table remains the same since it's implicitly
        been set by the previous _Add */
     ret = pImageList_Remove(himl, -1);
     ok(ret, "got %d\n", ret);

@@ -1,98 +1,272 @@
+/*
+ * PROJECT:     ReactOS ISA PnP Bus driver
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
+ * PURPOSE:     Common header file
+ * COPYRIGHT:   Copyright 2010 Cameron Gutman <cameron.gutman@reactos.org>
+ *              Copyright 2020 Hervé Poussineau <hpoussin@reactos.org>
+ */
+
 #ifndef _ISAPNP_PCH_
 #define _ISAPNP_PCH_
 
-#include <wdm.h>
+#include <ntddk.h>
+#include <ntstrsafe.h>
+#include <section_attribs.h>
+
+#include "isapnphw.h"
+#include "isapnpres.h"
+
+#include <initguid.h>
+#include <wdmguid.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define TAG_ISAPNP 'PNPI'
+#define TAG_ISAPNP 'pasI'
 
-typedef enum {
-  dsStopped,
-  dsStarted
+typedef enum
+{
+    dsStopped,
+    dsStarted
 } ISAPNP_DEVICE_STATE;
 
-typedef struct _ISAPNP_COMMON_EXTENSION {
-  PDEVICE_OBJECT Self;
-  BOOLEAN IsFdo;
-  ISAPNP_DEVICE_STATE State;
+typedef enum _ISAPNP_SIGNATURE
+{
+    IsaPnpBus = 'odFI',
+    IsaPnpLogicalDevice = 'veDI',
+    IsaPnpReadDataPort = 'pdRI'
+} ISAPNP_SIGNATURE;
+
+typedef struct _ISAPNP_COMMON_EXTENSION
+{
+    ISAPNP_SIGNATURE Signature;
+    PDEVICE_OBJECT Self;
+    ISAPNP_DEVICE_STATE State;
 } ISAPNP_COMMON_EXTENSION, *PISAPNP_COMMON_EXTENSION;
 
-typedef struct _ISAPNP_FDO_EXTENSION {
-  ISAPNP_COMMON_EXTENSION Common;
-  PDEVICE_OBJECT Ldo;
-  PDEVICE_OBJECT Pdo;
-  LIST_ENTRY DeviceListHead;
-  ULONG DeviceCount;
-  PUCHAR ReadDataPort;
-  KSPIN_LOCK Lock;
+typedef struct _ISAPNP_FDO_EXTENSION
+{
+    ISAPNP_COMMON_EXTENSION Common;
+    PDEVICE_OBJECT Ldo;
+    PDEVICE_OBJECT Pdo;
+    PDEVICE_OBJECT ReadPortPdo; /**< @remarks The pointer is NULL for all inactive FDOs. */
+    ULONG BusNumber;
+    KEVENT DeviceSyncEvent;
+
+    _Guarded_by_(DeviceSyncEvent)
+    LIST_ENTRY DeviceListHead;
+
+    _Guarded_by_(DeviceSyncEvent)
+    ULONG DeviceCount;
+
+    PDRIVER_OBJECT DriverObject;
+    PUCHAR ReadDataPort;
+    ULONG Cards;
+    LIST_ENTRY BusLink;
 } ISAPNP_FDO_EXTENSION, *PISAPNP_FDO_EXTENSION;
 
-typedef struct _ISAPNP_LOGICAL_DEVICE {
-  ISAPNP_COMMON_EXTENSION Common;
-  USHORT VendorId;
-  USHORT ProdId;
-  USHORT IoAddr;
-  UCHAR IrqNo;
-  UCHAR CSN;
-  UCHAR LDN;
-  LIST_ENTRY ListEntry;
-} ISAPNP_LOGICAL_DEVICE, *PISAPNP_LOGICAL_DEVICE;
+typedef struct _ISAPNP_PDO_EXTENSION
+{
+    ISAPNP_COMMON_EXTENSION Common;
+    PISAPNP_FDO_EXTENSION FdoExt;
+
+    ULONG Flags;
+#define ISAPNP_ENUMERATED               0x00000001 /**< @brief Whether the device has been reported to the PnP manager. */
+#define ISAPNP_SCANNED_BY_READ_PORT     0x00000002 /**< @brief The bus has been scanned by Read Port PDO. */
+#define ISAPNP_READ_PORT_ALLOW_FDO_SCAN 0x00000004 /**< @brief Allows the active FDO to scan the bus. */
+#define ISAPNP_READ_PORT_NEED_REBALANCE 0x00000008 /**< @brief The I/O resource requirements have changed. */
+
+    union
+    {
+        /* Data belonging to logical devices */
+        struct
+        {
+            PISAPNP_LOGICAL_DEVICE IsaPnpDevice;
+
+            PIO_RESOURCE_REQUIREMENTS_LIST RequirementsList;
+
+            PCM_RESOURCE_LIST ResourceList;
+            ULONG ResourceListSize;
+        };
+
+        ULONG SelectedPort;
+    };
+
+    _Write_guarded_by_(_Global_interlock_)
+    volatile LONG SpecialFiles;
+} ISAPNP_PDO_EXTENSION, *PISAPNP_PDO_EXTENSION;
+
+extern KEVENT BusSyncEvent;
+
+_Guarded_by_(BusSyncEvent)
+extern BOOLEAN ReadPortCreated;
+
+_Guarded_by_(BusSyncEvent)
+extern LIST_ENTRY BusListHead;
+
+_Requires_lock_not_held_(BusSyncEvent)
+_Acquires_lock_(BusSyncEvent)
+FORCEINLINE
+VOID
+IsaPnpAcquireBusDataLock(VOID)
+{
+    ASSERT(PsGetCurrentProcess() == PsInitialSystemProcess);
+
+    KeWaitForSingleObject(&BusSyncEvent, Executive, KernelMode, FALSE, NULL);
+}
+
+_Releases_lock_(BusSyncEvent)
+FORCEINLINE
+VOID
+IsaPnpReleaseBusDataLock(VOID)
+{
+    KeSetEvent(&BusSyncEvent, IO_NO_INCREMENT, FALSE);
+}
+
+_Requires_lock_not_held_(FdoExt->DeviceSyncEvent)
+_Acquires_lock_(FdoExt->DeviceSyncEvent)
+FORCEINLINE
+VOID
+IsaPnpAcquireDeviceDataLock(
+    _In_ PISAPNP_FDO_EXTENSION FdoExt)
+{
+    ASSERT(PsGetCurrentProcess() == PsInitialSystemProcess);
+
+    KeWaitForSingleObject(&FdoExt->DeviceSyncEvent, Executive, KernelMode, FALSE, NULL);
+}
+
+_Releases_lock_(FdoExt->DeviceSyncEvent)
+FORCEINLINE
+VOID
+IsaPnpReleaseDeviceDataLock(
+    _In_ PISAPNP_FDO_EXTENSION FdoExt)
+{
+    KeSetEvent(&FdoExt->DeviceSyncEvent, IO_NO_INCREMENT, FALSE);
+}
 
 /* isapnp.c */
 
+CODE_SEG("PAGE")
+BOOLEAN
+FindIoDescriptor(
+    _In_ PISAPNP_LOGICAL_DEVICE LogDevice,
+    _In_opt_ ULONG Base,
+    _In_ ULONG RangeStart,
+    _In_ ULONG RangeEnd,
+    _Out_opt_ PUCHAR Information,
+    _Out_opt_ PULONG Length);
+
+CODE_SEG("PAGE")
+BOOLEAN
+FindIrqDescriptor(
+    _In_ PISAPNP_LOGICAL_DEVICE LogDevice,
+    _In_ ULONG Vector);
+
+CODE_SEG("PAGE")
+BOOLEAN
+FindDmaDescriptor(
+    _In_ PISAPNP_LOGICAL_DEVICE LogDevice,
+    _In_ ULONG Channel);
+
+CODE_SEG("PAGE")
+BOOLEAN
+FindMemoryDescriptor(
+    _In_ PISAPNP_LOGICAL_DEVICE LogDevice,
+    _In_ ULONG RangeStart,
+    _In_ ULONG RangeEnd,
+    _Out_opt_ PUCHAR Information);
+
+CODE_SEG("PAGE")
+PIO_RESOURCE_REQUIREMENTS_LIST
+IsaPnpCreateReadPortDORequirements(
+    _In_opt_ ULONG SelectedReadPort);
+
+CODE_SEG("PAGE")
+PCM_RESOURCE_LIST
+IsaPnpCreateReadPortDOResources(VOID);
+
+CODE_SEG("PAGE")
+VOID
+IsaPnpRemoveReadPortDO(
+    _In_ PDEVICE_OBJECT Pdo);
+
+CODE_SEG("PAGE")
+NTSTATUS
+IsaPnpFillDeviceRelations(
+    _In_ PISAPNP_FDO_EXTENSION FdoExt,
+    _Inout_ PIRP Irp,
+    _In_ BOOLEAN IncludeDataPort);
+
+CODE_SEG("INIT")
 DRIVER_INITIALIZE DriverEntry;
 
-NTSTATUS
-NTAPI
-DriverEntry(
-  IN PDRIVER_OBJECT DriverObject,
-  IN PUNICODE_STRING RegistryPath);
-
-NTSTATUS
-NTAPI
-IsaForwardIrpSynchronous(
-	IN PISAPNP_FDO_EXTENSION FdoExt,
-	IN PIRP Irp);
-
 /* fdo.c */
+CODE_SEG("PAGE")
 NTSTATUS
-NTAPI
 IsaFdoPnp(
-  IN PISAPNP_FDO_EXTENSION FdoExt,
-  IN PIRP Irp,
-  IN PIO_STACK_LOCATION IrpSp);
+    _In_ PISAPNP_FDO_EXTENSION FdoExt,
+    _Inout_ PIRP Irp,
+    _In_ PIO_STACK_LOCATION IrpSp);
+
+/* interface.c */
+CODE_SEG("PAGE")
+NTSTATUS
+IsaFdoQueryInterface(
+    _In_ PISAPNP_FDO_EXTENSION FdoExt,
+    _In_ PIO_STACK_LOCATION IrpSp);
 
 /* pdo.c */
+CODE_SEG("PAGE")
 NTSTATUS
-NTAPI
 IsaPdoPnp(
-  IN PISAPNP_LOGICAL_DEVICE LogDev,
-  IN PIRP Irp,
-  IN PIO_STACK_LOCATION IrpSp);
+    _In_ PISAPNP_PDO_EXTENSION PdoDeviceExtension,
+    _Inout_ PIRP Irp,
+    _In_ PIO_STACK_LOCATION IrpSp);
+
+CODE_SEG("PAGE")
+VOID
+IsaPnpRemoveLogicalDeviceDO(
+    _In_ PDEVICE_OBJECT Pdo);
 
 /* hardware.c */
-NTSTATUS
-NTAPI
-IsaHwDetectReadDataPort(
-  IN PISAPNP_FDO_EXTENSION FdoExt);
+CODE_SEG("PAGE")
+UCHAR
+IsaHwTryReadDataPort(
+    _In_ PUCHAR ReadDataPort);
 
+_Requires_lock_held_(FdoExt->DeviceSyncEvent)
+CODE_SEG("PAGE")
 NTSTATUS
-NTAPI
 IsaHwFillDeviceList(
-  IN PISAPNP_FDO_EXTENSION FdoExt);
+    _In_ PISAPNP_FDO_EXTENSION FdoExt);
 
+CODE_SEG("PAGE")
 NTSTATUS
-NTAPI
+IsaHwConfigureDevice(
+    _In_ PISAPNP_FDO_EXTENSION FdoExt,
+    _In_ PISAPNP_LOGICAL_DEVICE LogicalDevice,
+    _In_ PCM_RESOURCE_LIST Resources);
+
+CODE_SEG("PAGE")
+VOID
+IsaHwWakeDevice(
+    _In_ PISAPNP_LOGICAL_DEVICE LogicalDevice);
+
+CODE_SEG("PAGE")
+VOID
 IsaHwDeactivateDevice(
-  IN PISAPNP_LOGICAL_DEVICE LogicalDevice);
+    _In_ PISAPNP_LOGICAL_DEVICE LogicalDevice);
 
-NTSTATUS
-NTAPI
+CODE_SEG("PAGE")
+VOID
 IsaHwActivateDevice(
-  IN PISAPNP_LOGICAL_DEVICE LogicalDevice);
+    _In_ PISAPNP_FDO_EXTENSION FdoExt,
+    _In_ PISAPNP_LOGICAL_DEVICE LogicalDevice);
+
+CODE_SEG("PAGE")
+VOID
+IsaHwWaitForKey(VOID);
 
 #ifdef __cplusplus
 }

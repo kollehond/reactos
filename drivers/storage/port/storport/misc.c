@@ -15,47 +15,6 @@
 
 /* FUNCTIONS ******************************************************************/
 
-static
-NTSTATUS
-NTAPI
-ForwardIrpAndWaitCompletion(
-    _In_ PDEVICE_OBJECT DeviceObject,
-    _In_ PIRP Irp,
-    _In_ PVOID Context)
-{
-    if (Irp->PendingReturned)
-        KeSetEvent((PKEVENT)Context, IO_NO_INCREMENT, FALSE);
-    return STATUS_MORE_PROCESSING_REQUIRED;
-}
-
-
-NTSTATUS
-ForwardIrpAndWait(
-    _In_ PDEVICE_OBJECT LowerDevice,
-    _In_ PIRP Irp)
-{
-    KEVENT Event;
-    NTSTATUS Status;
-
-    ASSERT(LowerDevice);
-
-    KeInitializeEvent(&Event, NotificationEvent, FALSE);
-    IoCopyCurrentIrpStackLocationToNext(Irp);
-
-    IoSetCompletionRoutine(Irp, ForwardIrpAndWaitCompletion, &Event, TRUE, TRUE, TRUE);
-
-    Status = IoCallDriver(LowerDevice, Irp);
-    if (Status == STATUS_PENDING)
-    {
-        Status = KeWaitForSingleObject(&Event, Suspended, KernelMode, FALSE, NULL);
-        if (NT_SUCCESS(Status))
-            Status = Irp->IoStatus.Status;
-    }
-
-    return Status;
-}
-
-
 NTSTATUS
 NTAPI
 ForwardIrpAndForget(
@@ -102,7 +61,6 @@ GetResourceListSize(
     PCM_RESOURCE_LIST ResourceList)
 {
     PCM_FULL_RESOURCE_DESCRIPTOR Descriptor;
-    INT i;
     ULONG Size;
 
     DPRINT1("GetResourceListSize(%p)\n", ResourceList);
@@ -117,20 +75,12 @@ GetResourceListSize(
     DPRINT1("ResourceList->Count: %lu\n", ResourceList->Count);
 
     Descriptor = &ResourceList->List[0];
-    for (i = 0; i < ResourceList->Count; i++)
-    {
-        /* Process resources in CM_FULL_RESOURCE_DESCRIPTOR block number ix. */
 
-        DPRINT1("PartialResourceList->Count: %lu\n", Descriptor->PartialResourceList.Count);
+    DPRINT1("PartialResourceList->Count: %lu\n", Descriptor->PartialResourceList.Count);
 
-        /* Add the size of the current full descriptor */
-        Size += sizeof(CM_FULL_RESOURCE_DESCRIPTOR) + 
-                (Descriptor->PartialResourceList.Count - 1) * sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR);
-
-        /* Advance to next CM_FULL_RESOURCE_DESCRIPTOR block in memory. */
-        Descriptor = (PCM_FULL_RESOURCE_DESCRIPTOR)(Descriptor->PartialResourceList.PartialDescriptors + 
-                                                    Descriptor->PartialResourceList.Count);
-    }
+    /* Add the size of the partial descriptors */
+    if (Descriptor->PartialResourceList.Count > 1)
+        Size += (Descriptor->PartialResourceList.Count - 1) * sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR);
 
     DPRINT1("Size: 0x%lx (%u)\n", Size, Size);
     return Size;
@@ -253,7 +203,7 @@ TranslateResourceListAddress(
                         IoAddress.QuadPart >= PartialDescriptorA->u.Port.Start.QuadPart &&
                         IoAddress.QuadPart + NumberOfBytes <= PartialDescriptorA->u.Port.Start.QuadPart + PartialDescriptorA->u.Port.Length)
                     {
-                        TranslatedAddress->QuadPart = PartialDescriptorT->u.Port.Start.QuadPart + 
+                        TranslatedAddress->QuadPart = PartialDescriptorT->u.Port.Start.QuadPart +
                                                       (IoAddress.QuadPart - PartialDescriptorA->u.Port.Start.QuadPart);
                         return TRUE;
                     }
@@ -267,7 +217,7 @@ TranslateResourceListAddress(
                         IoAddress.QuadPart >= PartialDescriptorA->u.Memory.Start.QuadPart &&
                         IoAddress.QuadPart + NumberOfBytes <= PartialDescriptorA->u.Memory.Start.QuadPart + PartialDescriptorA->u.Memory.Length)
                     {
-                        TranslatedAddress->QuadPart = PartialDescriptorT->u.Memory.Start.QuadPart + 
+                        TranslatedAddress->QuadPart = PartialDescriptorT->u.Memory.Start.QuadPart +
                                                       (IoAddress.QuadPart - PartialDescriptorA->u.Memory.Start.QuadPart);
                         return TRUE;
                     }
@@ -276,10 +226,10 @@ TranslateResourceListAddress(
         }
 
         /* Advance to next CM_FULL_RESOURCE_DESCRIPTOR block in memory. */
-        FullDescriptorA = (PCM_FULL_RESOURCE_DESCRIPTOR)(FullDescriptorA->PartialResourceList.PartialDescriptors + 
+        FullDescriptorA = (PCM_FULL_RESOURCE_DESCRIPTOR)(FullDescriptorA->PartialResourceList.PartialDescriptors +
                                                          FullDescriptorA->PartialResourceList.Count);
 
-        FullDescriptorT = (PCM_FULL_RESOURCE_DESCRIPTOR)(FullDescriptorT->PartialResourceList.PartialDescriptors + 
+        FullDescriptorT = (PCM_FULL_RESOURCE_DESCRIPTOR)(FullDescriptorT->PartialResourceList.PartialDescriptors +
                                                          FullDescriptorT->PartialResourceList.Count);
     }
 
@@ -328,7 +278,7 @@ GetResourceListInterrupt(
         }
 
         /* Advance to next CM_FULL_RESOURCE_DESCRIPTOR block in memory. */
-        FullDescriptor = (PCM_FULL_RESOURCE_DESCRIPTOR)(FullDescriptor->PartialResourceList.PartialDescriptors + 
+        FullDescriptor = (PCM_FULL_RESOURCE_DESCRIPTOR)(FullDescriptor->PartialResourceList.PartialDescriptors +
                                                         FullDescriptor->PartialResourceList.Count);
     }
 

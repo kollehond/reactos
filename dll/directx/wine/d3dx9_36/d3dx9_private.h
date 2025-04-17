@@ -22,6 +22,7 @@
 #ifndef __WINE_D3DX9_PRIVATE_H
 #define __WINE_D3DX9_PRIVATE_H
 
+#include <stdint.h>
 #define NONAMELESSUNION
 #include "wine/debug.h"
 #include "wine/heap.h"
@@ -31,8 +32,6 @@
 #include "d3dx9.h"
 
 #define ULONG64_MAX (~(ULONG64)0)
-
-#define ARRAY_SIZE(array) (sizeof(array)/sizeof(*array))
 
 struct vec4
 {
@@ -80,7 +79,7 @@ extern const struct ID3DXIncludeVtbl d3dx_include_from_file_vtbl DECLSPEC_HIDDEN
 static inline BOOL is_conversion_from_supported(const struct pixel_format_desc *format)
 {
     if (format->type == FORMAT_ARGB || format->type == FORMAT_ARGBF16
-            || format->type == FORMAT_ARGBF)
+            || format->type == FORMAT_ARGBF || format->type == FORMAT_DXT)
         return TRUE;
     return !!format->to_rgba;
 }
@@ -88,7 +87,7 @@ static inline BOOL is_conversion_from_supported(const struct pixel_format_desc *
 static inline BOOL is_conversion_to_supported(const struct pixel_format_desc *format)
 {
     if (format->type == FORMAT_ARGB || format->type == FORMAT_ARGBF16
-            || format->type == FORMAT_ARGBF)
+            || format->type == FORMAT_ARGBF || format->type == FORMAT_DXT)
         return TRUE;
     return !!format->from_rgba;
 }
@@ -123,6 +122,10 @@ HRESULT load_volume_from_dds(IDirect3DVolume9 *dst_volume, const PALETTEENTRY *d
     const D3DXIMAGE_INFO *src_info) DECLSPEC_HIDDEN;
 HRESULT load_volume_texture_from_dds(IDirect3DVolumeTexture9 *volume_texture, const void *src_data,
     const PALETTEENTRY *palette, DWORD filter, DWORD color_key, const D3DXIMAGE_INFO *src_info) DECLSPEC_HIDDEN;
+HRESULT lock_surface(IDirect3DSurface9 *surface, const RECT *surface_rect, D3DLOCKED_RECT *lock,
+        IDirect3DSurface9 **temp_surface, BOOL write) DECLSPEC_HIDDEN;
+HRESULT unlock_surface(IDirect3DSurface9 *surface, const RECT *surface_rect,
+        IDirect3DSurface9 *temp_surface, BOOL update) DECLSPEC_HIDDEN;
 HRESULT save_dds_texture_to_memory(ID3DXBuffer **dst_buffer, IDirect3DBaseTexture9 *src_texture,
     const PALETTEENTRY *src_palette) DECLSPEC_HIDDEN;
 
@@ -223,6 +226,17 @@ static inline BOOL is_param_type_sampler(D3DXPARAMETER_TYPE type)
     return type == D3DXPT_SAMPLER
             || type == D3DXPT_SAMPLER1D || type == D3DXPT_SAMPLER2D
             || type == D3DXPT_SAMPLER3D || type == D3DXPT_SAMPLERCUBE;
+}
+
+/* Returns the smallest power of 2 which is greater than or equal to num */
+static inline uint32_t make_pow2(uint32_t num)
+{
+#ifndef __REACTOS__
+    uint32_t index;
+#else
+    unsigned long index;
+#endif
+    return BitScanReverse(&index, num - 1) ? 1u << (index + 1) : 1;
 }
 
 struct d3dx_parameter;
@@ -342,7 +356,7 @@ struct d3dx_shared_data
     ULONG64 update_version;
 };
 
-struct d3dx9_base_effect;
+struct d3dx_effect;
 
 static inline BOOL is_top_level_parameter(struct d3dx_parameter *param)
 {
@@ -375,7 +389,7 @@ static inline BOOL is_param_dirty(struct d3dx_parameter *param, ULONG64 update_v
     return is_top_level_param_dirty(param->top_level_param, update_version);
 }
 
-struct d3dx_parameter *get_parameter_by_name(struct d3dx9_base_effect *base,
+struct d3dx_parameter *get_parameter_by_name(struct d3dx_effect *effect,
         struct d3dx_parameter *parameter, const char *name) DECLSPEC_HIDDEN;
 
 #ifdef __REACTOS__
@@ -388,7 +402,7 @@ struct d3dx_parameter *get_parameter_by_name(struct d3dx9_base_effect *base,
 #define SET_D3D_STATE(base_effect, args...) SET_D3D_STATE_(base_effect->manager, base_effect->device, args)
 #endif
 
-HRESULT d3dx_create_param_eval(struct d3dx9_base_effect *base_effect, void *byte_code,
+HRESULT d3dx_create_param_eval(struct d3dx_effect *effect, void *byte_code,
         unsigned int byte_code_size, D3DXPARAMETER_TYPE type,
         struct d3dx_param_eval **peval, ULONG64 *version_counter,
         const char **skip_constants, unsigned int skip_constants_count) DECLSPEC_HIDDEN;
@@ -407,7 +421,5 @@ struct ctab_constant {
 
 const struct ctab_constant *d3dx_shader_get_ctab_constant(ID3DXConstantTable *iface,
         D3DXHANDLE constant) DECLSPEC_HIDDEN;
-
-HRESULT create_dummy_skin(ID3DXSkinInfo **iface) DECLSPEC_HIDDEN;
 
 #endif /* __WINE_D3DX9_PRIVATE_H */

@@ -29,7 +29,7 @@ ULONG CcLazyWriteIos = 0;
  * - Queue for stuff to be queued after lazy writer is done
  * - Marker for throttling queues
  * - Number of ongoing workers
- * - Three seconds delay for lazy writer 
+ * - Three seconds delay for lazy writer
  * - One second delay for lazy writer
  * - Zero delay for lazy writer
  * - Number of worker threads
@@ -109,15 +109,43 @@ CcScanDpc(
     }
 
     /* And post it, it will be for lazy write */
-    WorkItem->Function = LazyWrite;
+    WorkItem->Function = LazyScan;
     CcPostWorkQueue(WorkItem, &CcRegularWorkQueue);
+}
+
+VOID
+CcWriteBehind(VOID)
+{
+    ULONG Target, Count;
+
+    Target = CcTotalDirtyPages / 8;
+    if (Target != 0)
+    {
+        /* Flush! */
+        DPRINT("Lazy writer starting (%d)\n", Target);
+        CcRosFlushDirtyPages(Target, &Count, FALSE, TRUE);
+
+        /* And update stats */
+        CcLazyWritePages += Count;
+        ++CcLazyWriteIos;
+        DPRINT("Lazy writer done (%d)\n", Count);
+    }
+
+    /* Make sure we're not throttling writes after this */
+    while (MmAvailablePages < MmThrottleTop)
+    {
+        /* Break if we can't even find one to free */
+        if (!CcRosFreeOneUnusedVacb())
+        {
+            break;
+        }
+    }
 }
 
 VOID
 CcLazyWriteScan(VOID)
 {
     ULONG Target;
-    ULONG Count;
     KIRQL OldIrql;
     PLIST_ENTRY ListEntry;
     LIST_ENTRY ToPost;
@@ -142,14 +170,15 @@ CcLazyWriteScan(VOID)
     Target = CcTotalDirtyPages / 8;
     if (Target != 0)
     {
-        /* Flush! */
-        DPRINT("Lazy writer starting (%d)\n", Target);
-        CcRosFlushDirtyPages(Target, &Count, FALSE, TRUE);
+        /* There is stuff to flush, schedule a write-behind operation */
 
-        /* And update stats */
-        CcLazyWritePages += Count;
-        ++CcLazyWriteIos;
-        DPRINT("Lazy writer done (%d)\n", Count);
+        /* Allocate a work item */
+        WorkItem = ExAllocateFromNPagedLookasideList(&CcTwilightLookasideList);
+        if (WorkItem != NULL)
+        {
+            WorkItem->Function = WriteBehind;
+            CcPostWorkQueue(WorkItem, &CcRegularWorkQueue);
+        }
     }
 
     /* Post items that were due for end of run */
@@ -208,7 +237,7 @@ CcWorkerThread(
     IN PVOID Parameter)
 {
     KIRQL OldIrql;
-    BOOLEAN DropThrottle;
+    BOOLEAN DropThrottle, WritePerformed;
     PWORK_QUEUE_ITEM Item;
 #if DBG
     PIRP TopLevel;
@@ -218,6 +247,8 @@ CcWorkerThread(
     Item = Parameter;
     /* And by default, don't touch throttle */
     DropThrottle = FALSE;
+    /* No write performed */
+    WritePerformed =  FALSE;
 
 #if DBG
     /* Top level IRP should be clean when started
@@ -285,7 +316,14 @@ CcWorkerThread(
                 CcPerformReadAhead(WorkItem->Parameters.Read.FileObject);
                 break;
 
-            case LazyWrite:
+            case WriteBehind:
+                PsGetCurrentThread()->MemoryMaker = 1;
+                CcWriteBehind();
+                PsGetCurrentThread()->MemoryMaker = 0;
+                WritePerformed = TRUE;
+                break;
+
+            case LazyScan:
                 CcLazyWriteScan();
                 break;
 
@@ -308,6 +346,19 @@ CcWorkerThread(
     /* One less worker */
     --CcNumberActiveWorkerThreads;
     KeReleaseQueuedSpinLock(LockQueueWorkQueueLock, OldIrql);
+
+    /* If there are pending write openations and we have at least 20 dirty pages */
+    if (!IsListEmpty(&CcDeferredWrites) && CcTotalDirtyPages >= 20)
+    {
+        /* And if we performed a write operation previously, then
+         * stress the system a bit and reschedule a scan to find
+         * stuff to write
+         */
+        if (WritePerformed)
+        {
+            CcLazyWriteScan();
+        }
+    }
 
 #if DBG
     /* Top level shouldn't have changed */

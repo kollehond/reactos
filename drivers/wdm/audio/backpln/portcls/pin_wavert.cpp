@@ -8,33 +8,14 @@
 
 #include "private.hpp"
 
-#ifndef YDEBUG
 #define NDEBUG
-#endif
-
 #include <debug.h>
 
-class CPortPinWaveRT : public IPortPinWaveRT
+class CPortPinWaveRT : public CUnknownImpl<IPortPinWaveRT>
 {
 public:
     STDMETHODIMP QueryInterface( REFIID InterfaceId, PVOID* Interface);
 
-    STDMETHODIMP_(ULONG) AddRef()
-    {
-        InterlockedIncrement(&m_Ref);
-        return m_Ref;
-    }
-    STDMETHODIMP_(ULONG) Release()
-    {
-        InterlockedDecrement(&m_Ref);
-
-        if (!m_Ref)
-        {
-            delete this;
-            return 0;
-        }
-        return m_Ref;
-    }
     IMP_IPortPinWaveRT;
     CPortPinWaveRT(IUnknown *OuterUnknown){}
     virtual ~CPortPinWaveRT(){}
@@ -68,8 +49,6 @@ protected:
     MEMORY_CACHING_TYPE m_CacheType;
     PMDL m_Mdl;
 
-    LONG m_Ref;
-
     NTSTATUS NTAPI HandleKsProperty(IN PIRP Irp);
     NTSTATUS NTAPI HandleKsStream(IN PIRP Irp);
     VOID NTAPI SetStreamState(IN KSSTATE State);
@@ -78,7 +57,6 @@ protected:
 
 };
 
-
 typedef struct
 {
     CPortPinWaveRT *Pin;
@@ -86,8 +64,8 @@ typedef struct
     KSSTATE State;
 }SETSTREAM_CONTEXT, *PSETSTREAM_CONTEXT;
 
-
 //==================================================================================================================================
+
 NTSTATUS
 NTAPI
 CPortPinWaveRT::QueryInterface(
@@ -96,7 +74,7 @@ CPortPinWaveRT::QueryInterface(
 {
     DPRINT("IServiceSink_fnQueryInterface entered\n");
 
-    if (IsEqualGUIDAligned(refiid, IID_IIrpTarget) || 
+    if (IsEqualGUIDAligned(refiid, IID_IIrpTarget) ||
         IsEqualGUIDAligned(refiid, IID_IUnknown))
     {
         *Output = PVOID(PUNKNOWN((IIrpTarget*)this));
@@ -304,36 +282,43 @@ CPortPinWaveRT::DeviceIoControl(
 
     IoStack = IoGetCurrentIrpStackLocation(Irp);
 
+    switch (IoStack->Parameters.DeviceIoControl.IoControlCode)
+    {
+        case IOCTL_KS_PROPERTY:
+            return HandleKsProperty(Irp);
 
-    if (IoStack->Parameters.DeviceIoControl.IoControlCode == IOCTL_KS_PROPERTY)
-    {
-       return HandleKsProperty(Irp);
-    }
-    else if (IoStack->Parameters.DeviceIoControl.IoControlCode == IOCTL_KS_ENABLE_EVENT)
-    {
-        /// FIXME
-        /// handle enable event
-    }
-    else if (IoStack->Parameters.DeviceIoControl.IoControlCode == IOCTL_KS_DISABLE_EVENT)
-    {
-        /// FIXME
-        /// handle disable event
-    }
-    else if (IoStack->Parameters.DeviceIoControl.IoControlCode == IOCTL_KS_RESET_STATE)
-    {
-        /// FIXME
-        /// handle reset state
-    }
-    else if (IoStack->Parameters.DeviceIoControl.IoControlCode == IOCTL_KS_WRITE_STREAM || IoStack->Parameters.DeviceIoControl.IoControlCode == IOCTL_KS_READ_STREAM)
-    {
-       return HandleKsStream(Irp);
-    }
-    else
-    {
-        return KsDefaultDeviceIoCompletion(DeviceObject, Irp);
-    }
+        case IOCTL_KS_ENABLE_EVENT:
+            /* FIXME UNIMPLEMENTED */
+            UNIMPLEMENTED_ONCE;
+            break;
 
-    UNIMPLEMENTED;
+        case IOCTL_KS_DISABLE_EVENT:
+            /* FIXME UNIMPLEMENTED */
+            UNIMPLEMENTED_ONCE;
+            break;
+
+        case IOCTL_KS_HANDSHAKE:
+            /* FIXME UNIMPLEMENTED */
+            UNIMPLEMENTED_ONCE;
+            break;
+
+        case IOCTL_KS_METHOD:
+            /* FIXME UNIMPLEMENTED */
+            UNIMPLEMENTED_ONCE;
+            return KsDefaultDeviceIoCompletion(DeviceObject, Irp);
+
+        case IOCTL_KS_RESET_STATE:
+            /* FIXME UNIMPLEMENTED */
+            UNIMPLEMENTED_ONCE;
+            break;
+
+        case IOCTL_KS_WRITE_STREAM:
+        case IOCTL_KS_READ_STREAM:
+            return HandleKsStream(Irp);
+
+        default:
+            return KsDefaultDeviceIoCompletion(DeviceObject, Irp);
+    }
 
     Irp->IoStatus.Information = 0;
     Irp->IoStatus.Status = STATUS_UNSUCCESSFUL;
@@ -680,7 +665,6 @@ cleanup:
     }
     return Status;
 }
-
 
 NTSTATUS
 NewPortPinWaveRT(

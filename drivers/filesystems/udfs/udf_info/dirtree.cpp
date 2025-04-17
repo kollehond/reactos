@@ -226,7 +226,7 @@ UDFDirIndexTrunc(
             // someone tries to trunc. residual entries...
             return STATUS_INVALID_PARAMETER;
         }
-        
+
         if(!MyReallocPool__((int8*)(FrameList[k]), AlignDirIndex(hDirNdx->LastFrameCount)*sizeof(DIR_INDEX_ITEM),
                        (int8**)(&(FrameList[k])), AlignDirIndex(j)*sizeof(DIR_INDEX_ITEM) ) )
             return STATUS_INSUFFICIENT_RESOURCES;
@@ -358,7 +358,7 @@ UDFDirIndexInitScan(
     }
     if( (Context->j = Index & (UDF_DIR_INDEX_FRAME-1)) >=
                ((Context->frame < (Context->hDirNdx->FrameCount-1))
-                                    ? 
+                                    ?
                                  UDF_DIR_INDEX_FRAME : Context->hDirNdx->LastFrameCount) ) {
         return FALSE;
     }
@@ -390,7 +390,7 @@ UDFDirIndexScan(
     if(Context->j >= Context->d) {
         Context->j=0;
         Context->frame++;
-        Context->DirNdx = UDFDirIndexGetFrame(Context->hDirNdx, 
+        Context->DirNdx = UDFDirIndexGetFrame(Context->hDirNdx,
                                               Context->frame,
                                               &(Context->d),
                                               &(Context->i),
@@ -405,7 +405,7 @@ UDFDirIndexScan(
     if(_FileInfo) {
         if((FileInfo = Context->DirNdx->FileInfo)) {
             if(FileInfo->ParentFile != Context->DirInfo) {
-                ParFileInfo = UDFLocateParallelFI(Context->DirInfo, 
+                ParFileInfo = UDFLocateParallelFI(Context->DirInfo,
                                                   Context->i,
                                                   FileInfo);
 #ifdef UDF_DBG
@@ -481,7 +481,7 @@ UDFFindNextFI(
     while(prevOffset+sizeof(FILE_IDENT_DESC) < Length) {
         prevOffset++;
         FileId = (PFILE_IDENT_DESC)(buff+prevOffset);
-        if(FileId->descTag.tagIdent != TID_FILE_IDENT_DESC) 
+        if(FileId->descTag.tagIdent != TID_FILE_IDENT_DESC)
             continue;
         if(FileId->descTag.descVersion != 2 && FileId->descTag.descVersion != 3)
             continue;
@@ -519,7 +519,7 @@ UDFIndexDirectory(
     int8* buff;
     PEXTENT_INFO ExtInfo;  // Extent array for directory
     uint16 PartNum;
-    uint32 ReadBytes;
+    SIZE_T ReadBytes;
     uint16 valueCRC;
 
     if(!FileInfo) return STATUS_INVALID_PARAMETER;
@@ -753,7 +753,7 @@ UDFPackDirectory__(
     uint32 Offset, curOffset;
     int8* Buf;
     OSSTATUS status;
-    uint32 ReadBytes;
+    SIZE_T ReadBytes;
     int8* storedFI;
     PUDF_FILE_INFO curFileInfo;
     PDIR_INDEX_ITEM DirNdx, DirNdx2;
@@ -901,7 +901,7 @@ UDFReTagDirectory(
     uint32 Offset;
     int8* Buf;
     OSSTATUS status;
-    uint32 ReadBytes;
+    SIZE_T ReadBytes;
     PUDF_FILE_INFO curFileInfo;
     PDIR_INDEX_ITEM DirNdx;
     UDF_DIR_SCAN_CONTEXT ScanContext;
@@ -1054,7 +1054,7 @@ UDFFindFile(
                 (!RtlCompareUnicodeString(&(DirNdx->FName), Name, FALSE)) ) {
                 (*Index) = ScanContext.i;
                 return STATUS_SUCCESS;
-            } else 
+            } else
             if( (DirNdx->hashes.hLfn == hashes.hLfn) &&
                 (j == (uint_di)(-1)) &&
                 (!RtlCompareUnicodeString(&(DirNdx->FName), Name, IgnoreCase)) ) {

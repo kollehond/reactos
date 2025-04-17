@@ -1,5 +1,3 @@
-/* $Id: tiffio.h,v 1.94 2017-01-11 19:02:49 erouault Exp $ */
-
 /*
  * Copyright (c) 1988-1997 Sam Leffler
  * Copyright (c) 1991-1997 Silicon Graphics, Inc.
@@ -52,7 +50,7 @@ typedef struct tiff TIFF;
  *     promoted type (i.e. one of int, unsigned int, pointer,
  *     or double) and because we defined pseudo-tags that are
  *     outside the range of legal Aldus-assigned tags.
- * NB: tsize_t is int32 and not uint32 because some functions
+ * NB: tsize_t is signed and not unsigned because some functions
  *     return -1.
  * NB: toff_t is not off_t for many reasons; TIFFs max out at
  *     32-bit file offsets, and BigTIFF maxes out at 64-bit
@@ -96,12 +94,7 @@ typedef void* tdata_t;          /* image data ref */
 
 #if defined(USE_WIN32_FILEIO)
 # define VC_EXTRALEAN
-#ifdef __REACTOS__
-# define WIN32_NO_STATUS
-# include <windef.h>
-#else /* __REACTOS__ */
 # include <windows.h>
-#endif /* __REACTOS__ */
 # ifdef __WIN32__
 DECLARE_HANDLE(thandle_t);     /* Win32 file handle */
 # else
@@ -125,7 +118,7 @@ typedef void* thandle_t;       /* client data handle */
 #define TIFFPRINT_JPEGACTABLES 0x200  /* JPEG AC tables */
 #define TIFFPRINT_JPEGDCTABLES 0x200  /* JPEG DC tables */
 
-/* 
+/*
  * Colour conversion stuff
  */
 
@@ -185,7 +178,7 @@ typedef struct _TIFFRGBAImage TIFFRGBAImage;
 /*
  * The image reading and conversion routines invoke
  * ``put routines'' to copy/image/whatever tiles of
- * raw image data.  A default set of routines are 
+ * raw image data.  A default set of routines are
  * provided to convert/copy raw image data to 8-bit
  * packed ABGR format rasters.  Applications can supply
  * alternate routines that unpack the data into a
@@ -310,7 +303,7 @@ extern void _TIFFfree(void* p);
 */
 extern int TIFFGetTagListCount( TIFF * );
 extern uint32 TIFFGetTagListEntry( TIFF *, int tag_index );
-    
+
 #define TIFF_ANY       TIFF_NOTYPE     /* for field descriptor searching */
 #define TIFF_VARIABLE  -1              /* marker for variable length tags */
 #define TIFF_SPP       -2              /* marker for SamplesPerPixel tags */
@@ -388,7 +381,7 @@ extern int TIFFIsMSB2LSB(TIFF*);
 extern int TIFFIsBigEndian(TIFF*);
 extern TIFFReadWriteProc TIFFGetReadProc(TIFF*);
 extern TIFFReadWriteProc TIFFGetWriteProc(TIFF*);
-extern TIFFSeekProc TIFFGetSeekProc(TIFF*);                                                          
+extern TIFFSeekProc TIFFGetSeekProc(TIFF*);
 extern TIFFCloseProc TIFFGetCloseProc(TIFF*);
 extern TIFFSizeProc TIFFGetSizeProc(TIFF*);
 extern TIFFMapFileProc TIFFGetMapFileProc(TIFF*);
@@ -400,7 +393,7 @@ extern uint64 TIFFCurrentDirOffset(TIFF*);
 extern uint32 TIFFCurrentStrip(TIFF*);
 extern uint32 TIFFCurrentTile(TIFF* tif);
 extern int TIFFReadBufferSetup(TIFF* tif, void* bp, tmsize_t size);
-extern int TIFFWriteBufferSetup(TIFF* tif, void* bp, tmsize_t size);  
+extern int TIFFWriteBufferSetup(TIFF* tif, void* bp, tmsize_t size);
 extern int TIFFSetupStrips(TIFF *);
 extern int TIFFWriteCheck(TIFF*, int, const char *);
 extern void TIFFFreeDirectory(TIFF*);
@@ -418,6 +411,8 @@ extern int TIFFWriteDirectory(TIFF *);
 extern int TIFFWriteCustomDirectory(TIFF *, uint64 *);
 extern int TIFFCheckpointDirectory(TIFF *);
 extern int TIFFRewriteDirectory(TIFF *);
+extern int TIFFDeferStrileArrayWriting(TIFF *);
+extern int TIFFForceStrileArrayWriting(TIFF* );
 
 #if defined(c_plusplus) || defined(__cplusplus)
 extern void TIFFPrintDirectory(TIFF*, FILE*, long = 0);
@@ -467,18 +462,21 @@ extern TIFFExtendProc TIFFSetTagExtender(TIFFExtendProc);
 extern uint32 TIFFComputeTile(TIFF* tif, uint32 x, uint32 y, uint32 z, uint16 s);
 extern int TIFFCheckTile(TIFF* tif, uint32 x, uint32 y, uint32 z, uint16 s);
 extern uint32 TIFFNumberOfTiles(TIFF*);
-extern tmsize_t TIFFReadTile(TIFF* tif, void* buf, uint32 x, uint32 y, uint32 z, uint16 s);  
+extern tmsize_t TIFFReadTile(TIFF* tif, void* buf, uint32 x, uint32 y, uint32 z, uint16 s);
 extern tmsize_t TIFFWriteTile(TIFF* tif, void* buf, uint32 x, uint32 y, uint32 z, uint16 s);
 extern uint32 TIFFComputeStrip(TIFF*, uint32, uint16);
 extern uint32 TIFFNumberOfStrips(TIFF*);
 extern tmsize_t TIFFReadEncodedStrip(TIFF* tif, uint32 strip, void* buf, tmsize_t size);
-extern tmsize_t TIFFReadRawStrip(TIFF* tif, uint32 strip, void* buf, tmsize_t size);  
-extern tmsize_t TIFFReadEncodedTile(TIFF* tif, uint32 tile, void* buf, tmsize_t size);  
-extern tmsize_t TIFFReadRawTile(TIFF* tif, uint32 tile, void* buf, tmsize_t size);  
+extern tmsize_t TIFFReadRawStrip(TIFF* tif, uint32 strip, void* buf, tmsize_t size);
+extern tmsize_t TIFFReadEncodedTile(TIFF* tif, uint32 tile, void* buf, tmsize_t size);
+extern tmsize_t TIFFReadRawTile(TIFF* tif, uint32 tile, void* buf, tmsize_t size);
+extern int      TIFFReadFromUserBuffer(TIFF* tif, uint32 strile,
+                                       void* inbuf, tmsize_t insize,
+                                       void* outbuf, tmsize_t outsize);
 extern tmsize_t TIFFWriteEncodedStrip(TIFF* tif, uint32 strip, void* data, tmsize_t cc);
-extern tmsize_t TIFFWriteRawStrip(TIFF* tif, uint32 strip, void* data, tmsize_t cc);  
-extern tmsize_t TIFFWriteEncodedTile(TIFF* tif, uint32 tile, void* data, tmsize_t cc);  
-extern tmsize_t TIFFWriteRawTile(TIFF* tif, uint32 tile, void* data, tmsize_t cc);  
+extern tmsize_t TIFFWriteRawStrip(TIFF* tif, uint32 strip, void* data, tmsize_t cc);
+extern tmsize_t TIFFWriteEncodedTile(TIFF* tif, uint32 tile, void* data, tmsize_t cc);
+extern tmsize_t TIFFWriteRawTile(TIFF* tif, uint32 tile, void* data, tmsize_t cc);
 extern int TIFFDataWidth(TIFFDataType);    /* table of tag datatype widths */
 extern void TIFFSetWriteOffset(TIFF* tif, toff_t off);
 extern void TIFFSwabShort(uint16*);
@@ -494,6 +492,11 @@ extern void TIFFSwabArrayOfFloat(float* fp, tmsize_t n);
 extern void TIFFSwabArrayOfDouble(double* dp, tmsize_t n);
 extern void TIFFReverseBits(uint8* cp, tmsize_t n);
 extern const unsigned char* TIFFGetBitRevTable(int);
+
+extern uint64 TIFFGetStrileOffset(TIFF *tif, uint32 strile);
+extern uint64 TIFFGetStrileByteCount(TIFF *tif, uint32 strile);
+extern uint64 TIFFGetStrileOffsetWithErr(TIFF *tif, uint32 strile, int *pbErr);
+extern uint64 TIFFGetStrileByteCountWithErr(TIFF *tif, uint32 strile, int *pbErr);
 
 #ifdef LOGLUV_PUBLIC
 #define U_NEU		0.210526316
@@ -548,7 +551,7 @@ typedef	struct {
 } TIFFFieldInfo;
 
 extern int TIFFMergeFieldInfo(TIFF*, const TIFFFieldInfo[], uint32);
-        
+
 #if defined(c_plusplus) || defined(__cplusplus)
 }
 #endif

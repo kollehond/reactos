@@ -13,10 +13,6 @@
 #define NDEBUG
 #include <debug.h>
 
-#if defined (ALLOC_PRAGMA)
-#pragma alloc_text(INIT, ExpInitializeEventImplementation)
-#endif
-
 /* GLOBALS *******************************************************************/
 
 POBJECT_TYPE ExEventObjectType = NULL;
@@ -32,13 +28,13 @@ GENERIC_MAPPING ExpEventMapping =
 static const INFORMATION_CLASS_INFO ExEventInfoClass[] =
 {
     /* EventBasicInformation */
-    ICI_SQ_SAME( sizeof(EVENT_BASIC_INFORMATION), sizeof(ULONG), ICIF_QUERY),
+    IQS_SAME(EVENT_BASIC_INFORMATION, ULONG, ICIF_QUERY),
 };
 
 /* FUNCTIONS *****************************************************************/
 
+CODE_SEG("INIT")
 BOOLEAN
-INIT_FUNCTION
 NTAPI
 ExpInitializeEventImplementation(VOID)
 {
@@ -333,6 +329,7 @@ NtQueryEvent(IN HANDLE EventHandle,
                                          ExEventInfoClass,
                                          sizeof(ExEventInfoClass) /
                                          sizeof(ExEventInfoClass[0]),
+                                         ICIF_PROBE_READ_WRITE,
                                          EventInformation,
                                          EventInformationLength,
                                          ReturnLength,

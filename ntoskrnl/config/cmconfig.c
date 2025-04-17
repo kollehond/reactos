@@ -14,9 +14,9 @@
 
 /* FUNCTIONS *****************************************************************/
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 CmpInitializeRegistryNode(IN PCONFIGURATION_COMPONENT_DATA CurrentEntry,
                           IN HANDLE NodeHandle,
                           OUT PHANDLE NewHandle,
@@ -199,9 +199,9 @@ CmpInitializeRegistryNode(IN PCONFIGURATION_COMPONENT_DATA CurrentEntry,
     return Status;
 }
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 CmpSetupConfigurationTree(IN PCONFIGURATION_COMPONENT_DATA CurrentEntry,
                           IN HANDLE ParentHandle,
                           IN INTERFACE_TYPE InterfaceType,
@@ -209,7 +209,8 @@ CmpSetupConfigurationTree(IN PCONFIGURATION_COMPONENT_DATA CurrentEntry,
 {
     PCONFIGURATION_COMPONENT Component;
     USHORT DeviceIndexTable[MaximumType + 1] = {0};
-    ULONG Interface = InterfaceType, Bus = BusNumber, i;
+    INTERFACE_TYPE Interface = InterfaceType;
+    ULONG Bus = BusNumber, i;
     NTSTATUS Status;
     HANDLE NewHandle;
 
@@ -279,7 +280,7 @@ CmpSetupConfigurationTree(IN PCONFIGURATION_COMPONENT_DATA CurrentEntry,
                 /* Unknown */
                 default:
                 {
-                    Interface = -1;
+                    Interface = InterfaceTypeUndefined;
                     Bus = CmpUnknownBusCount++;
                     break;
                 }
@@ -322,9 +323,9 @@ CmpSetupConfigurationTree(IN PCONFIGURATION_COMPONENT_DATA CurrentEntry,
     return STATUS_SUCCESS;
 }
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 CmpInitializeHardwareConfiguration(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
     NTSTATUS Status;
@@ -332,6 +333,11 @@ CmpInitializeHardwareConfiguration(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     HANDLE KeyHandle;
     ULONG Disposition;
     UNICODE_STRING KeyName;
+
+    /* Set the alternative system architecture information */
+#if defined(SARCH_PC98)
+    SharedUserData->AlternativeArchitecture = NEC98x86;
+#endif
 
     /* Setup the key name */
     RtlInitUnicodeString(&KeyName,
@@ -396,7 +402,7 @@ CmpInitializeHardwareConfiguration(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
         /* Setup the configuration tree */
         Status = CmpSetupConfigurationTree(LoaderBlock->ConfigurationRoot,
                                            KeyHandle,
-                                           -1,
+                                           InterfaceTypeUndefined,
                                            -1);
     }
     else

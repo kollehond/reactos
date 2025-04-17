@@ -140,7 +140,7 @@ LoadCurrentScheme(OUT COLOR_SCHEME *scheme)
 #if (WINVER >= 0x0600)
     /* Size of NONCLIENTMETRICSA/W depends on current version of the OS.
      * see:
-     *  https://msdn.microsoft.com/en-us/library/windows/desktop/ff729175%28v=vs.85%29.aspx
+     *  https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-nonclientmetricsa
      */
     if (GetVersionEx(&osvi))
     {
@@ -707,7 +707,7 @@ EnumThemeStyles(IN LPCWSTR pszThemeFileName, IN ENUMTHEMESTYLE pfnEnumTheme)
 PTHEME LoadTheme(IN LPCWSTR pszThemeFileName,IN LPCWSTR pszThemeName)
 {
     PTHEME pTheme = CreateTheme(pszThemeFileName, pszThemeName);
-    if (pTheme == NULL) 
+    if (pTheme == NULL)
         return NULL;
 
     pTheme->SizesList = EnumThemeStyles( pszThemeFileName, (ENUMTHEMESTYLE)EnumThemeSizes);
@@ -784,11 +784,11 @@ LoadThemes(VOID)
 }
 
 /*
- * FindSelectedTheme: Finds the specified theme in the list of themes 
+ * FindSelectedTheme: Finds the specified theme in the list of themes
  *                    or loads it if it was not loaded already.
  */
 BOOL
-FindOrAppendTheme(IN PTHEME pThemeList, 
+FindOrAppendTheme(IN PTHEME pThemeList,
                   IN LPCWSTR pwszThemeFileName,
                   IN LPCWSTR pwszColorBuff,
                   IN LPCWSTR pwszSizeBuff,
@@ -855,7 +855,7 @@ GetActiveTheme(IN PTHEME pThemeList, OUT PTHEME_SELECTION pSelectedTheme)
                                MAX_PATH,
                                szSizeBuff,
                                MAX_PATH);
-    if (FAILED(hret))  
+    if (FAILED(hret))
         return FALSE;
 
     return FindOrAppendTheme(pThemeList, szThemeFileName, szColorBuff, szSizeBuff, pSelectedTheme);
@@ -997,7 +997,8 @@ DrawThemePreview(IN HDC hdcMem, IN PCOLOR_SCHEME scheme, IN PTHEME_SELECTION pSe
     FillRect(hdcMem, prcWindow, hbrBack);
     DeleteObject(hbrBack);
 
-    InflateRect(prcWindow, -10, -10);
+    InflateRect(prcWindow, -8, -8);
+    prcWindow->bottom -= 12;
 
     hres = DrawNCPreview(hdcMem,
                          DNCP_DRAW_ALL,
@@ -1057,4 +1058,35 @@ cleanup:
     CleanupThemes(pThemes);
 
     return ret;
+}
+
+/* TODO: */
+INT_PTR CALLBACK
+ThemesPageProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    LPNMHDR lpnm;
+
+    switch (uMsg)
+    {
+        case WM_INITDIALOG:
+            break;
+
+        case WM_COMMAND:
+            break;
+
+        case WM_NOTIFY:
+            lpnm = (LPNMHDR)lParam;
+            switch (lpnm->code)
+            {
+                case PSN_APPLY:
+                    SendMessage(HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)TEXT(""));
+                    return TRUE;
+            }
+            break;
+
+        case WM_DESTROY:
+            break;
+    }
+
+    return FALSE;
 }

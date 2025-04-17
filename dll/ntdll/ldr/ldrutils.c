@@ -50,9 +50,9 @@ LdrpAllocateUnicodeString(IN OUT PUNICODE_STRING StringOut,
     }
 
     /* Allocate the string*/
-    StringOut->Buffer = RtlAllocateHeap(RtlGetProcessHeap(),
+    StringOut->Buffer = RtlAllocateHeap(LdrpHeap,
                                         0,
-                                        StringOut->Length + sizeof(WCHAR));
+                                        Length + sizeof(WCHAR));
     if (!StringOut->Buffer)
     {
         /* Fail */
@@ -61,13 +61,13 @@ LdrpAllocateUnicodeString(IN OUT PUNICODE_STRING StringOut,
     }
 
     /* Null-terminate it */
-    StringOut->Buffer[StringOut->Length / sizeof(WCHAR)] = UNICODE_NULL;
+    StringOut->Buffer[Length / sizeof(WCHAR)] = UNICODE_NULL;
 
     /* Check if this is a maximum-sized string */
-    if (StringOut->Length != UNICODE_STRING_MAX_BYTES)
+    if (Length != UNICODE_STRING_MAX_BYTES)
     {
         /* It's not, so set the maximum length to be one char more */
-        StringOut->MaximumLength = StringOut->Length + sizeof(UNICODE_NULL);
+        StringOut->MaximumLength = (USHORT)Length + sizeof(UNICODE_NULL);
     }
     else
     {
@@ -88,7 +88,7 @@ LdrpFreeUnicodeString(IN PUNICODE_STRING StringIn)
     /* If Buffer is not NULL - free it */
     if (StringIn->Buffer)
     {
-        RtlFreeHeap(RtlGetProcessHeap(), 0, StringIn->Buffer);
+        RtlFreeHeap(LdrpHeap, 0, StringIn->Buffer);
     }
 
     /* Zero it out */
@@ -187,29 +187,20 @@ LdrpUpdateLoadCount3(IN PLDR_DATA_TABLE_ENTRY LdrEntry,
                 RedirectedImportName = ImportNameUnic;
 
                 /* Check if the SxS Assemblies specify another file */
-                Status = RtlDosApplyFileIsolationRedirection_Ustr(TRUE,
-                                                                  ImportNameUnic,
-                                                                  &LdrApiDefaultExtension,
-                                                                  UpdateString,
-                                                                  NULL,
-                                                                  &RedirectedImportName,
-                                                                  NULL,
-                                                                  NULL,
-                                                                  NULL);
+                Status = LdrpApplyFileNameRedirection(
+                    ImportNameUnic, &LdrApiDefaultExtension, UpdateString, NULL, &RedirectedImportName,
+                    &RedirectedDll);
 
                 /* Check success */
-                if (NT_SUCCESS(Status))
+                if (NT_SUCCESS(Status) && RedirectedDll)
                 {
-                    /* Let Ldrp know */
                     if (ShowSnaps)
                     {
                         DPRINT1("LDR: %Z got redirected to %wZ\n", &ImportNameAnsi, RedirectedImportName);
                     }
-
-                    RedirectedDll = TRUE;
                 }
 
-                if (RedirectedDll || Status == STATUS_SXS_KEY_NOT_FOUND)
+                if (NT_SUCCESS(Status))
                 {
                     if (LdrpCheckForLoadedDll(NULL,
                                               RedirectedImportName,
@@ -251,7 +242,7 @@ LdrpUpdateLoadCount3(IN PLDR_DATA_TABLE_ENTRY LdrEntry,
                 else
                 {
                     /* Unrecoverable SxS failure */
-                    DPRINT1("LDR: RtlDosApplyFileIsolationRedirection_Ustr failed with status %x for dll %wZ\n", Status, ImportNameUnic);
+                    DPRINT1("LDR: LdrpApplyFileNameRedirection failed with status %x for dll %wZ\n", Status, ImportNameUnic);
                 }
 
             }
@@ -270,27 +261,20 @@ LdrpUpdateLoadCount3(IN PLDR_DATA_TABLE_ENTRY LdrEntry,
                     RedirectedImportName = ImportNameUnic;
 
                     /* Check if the SxS Assemblies specify another file */
-                    Status = RtlDosApplyFileIsolationRedirection_Ustr(TRUE,
-                                                                      ImportNameUnic,
-                                                                      &LdrApiDefaultExtension,
-                                                                      UpdateString,
-                                                                      NULL,
-                                                                      &RedirectedImportName,
-                                                                      NULL,
-                                                                      NULL,
-                                                                      NULL);
+                    Status = LdrpApplyFileNameRedirection(
+                        ImportNameUnic, &LdrApiDefaultExtension, UpdateString, NULL, &RedirectedImportName,
+                        &RedirectedDll);
+
                     /* Check success */
-                    if (NT_SUCCESS(Status))
+                    if (NT_SUCCESS(Status) && RedirectedDll)
                     {
                         if (ShowSnaps)
                         {
                             DPRINT1("LDR: %Z got redirected to %wZ\n", &ImportNameAnsi, RedirectedImportName);
                         }
-                        /* Let Ldrp know */
-                        RedirectedDll = TRUE;
                     }
 
-                    if (RedirectedDll || Status == STATUS_SXS_KEY_NOT_FOUND)
+                    if (NT_SUCCESS(Status))
                     {
                         if (LdrpCheckForLoadedDll(NULL,
                                                   RedirectedImportName,
@@ -332,7 +316,7 @@ LdrpUpdateLoadCount3(IN PLDR_DATA_TABLE_ENTRY LdrEntry,
                     else
                     {
                         /* Unrecoverable SxS failure */
-                        DPRINT1("LDR: RtlDosApplyFileIsolationRedirection_Ustr failed  with status %x for dll %wZ\n", Status, ImportNameUnic);
+                        DPRINT1("LDR: LdrpApplyFileNameRedirection failed  with status %x for dll %wZ\n", Status, ImportNameUnic);
                     }
 
                 }
@@ -376,28 +360,19 @@ LdrpUpdateLoadCount3(IN PLDR_DATA_TABLE_ENTRY LdrEntry,
                 RedirectedImportName = ImportNameUnic;
 
                 /* Check if the SxS Assemblies specify another file */
-                Status = RtlDosApplyFileIsolationRedirection_Ustr(TRUE,
-                                                                  ImportNameUnic,
-                                                                  &LdrApiDefaultExtension,
-                                                                  UpdateString,
-                                                                  NULL,
-                                                                  &RedirectedImportName,
-                                                                  NULL,
-                                                                  NULL,
-                                                                  NULL);
+                Status = LdrpApplyFileNameRedirection(
+                    ImportNameUnic, &LdrApiDefaultExtension, UpdateString, NULL, &RedirectedImportName, &RedirectedDll);
+
                 /* Check success */
-                if (NT_SUCCESS(Status))
+                if (NT_SUCCESS(Status) && RedirectedDll)
                 {
                     if (ShowSnaps)
                     {
                         DPRINT1("LDR: %Z got redirected to %wZ\n", &ImportNameAnsi, RedirectedImportName);
                     }
-
-                    /* Let Ldrp know */
-                    RedirectedDll = TRUE;
                 }
 
-                if (RedirectedDll || Status == STATUS_SXS_KEY_NOT_FOUND)
+                if (NT_SUCCESS(Status))
                 {
                     if (LdrpCheckForLoadedDll(NULL,
                                               RedirectedImportName,
@@ -440,9 +415,8 @@ LdrpUpdateLoadCount3(IN PLDR_DATA_TABLE_ENTRY LdrEntry,
                 else
                 {
                     /* Unrecoverable SxS failure */
-                    DPRINT1("LDR: RtlDosApplyFileIsolationRedirection_Ustr failed for dll %wZ\n", ImportNameUnic);
+                    DPRINT1("LDR: LdrpApplyFileNameRedirection failed for dll %wZ\n", ImportNameUnic);
                 }
-
             }
 
             /* Go to the next entry */
@@ -452,7 +426,7 @@ LdrpUpdateLoadCount3(IN PLDR_DATA_TABLE_ENTRY LdrEntry,
 
 done:
     /* Release the context */
-    RtlDeactivateActivationContextUnsafeFast(&ActCtx);    
+    RtlDeactivateActivationContextUnsafeFast(&ActCtx);
 }
 
 VOID
@@ -641,10 +615,12 @@ LdrpCreateDllSection(IN PUNICODE_STRING FullName,
 
         /* Increment the error count */
         if (LdrpInLdrInit) LdrpFatalHardErrorCount++;
+
+        goto Exit;
     }
 
     /* Check for Safer restrictions */
-    if (DllCharacteristics &&
+    if (!DllCharacteristics ||
         !(*DllCharacteristics & IMAGE_FILE_SYSTEM))
     {
         /* Make sure it's executable */
@@ -683,6 +659,7 @@ LdrpCreateDllSection(IN PUNICODE_STRING FullName,
         }
     }
 
+Exit:
     /* Close the file handle, we don't need it */
     NtClose(FileHandle);
 
@@ -703,7 +680,7 @@ LdrpResolveDllName(PWSTR DllPath,
     ULONG BufSize = 500;
 
     /* Allocate space for full DLL name */
-    FullDllName->Buffer = RtlAllocateHeap(RtlGetProcessHeap(), 0, BufSize + sizeof(UNICODE_NULL));
+    FullDllName->Buffer = RtlAllocateHeap(LdrpHeap, 0, BufSize + sizeof(UNICODE_NULL));
     if (!FullDllName->Buffer) return FALSE;
 
     Length = RtlDosSearchPath_U(DllPath ? DllPath : LdrpDefaultPath.Buffer,
@@ -721,7 +698,7 @@ LdrpResolveDllName(PWSTR DllPath,
             DPRINT1("%ws from %ws\n", DllName, DllPath ? DllPath : LdrpDefaultPath.Buffer);
         }
 
-        RtlFreeUnicodeString(FullDllName);
+        LdrpFreeUnicodeString(FullDllName);
         return FALSE;
     }
 
@@ -730,16 +707,16 @@ LdrpResolveDllName(PWSTR DllPath,
     FullDllName->MaximumLength = FullDllName->Length + sizeof(UNICODE_NULL);
 
     /* Allocate a new buffer */
-    NameBuffer = RtlAllocateHeap(RtlGetProcessHeap(), 0, FullDllName->MaximumLength);
+    NameBuffer = RtlAllocateHeap(LdrpHeap, 0, FullDllName->MaximumLength);
     if (!NameBuffer)
     {
-        RtlFreeHeap(RtlGetProcessHeap(), 0, FullDllName->Buffer);
+        RtlFreeHeap(LdrpHeap, 0, FullDllName->Buffer);
         return FALSE;
     }
 
     /* Copy over the contents from the previous one and free it */
     RtlCopyMemory(NameBuffer, FullDllName->Buffer, FullDllName->MaximumLength);
-    RtlFreeHeap(RtlGetProcessHeap(), 0, FullDllName->Buffer);
+    RtlFreeHeap(LdrpHeap, 0, FullDllName->Buffer);
     FullDllName->Buffer = NameBuffer;
 
     /* Find last backslash */
@@ -766,11 +743,11 @@ LdrpResolveDllName(PWSTR DllPath,
     /* Construct base DLL name */
     BaseDllName->Length = (ULONG_PTR)p1 - (ULONG_PTR)p2;
     BaseDllName->MaximumLength = BaseDllName->Length + sizeof(UNICODE_NULL);
-    BaseDllName->Buffer = RtlAllocateHeap(RtlGetProcessHeap(), 0, BaseDllName->MaximumLength);
+    BaseDllName->Buffer = RtlAllocateHeap(LdrpHeap, 0, BaseDllName->MaximumLength);
 
     if (!BaseDllName->Buffer)
     {
-        RtlFreeHeap(RtlGetProcessHeap(), 0, NameBuffer);
+        RtlFreeHeap(LdrpHeap, 0, NameBuffer);
         return FALSE;
     }
 
@@ -867,7 +844,7 @@ LdrpCheckForKnownDll(PWSTR DllName,
         /* Set up BaseDllName */
         BaseDllName->Length = DllNameUnic.Length;
         BaseDllName->MaximumLength = DllNameUnic.MaximumLength;
-        BaseDllName->Buffer = RtlAllocateHeap(RtlGetProcessHeap(),
+        BaseDllName->Buffer = RtlAllocateHeap(LdrpHeap,
                                               0,
                                               DllNameUnic.MaximumLength);
         if (!BaseDllName->Buffer)
@@ -882,7 +859,7 @@ LdrpCheckForKnownDll(PWSTR DllName,
         /* Set up FullDllName */
         FullDllName->Length = LdrpKnownDllPath.Length + BaseDllName->Length + sizeof(WCHAR);
         FullDllName->MaximumLength = FullDllName->Length + sizeof(UNICODE_NULL);
-        FullDllName->Buffer = RtlAllocateHeap(RtlGetProcessHeap(), 0, FullDllName->MaximumLength);
+        FullDllName->Buffer = RtlAllocateHeap(LdrpHeap, 0, FullDllName->MaximumLength);
         if (!FullDllName->Buffer)
         {
             Status = STATUS_NO_MEMORY;
@@ -932,8 +909,8 @@ Failure:
     if (Section) NtClose(Section);
 
     /* Free string resources */
-    if (BaseDllName->Buffer) RtlFreeHeap(RtlGetProcessHeap(), 0, BaseDllName->Buffer);
-    if (FullDllName->Buffer) RtlFreeHeap(RtlGetProcessHeap(), 0, FullDllName->Buffer);
+    if (BaseDllName->Buffer) RtlFreeHeap(LdrpHeap, 0, BaseDllName->Buffer);
+    if (FullDllName->Buffer) RtlFreeHeap(LdrpHeap, 0, FullDllName->Buffer);
 
     /* Return status */
     return Status;
@@ -1137,8 +1114,8 @@ SkipCheck:
             if (!NT_SUCCESS(Status))
             {
                 /* Free the name strings and return */
-                RtlFreeUnicodeString(&FullDllName);
-                RtlFreeUnicodeString(&BaseDllName);
+                LdrpFreeUnicodeString(&FullDllName);
+                LdrpFreeUnicodeString(&BaseDllName);
                 return Status;
             }
         }
@@ -1249,7 +1226,12 @@ SkipCheck:
     /* Insert this entry */
     LdrpInsertMemoryTableEntry(LdrEntry);
 
-    // LdrpSendDllNotifications(LdrEntry, TRUE, Status == STATUS_IMAGE_NOT_AT_BASE)
+#if (_WIN32_WINNT >= _WIN32_WINNT_VISTA) || (DLL_EXPORT_VERSION >= _WIN32_WINNT_VISTA)
+    LdrpSendDllNotifications(LdrEntry, LDR_DLL_NOTIFICATION_REASON_LOADED);
+#if (_WIN32_WINNT >= _WIN32_WINNT_WIN8)
+    LdrEntry->Flags |= LDRP_LOAD_NOTIFICATIONS_SENT; /* LdrEntry->LoadNotificationsSent = TRUE; */
+#endif
+#endif
 
     /* Check for invalid CPU Image */
     if (Status == STATUS_IMAGE_MACHINE_TYPE_MISMATCH)
@@ -1286,7 +1268,7 @@ SkipCheck:
             RemoveEntryList(&LdrEntry->HashLinks);
 
             /* Remove the LDR Entry */
-            RtlFreeHeap(RtlGetProcessHeap(), 0, LdrEntry );
+            RtlFreeHeap(LdrpHeap, 0, LdrEntry );
 
             /* Unmap and close section */
             NtUnmapViewOfSection(NtCurrentProcess(), ViewBase);
@@ -1332,7 +1314,7 @@ SkipCheck:
         ImageBase = (ULONG_PTR)NtHeaders->OptionalHeader.ImageBase;
         ImageEnd = ImageBase + ViewSize;
 
-        DPRINT1("LDR: LdrpMapDll Relocating Image Name %ws (%p-%p -> %p)\n", DllName, (PVOID)ImageBase, (PVOID)ImageEnd, ViewBase);
+        DPRINT("LDR: LdrpMapDll Relocating Image Name %ws (%p-%p -> %p)\n", DllName, (PVOID)ImageBase, (PVOID)ImageEnd, ViewBase);
 
         /* Scan all the modules */
         ListHead = &Peb->Ldr->InLoadOrderModuleList;
@@ -1371,7 +1353,7 @@ SkipCheck:
             RtlInitUnicodeString(&OverlapDll, L"Dynamically Allocated Memory");
         }
 
-        DPRINT1("Overlapping DLL: %wZ\n", &OverlapDll);
+        DPRINT("Overlapping DLL: %wZ\n", &OverlapDll);
 
         /* Are we dealing with a DLL? */
         if (LdrEntry->Flags & LDRP_IMAGE_DLL)
@@ -1416,6 +1398,8 @@ SkipCheck:
                 /* Setup for hard error */
                 HardErrorParameters[0] = (ULONG_PTR)&IllegalDll;
                 HardErrorParameters[1] = (ULONG_PTR)&OverlapDll;
+
+                DPRINT1("Illegal DLL relocation! %wZ overlaps %wZ\n", &OverlapDll, &IllegalDll);
 
                 /* Raise the error */
                 ZwRaiseHardError(STATUS_ILLEGAL_DLL_RELOCATION,
@@ -1553,7 +1537,7 @@ LdrpAllocateDataTableEntry(IN PVOID BaseAddress)
     if (NtHeader)
     {
         /* Allocate an entry */
-        LdrEntry = RtlAllocateHeap(RtlGetProcessHeap(),
+        LdrEntry = RtlAllocateHeap(LdrpHeap,
                                    HEAP_ZERO_MEMORY,
                                    sizeof(LDR_DATA_TABLE_ENTRY));
 
@@ -1608,7 +1592,7 @@ LdrpFinalizeAndDeallocateDataTableEntry(IN PLDR_DATA_TABLE_ENTRY Entry)
     if (Entry->FullDllName.Buffer) LdrpFreeUnicodeString(&Entry->FullDllName);
 
     /* Finally free the entry's memory */
-    RtlFreeHeap(RtlGetProcessHeap(), 0, Entry);
+    RtlFreeHeap(LdrpHeap, 0, Entry);
 }
 
 BOOLEAN
@@ -1851,6 +1835,7 @@ LdrpSearchPath(IN PWCHAR *SearchPath,
 
     /* FIXME: Setup TestName here */
     Status = STATUS_NOT_FOUND;
+    BufEnd = Buffer;
 
     /* Start loop */
     do
@@ -2243,14 +2228,15 @@ lookinhash:
 
 NTSTATUS
 NTAPI
-LdrpGetProcedureAddress(IN PVOID BaseAddress,
-                        IN PANSI_STRING Name,
-                        IN ULONG Ordinal,
-                        OUT PVOID *ProcedureAddress,
-                        IN BOOLEAN ExecuteInit)
+LdrpGetProcedureAddress(
+    _In_ PVOID BaseAddress,
+    _In_opt_ _When_(Ordinal == 0, _Notnull_) PANSI_STRING Name,
+    _In_opt_ _When_(Name == NULL, _In_range_(>, 0)) ULONG Ordinal,
+    _Out_ PVOID *ProcedureAddress,
+    _In_ BOOLEAN ExecuteInit)
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    UCHAR ImportBuffer[64];
+    UCHAR ImportBuffer[64]; // 128 since NT6.2
     PLDR_DATA_TABLE_ENTRY LdrEntry;
     IMAGE_THUNK_DATA Thunk;
     PVOID ImageBase;
@@ -2285,6 +2271,11 @@ LdrpGetProcedureAddress(IN PVOID BaseAddress,
             ImportName = RtlAllocateHeap(RtlGetProcessHeap(),
                                          0,
                                          Length);
+            if (!ImportName)
+            {
+                /* Return STATUS_INSUFFICIENT_RESOURCES since NT6.2 */
+                return STATUS_INVALID_PARAMETER;
+            }
         }
         else
         {
@@ -2443,6 +2434,7 @@ LdrpLoadDll(IN BOOLEAN Redirected,
     RtlCopyUnicodeString(&RawDllName, DllName);
 
     /* Find the extension, if present */
+    /* NOTE: Access violation is expected here in some cases (Buffer[-1]) */
     p = DllName->Buffer + DllName->Length / sizeof(WCHAR) - 1;
     GotExtension = FALSE;
     while (p >= DllName->Buffer)
@@ -2695,7 +2687,8 @@ PVOID LdrpGetShimEngineFunction(PCSZ FunctionName)
     NTSTATUS Status;
     PVOID Address;
     RtlInitAnsiString(&Function, FunctionName);
-    Status = LdrGetProcedureAddress(g_pShimEngineModule, &Function, 0, &Address);
+    /* Skip Dll init */
+    Status = LdrpGetProcedureAddress(g_pShimEngineModule, &Function, 0, &Address, FALSE);
     return NT_SUCCESS(Status) ? Address : NULL;
 }
 
@@ -2724,6 +2717,40 @@ LdrpGetShimEngineInterface()
     }
 }
 
+VOID
+NTAPI
+LdrpRunShimEngineInitRoutine(IN ULONG Reason)
+{
+    PLIST_ENTRY ListHead, Next;
+    PLDR_DATA_TABLE_ENTRY LdrEntry;
+
+    ListHead = &NtCurrentPeb()->Ldr->InLoadOrderModuleList;
+    Next = ListHead->Flink;
+    while (Next != ListHead)
+    {
+        LdrEntry = CONTAINING_RECORD(Next, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
+
+        if (g_pShimEngineModule == LdrEntry->DllBase)
+        {
+            if (LdrEntry->EntryPoint)
+            {
+                _SEH2_TRY
+                {
+                    LdrpCallInitRoutine(LdrEntry->EntryPoint, LdrEntry->DllBase, Reason, NULL);
+                }
+                _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+                {
+                    DPRINT1("WARNING: Exception 0x%x during LdrpRunShimEngineInitRoutine(%u)\n",
+                            _SEH2_GetExceptionCode(), Reason);
+                }
+                _SEH2_END;
+            }
+            return;
+        }
+
+        Next = Next->Flink;
+    }
+}
 
 VOID
 NTAPI
@@ -2733,10 +2760,13 @@ LdrpLoadShimEngine(IN PWSTR ImageName, IN PUNICODE_STRING ProcessImage, IN PVOID
     PVOID ShimLibrary;
     NTSTATUS Status;
     RtlInitUnicodeString(&ShimLibraryName, ImageName);
-    Status = LdrpLoadDll(FALSE, NULL, NULL, &ShimLibraryName, &ShimLibrary, TRUE);
+    /* We should NOT pass CallInit = TRUE!
+       If we do this, other init routines will be called before we get a chance to shim stuff.. */
+    Status = LdrpLoadDll(FALSE, NULL, NULL, &ShimLibraryName, &ShimLibrary, FALSE);
     if (NT_SUCCESS(Status))
     {
         g_pShimEngineModule = ShimLibrary;
+        LdrpRunShimEngineInitRoutine(DLL_PROCESS_ATTACH);
         LdrpGetShimEngineInterface();
         if (g_ShimsEnabled)
         {
@@ -2753,6 +2783,7 @@ LdrpUnloadShimEngine()
 {
     /* Make sure we do not call into the shim engine anymore */
     g_ShimsEnabled = FALSE;
+    LdrpRunShimEngineInitRoutine(DLL_PROCESS_DETACH);
     LdrUnloadDll(g_pShimEngineModule);
     g_pShimEngineModule = NULL;
 }

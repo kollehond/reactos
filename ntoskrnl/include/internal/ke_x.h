@@ -6,6 +6,11 @@
 * PROGRAMMERS:     Alex Ionescu (alex.ionescu@reactos.org)
 */
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 #ifndef _M_ARM
 FORCEINLINE
 KPROCESSOR_MODE
@@ -23,12 +28,12 @@ KeGetPreviousMode(VOID)
 {                                                                           \
     /* Sanity checks */                                                     \
     ASSERT(KeGetCurrentIrql() <= APC_LEVEL);                                \
-    ASSERT(_Thread == KeGetCurrentThread());                                \
-    ASSERT((_Thread->SpecialApcDisable <= 0) &&                             \
-           (_Thread->SpecialApcDisable != -32768));                         \
+    ASSERT((_Thread) == KeGetCurrentThread());                              \
+    ASSERT(((_Thread)->SpecialApcDisable <= 0) &&                           \
+           ((_Thread)->SpecialApcDisable != -32768));                       \
                                                                             \
     /* Disable Special APCs */                                              \
-    _Thread->SpecialApcDisable--;                                           \
+    (_Thread)->SpecialApcDisable--;                                         \
 }
 
 #define KeEnterGuardedRegion()                                              \
@@ -44,14 +49,14 @@ KeGetPreviousMode(VOID)
 {                                                                           \
     /* Sanity checks */                                                     \
     ASSERT(KeGetCurrentIrql() <= APC_LEVEL);                                \
-    ASSERT(_Thread == KeGetCurrentThread());                                \
-    ASSERT(_Thread->SpecialApcDisable < 0);                                 \
+    ASSERT((_Thread) == KeGetCurrentThread());                              \
+    ASSERT((_Thread)->SpecialApcDisable < 0);                               \
                                                                             \
     /* Leave region and check if APCs are OK now */                         \
-    if (!(++_Thread->SpecialApcDisable))                                    \
+    if (!(++(_Thread)->SpecialApcDisable))                                  \
     {                                                                       \
         /* Check for Kernel APCs on the list */                             \
-        if (!IsListEmpty(&_Thread->ApcState.                                \
+        if (!IsListEmpty(&(_Thread)->ApcState.                              \
                          ApcListHead[KernelMode]))                          \
         {                                                                   \
             /* Check for APC Delivery */                                    \
@@ -72,12 +77,12 @@ KeGetPreviousMode(VOID)
 #define KeEnterCriticalRegionThread(_Thread)                                \
 {                                                                           \
     /* Sanity checks */                                                     \
-    ASSERT(_Thread == KeGetCurrentThread());                                \
-    ASSERT((_Thread->KernelApcDisable <= 0) &&                              \
-           (_Thread->KernelApcDisable != -32768));                          \
+    ASSERT((_Thread) == KeGetCurrentThread());                              \
+    ASSERT(((_Thread)->KernelApcDisable <= 0) &&                            \
+           ((_Thread)->KernelApcDisable != -32768));                        \
                                                                             \
     /* Disable Kernel APCs */                                               \
-    _Thread->KernelApcDisable--;                                            \
+    (_Thread)->KernelApcDisable--;                                          \
 }
 
 #define KeEnterCriticalRegion()                                             \
@@ -92,18 +97,18 @@ KeGetPreviousMode(VOID)
 #define KeLeaveCriticalRegionThread(_Thread)                                \
 {                                                                           \
     /* Sanity checks */                                                     \
-    ASSERT(_Thread == KeGetCurrentThread());                                \
-    ASSERT(_Thread->KernelApcDisable < 0);                                  \
+    ASSERT((_Thread) == KeGetCurrentThread());                              \
+    ASSERT((_Thread)->KernelApcDisable < 0);                                \
                                                                             \
     /* Enable Kernel APCs */                                                \
-    _Thread->KernelApcDisable++;                                            \
+    (_Thread)->KernelApcDisable++;                                          \
                                                                             \
     /* Check if Kernel APCs are now enabled */                              \
-    if (!(_Thread->KernelApcDisable))                                       \
+    if (!((_Thread)->KernelApcDisable))                                     \
     {                                                                       \
         /* Check if we need to request an APC Delivery */                   \
-        if (!(IsListEmpty(&_Thread->ApcState.ApcListHead[KernelMode])) &&   \
-            !(_Thread->SpecialApcDisable))                                  \
+        if (!(IsListEmpty(&(_Thread)->ApcState.ApcListHead[KernelMode])) && \
+            !((_Thread)->SpecialApcDisable))                                \
         {                                                                   \
             /* Check for the right environment */                           \
             KiCheckForKernelApcDelivery();                                  \
@@ -157,17 +162,18 @@ KiReleaseDispatcherLock(IN KIRQL OldIrql)
 
 FORCEINLINE
 VOID
-KiAcquireDispatcherLockAtDpcLevel(VOID)
+KiAcquireDispatcherLockAtSynchLevel(VOID)
 {
-    /* This is a no-op at DPC Level for UP systems */
+    /* This is a no-op at SYNCH_LEVEL for UP systems */
+    ASSERT(KeGetCurrentIrql() >= SYNCH_LEVEL);
     return;
 }
 
 FORCEINLINE
 VOID
-KiReleaseDispatcherLockFromDpcLevel(VOID)
+KiReleaseDispatcherLockFromSynchLevel(VOID)
 {
-    /* This is a no-op at DPC Level for UP systems */
+    /* This is a no-op at SYNCH_LEVEL for UP systems */
     return;
 }
 
@@ -360,16 +366,17 @@ KiReleaseDispatcherLock(IN KIRQL OldIrql)
 
 FORCEINLINE
 VOID
-KiAcquireDispatcherLockAtDpcLevel(VOID)
+KiAcquireDispatcherLockAtSynchLevel(VOID)
 {
     /* Acquire the dispatcher lock */
+    ASSERT(KeGetCurrentIrql() >= SYNCH_LEVEL);
     KeAcquireQueuedSpinLockAtDpcLevel(&KeGetCurrentPrcb()->
                                       LockQueue[LockQueueDispatcherLock]);
 }
 
 FORCEINLINE
 VOID
-KiReleaseDispatcherLockFromDpcLevel(VOID)
+KiReleaseDispatcherLockFromSynchLevel(VOID)
 {
     /* Release the dispatcher lock */
     KeReleaseQueuedSpinLockFromDpcLevel(&KeGetCurrentPrcb()->
@@ -597,7 +604,7 @@ KiReleaseTimerLock(IN PKSPIN_LOCK_QUEUE LockQueue)
 
 FORCEINLINE
 VOID
-KiAcquireApcLock(IN PKTHREAD Thread,
+KiAcquireApcLockRaiseToSynch(IN PKTHREAD Thread,
                  IN PKLOCK_QUEUE_HANDLE Handle)
 {
     /* Acquire the lock and raise to synchronization level */
@@ -606,16 +613,17 @@ KiAcquireApcLock(IN PKTHREAD Thread,
 
 FORCEINLINE
 VOID
-KiAcquireApcLockAtDpcLevel(IN PKTHREAD Thread,
+KiAcquireApcLockAtSynchLevel(IN PKTHREAD Thread,
                            IN PKLOCK_QUEUE_HANDLE Handle)
 {
     /* Acquire the lock */
+    ASSERT(KeGetCurrentIrql() >= SYNCH_LEVEL);
     KeAcquireInStackQueuedSpinLockAtDpcLevel(&Thread->ApcQueueLock, Handle);
 }
 
 FORCEINLINE
 VOID
-KiAcquireApcLockAtApcLevel(IN PKTHREAD Thread,
+KiAcquireApcLockRaiseToDpc(IN PKTHREAD Thread,
                            IN PKLOCK_QUEUE_HANDLE Handle)
 {
     /* Acquire the lock */
@@ -632,7 +640,7 @@ KiReleaseApcLock(IN PKLOCK_QUEUE_HANDLE Handle)
 
 FORCEINLINE
 VOID
-KiReleaseApcLockFromDpcLevel(IN PKLOCK_QUEUE_HANDLE Handle)
+KiReleaseApcLockFromSynchLevel(IN PKLOCK_QUEUE_HANDLE Handle)
 {
     /* Release the lock */
     KeReleaseInStackQueuedSpinLockFromDpcLevel(Handle);
@@ -640,7 +648,7 @@ KiReleaseApcLockFromDpcLevel(IN PKLOCK_QUEUE_HANDLE Handle)
 
 FORCEINLINE
 VOID
-KiAcquireProcessLock(IN PKPROCESS Process,
+KiAcquireProcessLockRaiseToSynch(IN PKPROCESS Process,
                      IN PKLOCK_QUEUE_HANDLE Handle)
 {
     /* Acquire the lock and raise to synchronization level */
@@ -651,15 +659,15 @@ FORCEINLINE
 VOID
 KiReleaseProcessLock(IN PKLOCK_QUEUE_HANDLE Handle)
 {
-    /* Release the lock */
+    /* Release the lock and restore previous IRQL */
     KeReleaseInStackQueuedSpinLock(Handle);
 }
 
 FORCEINLINE
 VOID
-KiReleaseProcessLockFromDpcLevel(IN PKLOCK_QUEUE_HANDLE Handle)
+KiReleaseProcessLockFromSynchLevel(IN PKLOCK_QUEUE_HANDLE Handle)
 {
-    /* Release the lock */
+    /* Release the lock without lowering IRQL */
     KeReleaseInStackQueuedSpinLockFromDpcLevel(Handle);
 }
 
@@ -916,10 +924,11 @@ KxInsertTimer(IN PKTIMER Timer,
               IN ULONG Hand)
 {
     PKSPIN_LOCK_QUEUE LockQueue;
+    ASSERT(KeGetCurrentIrql() >= SYNCH_LEVEL);
 
     /* Acquire the lock and release the dispatcher lock */
     LockQueue = KiAcquireTimerLock(Hand);
-    KiReleaseDispatcherLockFromDpcLevel();
+    KiReleaseDispatcherLockFromSynchLevel();
 
     /* Try to insert the timer */
     if (KiInsertTimerTable(Timer, Hand))
@@ -1338,6 +1347,8 @@ KxUnwaitThreadForEvent(IN PKEVENT Event,
 // This routine must be entered with the PRCB lock held and it will exit
 // with the PRCB lock released!
 //
+_Requires_lock_held_(Prcb->PrcbLock)
+_Releases_lock_(Prcb->PrcbLock)
 FORCEINLINE
 VOID
 KxQueueReadyThread(IN PKTHREAD Thread,
@@ -1348,6 +1359,9 @@ KxQueueReadyThread(IN PKTHREAD Thread,
 
     /* Sanity checks */
     ASSERT(Prcb == KeGetCurrentPrcb());
+#ifdef CONFIG_SMP
+    ASSERT(Prcb->PrcbLock != 0);
+#endif
     ASSERT(Thread->State == Running);
     ASSERT(Thread->NextProcessor == Prcb->Number);
 
@@ -1697,3 +1711,7 @@ KiCpuIdEx(
     __cpuidex((INT*)CpuInfo->AsUINT32, Function, SubFunction);
 }
 #endif /* _M_IX86 || _M_AMD64 */
+
+#ifdef __cplusplus
+} // extern "C"
+#endif

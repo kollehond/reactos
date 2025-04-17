@@ -12,6 +12,12 @@
 #define MAIN_WINDOW_MIN_WIDTH 250
 #define MAX_MCISTR            256
 
+#ifdef UNICODE
+#define argv __wargv
+#else
+#define argv __argv
+#endif
+
 HINSTANCE hInstance = NULL;
 HWND hTrackBar = NULL;
 HWND hToolBar = NULL;
@@ -1143,14 +1149,8 @@ OpenFileDialog(HWND hwnd, DWORD dwFilterIndex, LPTSTR lpType)
 {
     OPENFILENAME OpenFileName;
     TCHAR szFile[MAX_PATH + 1] = _T("");
-    TCHAR szCurrentDir[MAX_PATH];
 
     ZeroMemory(&OpenFileName, sizeof(OpenFileName));
-
-    if (!GetCurrentDirectory(ARRAYSIZE(szCurrentDir), szCurrentDir))
-    {
-        StringCbCopy(szCurrentDir, sizeof(szCurrentDir), _T("c:\\"));
-    }
 
     OpenFileName.lStructSize     = sizeof(OpenFileName);
     OpenFileName.hwndOwner       = hwnd;
@@ -1158,8 +1158,7 @@ OpenFileDialog(HWND hwnd, DWORD dwFilterIndex, LPTSTR lpType)
     OpenFileName.lpstrFilter     = szFilter;
     OpenFileName.lpstrFile       = szFile;
     OpenFileName.nMaxFile        = ARRAYSIZE(szFile);
-    OpenFileName.lpstrInitialDir = szCurrentDir;
-    OpenFileName.Flags           = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_SHAREAWARE;
+    OpenFileName.Flags           = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_SHAREAWARE;
     OpenFileName.lpstrDefExt     = _T("\0");
     OpenFileName.nFilterIndex = dwFilterIndex;
 
@@ -1440,9 +1439,8 @@ MainWndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
 
                 case IDM_ABOUT:
                 {
-                    HICON mplayIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_MAIN));
-                    ShellAbout(hwnd, szAppTitle, 0, mplayIcon);
-                    DeleteObject(mplayIcon);
+                    ShellAbout(hwnd, szAppTitle, NULL,
+                               LoadIcon(hInstance, MAKEINTRESOURCE(IDI_MAIN)));
                     break;
                 }
 
@@ -1473,7 +1471,7 @@ _tWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPTSTR lpCmdLine, INT nCmdShow)
     HANDLE hAccel;
 
     hInstance = hInst;
-    
+
     switch (GetUserDefaultUILanguage())
     {
         case MAKELANGID(LANG_HEBREW, SUBLANG_DEFAULT):
@@ -1537,7 +1535,14 @@ _tWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPTSTR lpCmdLine, INT nCmdShow)
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
 
-    OpenMediaFile(hwnd, lpCmdLine, NULL);
+    if (*lpCmdLine == _T('"'))
+    {
+        OpenMediaFile(hwnd, argv[1], NULL);
+    }
+    else
+    {
+        OpenMediaFile(hwnd, lpCmdLine, NULL);
+    }
 
     /* Message Loop */
     while (GetMessage(&msg, NULL, 0, 0))

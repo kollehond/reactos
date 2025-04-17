@@ -31,9 +31,148 @@ RTL_RESOURCE JobListLock;
 
 LIST_ENTRY StartListHead;
 RTL_RESOURCE StartListLock;
+FILETIME NextJobStartTime;
+BOOL bValidNextJobStartTime = FALSE;
+
+
+static WORD wDaysArray[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 
 /* FUNCTIONS *****************************************************************/
+
+VOID
+GetNextJobTimeout(HANDLE hTimer)
+{
+    PLIST_ENTRY CurrentEntry;
+    FILETIME DueTime;
+    PJOB CurrentJob;
+
+    bValidNextJobStartTime = FALSE;
+    CurrentEntry = JobListHead.Flink;
+    while (CurrentEntry != &JobListHead)
+    {
+        CurrentJob = CONTAINING_RECORD(CurrentEntry, JOB, JobEntry);
+
+        if (bValidNextJobStartTime == FALSE)
+        {
+            CopyMemory(&NextJobStartTime, &CurrentJob->StartTime, sizeof(FILETIME));
+            bValidNextJobStartTime = TRUE;
+        }
+        else
+        {
+            if (CompareFileTime(&NextJobStartTime, &CurrentJob->StartTime) > 0)
+                CopyMemory(&NextJobStartTime, &CurrentJob->StartTime, sizeof(FILETIME));
+        }
+
+        CurrentEntry = CurrentEntry->Flink;
+    }
+
+    if (bValidNextJobStartTime == FALSE)
+    {
+        TRACE("No valid job!\n");
+        return;
+    }
+
+    LocalFileTimeToFileTime(&DueTime, &NextJobStartTime);
+
+    SetWaitableTimer(hTimer,
+                     (PLARGE_INTEGER)&DueTime,
+                     0,
+                     NULL,
+                     NULL,
+                     TRUE);
+}
+
+#if 0
+static
+VOID
+ReScheduleJob(
+    PJOB pJob)
+{
+    /* Remove the job from the start list */
+    RemoveEntryList(&pJob->StartEntry);
+
+    /* Non-periodical job, remove it */
+    if ((pJob->Flags & JOB_RUN_PERIODICALLY) == 0)
+    {
+        /* Remove the job from the registry */
+        DeleteJob(pJob);
+
+        /* Remove the job from the job list */
+        RemoveEntryList(&pJob->JobEntry);
+        dwJobCount--;
+
+        /* Free the job object */
+        HeapFree(GetProcessHeap(), 0, pJob);
+        return;
+    }
+
+    /* Calculate the next start time */
+    CalculateNextStartTime(pJob);
+
+    /* Insert the job into the start list again */
+    InsertJobIntoStartList(&StartListHead, pJob);
+#if 0
+    DumpStartList(&StartListHead);
+#endif
+}
+#endif
+
+VOID
+RunCurrentJobs(VOID)
+{
+    PROCESS_INFORMATION ProcessInformation;
+    STARTUPINFOW StartupInfo;
+    PLIST_ENTRY CurrentEntry;
+    PJOB CurrentJob;
+    BOOL bRet;
+
+    CurrentEntry = JobListHead.Flink;
+    while (CurrentEntry != &JobListHead)
+    {
+        CurrentJob = CONTAINING_RECORD(CurrentEntry, JOB, JobEntry);
+
+        if (CompareFileTime(&NextJobStartTime, &CurrentJob->StartTime) == 0)
+        {
+            TRACE("Run job %ld: %S\n", CurrentJob->JobId, CurrentJob->Command);
+
+            ZeroMemory(&StartupInfo, sizeof(StartupInfo));
+            StartupInfo.cb = sizeof(StartupInfo);
+            StartupInfo.lpTitle = CurrentJob->Command;
+            StartupInfo.dwFlags = STARTF_USESHOWWINDOW;
+            StartupInfo.wShowWindow = SW_SHOWDEFAULT;
+
+            if ((CurrentJob->Flags & JOB_NONINTERACTIVE) == 0)
+            {
+                StartupInfo.dwFlags |= STARTF_INHERITDESKTOP;
+                StartupInfo.lpDesktop = L"WinSta0\\Default";
+            }
+
+            bRet = CreateProcessW(NULL,
+                                  CurrentJob->Command,
+                                  NULL,
+                                  NULL,
+                                  FALSE,
+                                  CREATE_NEW_CONSOLE,
+                                  NULL,
+                                  NULL,
+                                  &StartupInfo,
+                                  &ProcessInformation);
+            if (bRet == FALSE)
+            {
+                ERR("CreateProcessW() failed (Error %lu)\n", GetLastError());
+            }
+            else
+            {
+                CloseHandle(ProcessInformation.hThread);
+                CloseHandle(ProcessInformation.hProcess);
+            }
+        }
+
+        CurrentEntry = CurrentEntry->Flink;
+    }
+}
+
 
 static
 VOID
@@ -276,21 +415,15 @@ LoadJobs(VOID)
                 pJob->JobId = dwNextJobId++;
                 dwJobCount++;
 
-                // Cancel the start timer
-
                 /* Append the new job to the job list */
                 InsertTailList(&JobListHead, &pJob->JobEntry);
 
                 /* Calculate the next start time */
                 CalculateNextStartTime(pJob);
 
-                /* Insert the job into the start list */
-                InsertJobIntoStartList(&StartListHead, pJob);
 #if 0
                 DumpStartList(&StartListHead);
 #endif
-
-                // Update the start timer
 
                 /* Release the job list lock */
                 RtlReleaseResource(&JobListLock);
@@ -323,8 +456,6 @@ DaysOfMonth(
     WORD wMonth,
     WORD wYear)
 {
-    WORD wDaysArray[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-
     if (wMonth == 2 && wYear % 4 == 0 && wYear % 400 != 0)
         return 29;
 
@@ -333,107 +464,144 @@ DaysOfMonth(
 
 
 VOID
-CalculateNextStartTime(PJOB pJob)
-{
-    SYSTEMTIME StartTime;
-    FILETIME FileTime;
-    DWORD_PTR Now;
-
-    TRACE("CalculateNextStartTime(%p)\n", pJob);
-
-    GetLocalTime(&StartTime);
-
-    Now = (DWORD_PTR)StartTime.wHour * 3600000 +
-          (DWORD_PTR)StartTime.wMinute * 60000;
-
-    StartTime.wMilliseconds = 0;
-    StartTime.wSecond = 0;
-    StartTime.wHour = (WORD)(pJob->JobTime / 3600000);
-    StartTime.wMinute = (WORD)((pJob->JobTime % 3600000) / 60000);
-
-    /* Start the job tomorrow */
-    if (Now > pJob->JobTime)
-    {
-        if (StartTime.wDay + 1 > DaysOfMonth(StartTime.wMonth, StartTime.wYear))
-        {
-            if (StartTime.wMonth == 12)
-            {
-                StartTime.wDay = 1;
-                StartTime.wMonth = 1;
-                StartTime.wYear++;
-            }
-            else
-            {
-                StartTime.wDay = 1;
-                StartTime.wMonth++;
-            }
-        }
-        else
-        {
-            StartTime.wDay++;
-        }
-    }
-
-    TRACE("Next start: %02hu:%02hu %02hu.%02hu.%hu\n", StartTime.wHour,
-          StartTime.wMinute, StartTime.wDay, StartTime.wMonth, StartTime.wYear);
-
-    SystemTimeToFileTime(&StartTime, &FileTime);
-    pJob->StartTime.u.LowPart = FileTime.dwLowDateTime;
-    pJob->StartTime.u.HighPart = FileTime.dwHighDateTime;
-}
-
-
-VOID
-InsertJobIntoStartList(
-    _In_ PLIST_ENTRY StartListHead,
+CalculateNextStartTime(
     _In_ PJOB pJob)
 {
-    PLIST_ENTRY CurrentEntry, PreviousEntry;
-    PJOB CurrentJob;
+    SYSTEMTIME CurrentSystemTime, StartSystemTime;
+    FILETIME StartFileTime;
+    WORD wDaysOffset, wTempOffset, i, wJobDayOfWeek, wJobDayOfMonth;
+    DWORD_PTR CurrentTimeMs;
+    BOOL bDaysOffsetValid;
+    ULARGE_INTEGER LocalStartTime;
 
-    if (IsListEmpty(StartListHead))
+    TRACE("CalculateNextStartTime(%p)\n", pJob);
+    TRACE("JobTime: %lu\n", pJob->JobTime);
+    TRACE("DaysOfWeek: 0x%x\n", pJob->DaysOfWeek);
+    TRACE("DaysOfMonth: 0x%x\n", pJob->DaysOfMonth);
+
+    GetLocalTime(&CurrentSystemTime);
+
+    CurrentTimeMs = (DWORD_PTR)CurrentSystemTime.wHour * 3600000 +
+                    (DWORD_PTR)CurrentSystemTime.wMinute * 60000;
+
+    bDaysOffsetValid = FALSE;
+    wDaysOffset = 0;
+    if ((pJob->DaysOfWeek == 0) && (pJob->DaysOfMonth == 0))
     {
-         InsertHeadList(StartListHead, &pJob->StartEntry);
-         return;
+        if (CurrentTimeMs >= pJob->JobTime)
+        {
+            TRACE("Tomorrow!\n");
+            wDaysOffset = 1;
+        }
+
+        bDaysOffsetValid = TRUE;
+    }
+    else
+    {
+        if (pJob->DaysOfWeek != 0)
+        {
+            TRACE("DaysOfWeek!\n");
+            for (i = 0; i < 7; i++)
+            {
+                if (pJob->DaysOfWeek & (1 << i))
+                {
+                    /* Adjust the range */
+                    wJobDayOfWeek = (i + 1) % 7;
+                    TRACE("wJobDayOfWeek: %hu\n", wJobDayOfWeek);
+                    TRACE("CurrentSystemTime.wDayOfWeek: %hu\n", CurrentSystemTime.wDayOfWeek);
+
+                    /* Calculate the days offset */
+                    if ((CurrentSystemTime.wDayOfWeek > wJobDayOfWeek ) ||
+                        ((CurrentSystemTime.wDayOfWeek == wJobDayOfWeek) && (CurrentTimeMs >= pJob->JobTime)))
+                    {
+                        wTempOffset = 7 - CurrentSystemTime.wDayOfWeek + wJobDayOfWeek;
+                        TRACE("wTempOffset: %hu\n", wTempOffset);
+                    }
+                    else
+                    {
+                        wTempOffset = wJobDayOfWeek - CurrentSystemTime.wDayOfWeek;
+                        TRACE("wTempOffset: %hu\n", wTempOffset);
+                    }
+
+                    /* Use the smallest offset */
+                    if (bDaysOffsetValid == FALSE)
+                    {
+                        wDaysOffset = wTempOffset;
+                        bDaysOffsetValid = TRUE;
+                    }
+                    else
+                    {
+                        if (wTempOffset < wDaysOffset)
+                            wDaysOffset = wTempOffset;
+                    }
+                }
+            }
+        }
+
+        if (pJob->DaysOfMonth != 0)
+        {
+            FIXME("Support DaysOfMonth!\n");
+            for (i = 0; i < 31; i++)
+            {
+                if (pJob->DaysOfMonth & (1 << i))
+                {
+                    /* Adjust the range */
+                    wJobDayOfMonth = i + 1;
+                    FIXME("wJobDayOfMonth: %hu\n", wJobDayOfMonth);
+                    FIXME("CurrentSystemTime.wDay: %hu\n", CurrentSystemTime.wDay);
+
+                    if ((CurrentSystemTime.wDay > wJobDayOfMonth) ||
+                        ((CurrentSystemTime.wDay == wJobDayOfMonth) && (CurrentTimeMs >= pJob->JobTime)))
+                    {
+                        wTempOffset = DaysOfMonth(CurrentSystemTime.wMonth, CurrentSystemTime.wYear) -
+                                      CurrentSystemTime.wDay + wJobDayOfMonth;
+                        FIXME("wTempOffset: %hu\n", wTempOffset);
+                    }
+                    else
+                    {
+                        wTempOffset = wJobDayOfMonth - CurrentSystemTime.wDay;
+                        FIXME("wTempOffset: %hu\n", wTempOffset);
+                    }
+
+                    /* Use the smallest offset */
+                    if (bDaysOffsetValid == FALSE)
+                    {
+                        wDaysOffset = wTempOffset;
+                        bDaysOffsetValid = TRUE;
+                    }
+                    else
+                    {
+                        if (wTempOffset < wDaysOffset)
+                            wDaysOffset = wTempOffset;
+                    }
+                }
+            }
+        }
     }
 
-    CurrentEntry = StartListHead->Flink;
-    while (CurrentEntry != StartListHead)
+    TRACE("wDaysOffset: %hu\n", wDaysOffset);
+
+    CopyMemory(&StartSystemTime, &CurrentSystemTime, sizeof(SYSTEMTIME));
+
+    StartSystemTime.wMilliseconds = 0;
+    StartSystemTime.wSecond = 0;
+    StartSystemTime.wHour = (WORD)(pJob->JobTime / 3600000);
+    StartSystemTime.wMinute = (WORD)((pJob->JobTime % 3600000) / 60000);
+
+    SystemTimeToFileTime(&StartSystemTime, &StartFileTime);
+
+    LocalStartTime.u.LowPart = StartFileTime.dwLowDateTime;
+    LocalStartTime.u.HighPart = StartFileTime.dwHighDateTime;
+    if (bDaysOffsetValid && wDaysOffset != 0)
     {
-        CurrentJob = CONTAINING_RECORD(CurrentEntry, JOB, StartEntry);
-
-        if ((CurrentEntry == StartListHead->Flink) &&
-            (pJob->StartTime.QuadPart < CurrentJob->StartTime.QuadPart))
-        {
-            /* Insert before the first entry */
-            InsertHeadList(StartListHead, &pJob->StartEntry);
-            return;
-        }
-
-        if (pJob->StartTime.QuadPart < CurrentJob->StartTime.QuadPart)
-        {
-            /* Insert between the previous and the current entry */
-            PreviousEntry = CurrentEntry->Blink;
-            pJob->StartEntry.Blink = PreviousEntry;
-            pJob->StartEntry.Flink = CurrentEntry;
-            PreviousEntry->Flink = &pJob->StartEntry;
-            CurrentEntry->Blink = &pJob->StartEntry;
-            return;
-        }
-
-        if ((CurrentEntry->Flink == StartListHead) &&
-            (pJob->StartTime.QuadPart >= CurrentJob->StartTime.QuadPart))
-        {
-            /* Insert after the last entry */
-            InsertTailList(StartListHead, &pJob->StartEntry);
-            return;
-        }
-
-        CurrentEntry = CurrentEntry->Flink;
+        LocalStartTime.QuadPart += ((ULONGLONG)wDaysOffset * 24 * 60 * 60 * 10000);
     }
+
+    pJob->StartTime.dwLowDateTime = LocalStartTime.u.LowPart;
+    pJob->StartTime.dwHighDateTime = LocalStartTime.u.HighPart;
 }
 
-
+#if 0
 VOID
 DumpStartList(
     _In_ PLIST_ENTRY StartListHead)
@@ -441,8 +609,8 @@ DumpStartList(
     PLIST_ENTRY CurrentEntry;
     PJOB CurrentJob;
 
-    CurrentEntry = StartListHead->Flink;
-    while (CurrentEntry != StartListHead)
+    CurrentEntry = JobListHead->Flink;
+    while (CurrentEntry != &JobListHead)
     {
         CurrentJob = CONTAINING_RECORD(CurrentEntry, JOB, StartEntry);
 
@@ -451,5 +619,5 @@ DumpStartList(
         CurrentEntry = CurrentEntry->Flink;
     }
 }
-
+#endif
 /* EOF */

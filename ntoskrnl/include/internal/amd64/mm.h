@@ -3,7 +3,8 @@
  */
 #pragma once
 
-#define _MI_PAGING_LEVELS                   4
+#define _MI_PAGING_LEVELS 4
+#define _MI_HAS_NO_EXECUTE 1
 
 /* Memory layout base addresses (This is based on Vista!) */
 #define MI_USER_PROBE_ADDRESS           (PVOID)0x000007FFFFFF0000ULL
@@ -20,8 +21,8 @@
 #define MI_PAGED_POOL_START             (PVOID)0xFFFFF8A000000000ULL // 128 GB paged pool [MiVaPagedPool]
 //#define MI_PAGED_POOL_END                    0xFFFFF8BFFFFFFFFFULL
 //#define MI_SESSION_SPACE_START               0xFFFFF90000000000ULL // 512 GB session space [MiVaSessionSpace]
-#define MI_SESSION_VIEW_END                    0xFFFFF97FFF000000ULL
-#define MI_SESSION_SPACE_END                   0xFFFFF97FFFFFFFFFULL
+//#define MI_SESSION_VIEW_END                    0xFFFFF97FFF000000ULL
+#define MI_SESSION_SPACE_END                   0xFFFFF98000000000ULL
 #define MI_SYSTEM_CACHE_START                  0xFFFFF98000000000ULL // 1 TB system cache (on Vista+ this is dynamic VA space) [MiVaSystemCache,MiVaSpecialPoolPaged,MiVaSpecialPoolNonPaged]
 #define MI_SYSTEM_CACHE_END                    0xFFFFFA7FFFFFFFFFULL
 #define MI_PFN_DATABASE                        0xFFFFFA8000000000ULL // up to 5.5 TB PFN database followed by non paged pool [MiVaPfnDatabase/MiVaNonPagedPool]
@@ -33,6 +34,9 @@
 /* WOW64 address definitions */
 #define MM_HIGHEST_USER_ADDRESS_WOW64   0x7FFEFFFF
 #define MM_SYSTEM_RANGE_START_WOW64     0x80000000
+
+/* The size of the virtual memory area that is mapped using a single PDE */
+#define PDE_MAPPED_VA (PTE_PER_PAGE * PAGE_SIZE)
 
 /* Misc address definitions */
 //#define MI_NON_PAGED_SYSTEM_START_MIN   MM_SYSTEM_SPACE_START // FIXME
@@ -54,11 +58,11 @@
 #define MI_MIN_INIT_PAGED_POOLSIZE              (32 * _1MB)
 #define MI_MAX_INIT_NONPAGED_POOL_SIZE          (128ULL * 1024 * 1024 * 1024)
 #define MI_MAX_NONPAGED_POOL_SIZE               (128ULL * 1024 * 1024 * 1024)
-#define MI_SYSTEM_VIEW_SIZE                     (16 * _1MB)
-#define MI_SESSION_VIEW_SIZE                    (20 * _1MB)
-#define MI_SESSION_POOL_SIZE                    (16 * _1MB)
-#define MI_SESSION_IMAGE_SIZE                   (8 * _1MB)
-#define MI_SESSION_WORKING_SET_SIZE             (4 * _1MB)
+#define MI_SYSTEM_VIEW_SIZE                     (512 * _1MB)
+#define MI_SESSION_VIEW_SIZE                    (512 * _1MB)
+#define MI_SESSION_POOL_SIZE                    (64 * _1MB)
+#define MI_SESSION_IMAGE_SIZE                   (16 * _1MB)
+#define MI_SESSION_WORKING_SET_SIZE             (16 * _1MB)
 #define MI_SESSION_SIZE                         (MI_SESSION_VIEW_SIZE + \
                                                  MI_SESSION_POOL_SIZE + \
                                                  MI_SESSION_IMAGE_SIZE + \
@@ -114,17 +118,24 @@
 #endif
 
 /* Macros to identify the page fault reason from the error code */
-#define MI_IS_NOT_PRESENT_FAULT(FaultCode) !BooleanFlagOn(FaultCode, 0x1)
-#define MI_IS_WRITE_ACCESS(FaultCode) BooleanFlagOn(FaultCode, 0x2)
-#define MI_IS_INSTRUCTION_FETCH(FaultCode) BooleanFlagOn(FaultCode, 0x10)
+#define MI_IS_NOT_PRESENT_FAULT(FaultCode)  !BooleanFlagOn(FaultCode, 0x00000001)
+#define MI_IS_WRITE_ACCESS(FaultCode)        BooleanFlagOn(FaultCode, 0x00000002)
+// 0x00000004: user-mode access.
+// 0x00000008: reserved bit violation.
+#define MI_IS_INSTRUCTION_FETCH(FaultCode)   BooleanFlagOn(FaultCode, 0x00000010)
+// 0x00000020: protection-key violation.
+// 0x00000040: shadow-stack access.
+// Bits 7-14: reserved.
+// 0x00008000: violation of SGX-specific access-control requirements.
+// Bits 16-31: reserved.
 
 /* On x64, these are the same */
 #define MI_WRITE_VALID_PPE MI_WRITE_VALID_PTE
 #define ValidKernelPpe ValidKernelPde
 
 /* Convert an address to a corresponding PTE */
-PMMPTE
 FORCEINLINE
+PMMPTE
 _MiAddressToPte(PVOID Address)
 {
     ULONG64 Offset = (ULONG64)Address >> (PTI_SHIFT - 3);
@@ -134,8 +145,8 @@ _MiAddressToPte(PVOID Address)
 #define MiAddressToPte(x) _MiAddressToPte((PVOID)(x))
 
 /* Convert an address to a corresponding PDE */
-PMMPTE
 FORCEINLINE
+PMMPTE
 _MiAddressToPde(PVOID Address)
 {
     ULONG64 Offset = (ULONG64)Address >> (PDI_SHIFT - 3);
@@ -145,8 +156,8 @@ _MiAddressToPde(PVOID Address)
 #define MiAddressToPde(x) _MiAddressToPde((PVOID)(x))
 
 /* Convert an address to a corresponding PPE */
-PMMPTE
 FORCEINLINE
+PMMPTE
 MiAddressToPpe(PVOID Address)
 {
     ULONG64 Offset = (ULONG64)Address >> (PPI_SHIFT - 3);
@@ -155,8 +166,8 @@ MiAddressToPpe(PVOID Address)
 }
 
 /* Convert an address to a corresponding PXE */
-PMMPTE
 FORCEINLINE
+PMMPTE
 MiAddressToPxe(PVOID Address)
 {
     ULONG64 Offset = (ULONG64)Address >> (PXI_SHIFT - 3);
@@ -165,8 +176,8 @@ MiAddressToPxe(PVOID Address)
 }
 
 /* Convert an address to a corresponding PTE offset/index */
-ULONG
 FORCEINLINE
+ULONG
 MiAddressToPti(PVOID Address)
 {
     return ((((ULONG64)Address) >> PTI_SHIFT) & 0x1FF);
@@ -174,8 +185,8 @@ MiAddressToPti(PVOID Address)
 #define MiAddressToPteOffset(x) MiAddressToPti(x) // FIXME: bad name
 
 /* Convert an address to a corresponding PDE offset/index */
-ULONG
 FORCEINLINE
+ULONG
 MiAddressToPdi(PVOID Address)
 {
     return ((((ULONG64)Address) >> PDI_SHIFT) & 0x1FF);
@@ -184,16 +195,16 @@ MiAddressToPdi(PVOID Address)
 #define MiGetPdeOffset(x) MiAddressToPdi(x)
 
 /* Convert an address to a corresponding PXE offset/index */
-ULONG
 FORCEINLINE
+ULONG
 MiAddressToPxi(PVOID Address)
 {
     return ((((ULONG64)Address) >> PXI_SHIFT) & 0x1FF);
 }
 
 /* Convert a PTE into a corresponding address */
-PVOID
 FORCEINLINE
+PVOID
 MiPteToAddress(PMMPTE PointerPte)
 {
     /* Use signed math */
@@ -201,8 +212,8 @@ MiPteToAddress(PMMPTE PointerPte)
 }
 
 /* Convert a PDE into a corresponding address */
-PVOID
 FORCEINLINE
+PVOID
 MiPdeToAddress(PMMPTE PointerPde)
 {
     /* Use signed math */
@@ -210,8 +221,8 @@ MiPdeToAddress(PMMPTE PointerPde)
 }
 
 /* Convert a PPE into a corresponding address */
-PVOID
 FORCEINLINE
+PVOID
 MiPpeToAddress(PMMPTE PointerPpe)
 {
     /* Use signed math */
@@ -219,18 +230,77 @@ MiPpeToAddress(PMMPTE PointerPpe)
 }
 
 /* Convert a PXE into a corresponding address */
-PVOID
 FORCEINLINE
+PVOID
 MiPxeToAddress(PMMPTE PointerPxe)
 {
     /* Use signed math */
     return (PVOID)(((LONG64)PointerPxe << 52) >> 16);
 }
 
-/* Translate between P*Es */
-#define MiPdeToPte(_Pde) ((PMMPTE)MiPteToAddress(_Pde))
-#define MiPteToPde(_Pte) ((PMMPDE)MiAddressToPte(_Pte))
-#define MiPdeToPpe(_Pde) ((PMMPPE)MiAddressToPte(_Pde))
+/* Convert a PDE into its lowest PTE */
+FORCEINLINE
+PMMPTE
+MiPdeToPte(PMMPDE PointerPde)
+{
+    return (PMMPTE)MiPteToAddress(PointerPde);
+}
+
+/* Convert a PPE into its lowest PTE */
+FORCEINLINE
+PMMPTE
+MiPpeToPte(PMMPPE PointerPpe)
+{
+    return (PMMPTE)MiPdeToAddress(PointerPpe);
+}
+
+/* Convert a PXE into its lowest PTE */
+FORCEINLINE
+PMMPTE
+MiPxeToPte(PMMPXE PointerPxe)
+{
+    return (PMMPTE)MiPpeToAddress(PointerPxe);
+}
+
+/* Convert a PTE to a corresponding PDE */
+FORCEINLINE
+PMMPDE
+MiPteToPde(PMMPTE PointerPte)
+{
+    return (PMMPDE)MiAddressToPte(PointerPte);
+}
+
+/* Convert a PTE to a corresponding PPE */
+FORCEINLINE
+PMMPPE
+MiPteToPpe(PMMPTE PointerPte)
+{
+    return (PMMPPE)MiAddressToPde(PointerPte);
+}
+
+/* Convert a PTE to a corresponding PXE */
+FORCEINLINE
+PMMPXE
+MiPteToPxe(PMMPTE PointerPte)
+{
+    return (PMMPXE)MiAddressToPpe(PointerPte);
+}
+
+/* Convert a PDE to a corresponding PPE */
+FORCEINLINE
+PMMPDE
+MiPdeToPpe(PMMPDE PointerPde)
+{
+    return (PMMPPE)MiAddressToPte(PointerPde);
+}
+
+/* Convert a PDE to a corresponding PXE */
+FORCEINLINE
+PMMPXE
+MiPdeToPxe(PMMPDE PointerPde)
+{
+    return (PMMPXE)MiAddressToPde(PointerPde);
+}
 
 /* Check P*E boundaries */
 #define MiIsPteOnPdeBoundary(PointerPte) \
@@ -248,9 +318,10 @@ MiPxeToAddress(PMMPTE PointerPxe)
 
 //
 // Decodes a Prototype PTE into the underlying PTE
+// The 48 bit signed value gets sign-extended to 64 bits.
 //
 #define MiSubsectionPteToSubsection(x)                              \
-        (PMMPTE)((x)->u.Subsect.SubsectionAddress >> 16)
+        (PMMPTE)((LONG64)(x)->u.Subsect.SubsectionAddress)
 
 FORCEINLINE
 VOID
@@ -284,20 +355,14 @@ FORCEINLINE
 BOOLEAN
 MI_IS_MAPPED_PTE(PMMPTE PointerPte)
 {
-    /// FIXME
-    __debugbreak();
-    return ((PointerPte->u.Long & 0xFFFFFC01) != 0);
+    return ((PointerPte->u.Hard.Valid != 0) ||
+            (PointerPte->u.Proto.Prototype != 0) ||
+            (PointerPte->u.Trans.Transition != 0) ||
+            (PointerPte->u.Hard.PageFrameNumber != 0));
 }
 
-VOID
 FORCEINLINE
-MmInitGlobalKernelPageDirectory(VOID)
-{
-    /* Nothing to do */
-}
-
 BOOLEAN
-FORCEINLINE
 MiIsPdeForAddressValid(PVOID Address)
 {
     return ((MiAddressToPxe(Address)->u.Hard.Valid) &&

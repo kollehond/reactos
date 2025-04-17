@@ -25,6 +25,7 @@
 #include "objbase.h"
 #include "rpcproxy.h"
 #include "netfw.h"
+#include "natupnp.h"
 
 #include "wine/debug.h"
 #include "hnetcfg_private.h"
@@ -114,14 +115,18 @@ static hnetcfg_cf fw_manager_cf = { { &hnetcfg_cf_vtbl }, NetFwMgr_create };
 static hnetcfg_cf fw_app_cf = { { &hnetcfg_cf_vtbl }, NetFwAuthorizedApplication_create };
 static hnetcfg_cf fw_openport_cf = { { &hnetcfg_cf_vtbl }, NetFwOpenPort_create };
 static hnetcfg_cf fw_policy2_cf = { { &hnetcfg_cf_vtbl }, NetFwPolicy2_create };
+static hnetcfg_cf upnpnat_cf = { { &hnetcfg_cf_vtbl }, IUPnPNAT_create };
+
 
 BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD fdwReason, LPVOID reserved)
 {
     TRACE("(0x%p, %d, %p)\n", hInstDLL, fdwReason, reserved);
 
     switch(fdwReason) {
+#ifndef __REACTOS__
         case DLL_WINE_PREATTACH:
             return FALSE;
+#endif
         case DLL_PROCESS_ATTACH:
             instance = hInstDLL;
             DisableThreadLibraryCalls(hInstDLL);
@@ -155,6 +160,10 @@ HRESULT WINAPI DllGetClassObject( REFCLSID rclsid, REFIID iid, LPVOID *ppv )
     else if (IsEqualGUID( rclsid, &CLSID_NetFwPolicy2 ))
     {
        cf = &fw_policy2_cf.IClassFactory_iface;
+    }
+    else if (IsEqualGUID( rclsid, &CLSID_UPnPNAT ))
+    {
+        cf = &upnpnat_cf.IClassFactory_iface;
     }
 
     if (!cf) return CLASS_E_CLASSNOTAVAILABLE;

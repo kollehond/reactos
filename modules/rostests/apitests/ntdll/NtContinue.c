@@ -10,6 +10,10 @@
 #include <setjmp.h>
 #include <time.h>
 
+#ifdef _MSC_VER
+#pragma runtime_checks("s", off)
+#endif
+
 #ifdef _M_IX86
 #define NTC_SEGMENT_BITS (0xFFFF)
 #define NTC_EFLAGS_BITS  (0x3C0CD5)
@@ -57,6 +61,13 @@ static ULONG randULONG(void)
     randbytes(&n, sizeof(n));
     return n;
 }
+
+#ifdef _M_AMD64
+static ULONG64 randULONG64(void)
+{
+    return (ULONG64)randULONG() << 32 | randULONG();
+}
+#endif
 
 void check(CONTEXT * pContext)
 {
@@ -114,6 +125,51 @@ void check(CONTEXT * pContext)
     ok((pContext->SegSs & NTC_SEGMENT_BITS) ==
        (continueContext.SegSs & NTC_SEGMENT_BITS),
        "SegSs: 0x%lx != 0x%lx\n", pContext->SegSs, continueContext.SegSs);
+#else
+    ok_eq_hex64(pContext->ContextFlags, CONTEXT_FULL | CONTEXT_SEGMENTS);
+    ok_eq_hex(pContext->MxCsr, continueContext.MxCsr);
+    ok_eq_hex(pContext->SegCs, continueContext.SegCs);
+    ok_eq_hex(pContext->SegDs, 0x2B);
+    ok_eq_hex(pContext->SegEs, 0x2B);
+    ok_eq_hex(pContext->SegFs, 0x53);
+    ok_eq_hex(pContext->SegGs, 0x2B);
+    ok_eq_hex(pContext->SegSs, continueContext.SegSs);
+    ok_eq_hex(pContext->EFlags, (continueContext.EFlags & ~0x1C0000) | 0x202);
+
+    ok_eq_hex64(pContext->Rax, continueContext.Rax);
+    ok_eq_hex64(pContext->Rdx, continueContext.Rdx);
+    ok_eq_hex64(pContext->Rbx, continueContext.Rbx);
+    ok_eq_hex64(pContext->Rsp, continueContext.Rsp);
+    ok_eq_hex64(pContext->Rbp, continueContext.Rbp);
+    ok_eq_hex64(pContext->Rsi, continueContext.Rsi);
+    ok_eq_hex64(pContext->Rdi, continueContext.Rdi);
+    ok_eq_hex64(pContext->R8, continueContext.R8);
+    ok_eq_hex64(pContext->R9, continueContext.R9);
+    ok_eq_hex64(pContext->R10, continueContext.R10);
+    ok_eq_hex64(pContext->R11, continueContext.R11);
+    ok_eq_hex64(pContext->R12, continueContext.R12);
+    ok_eq_hex64(pContext->R13, continueContext.R13);
+    ok_eq_hex64(pContext->R14, continueContext.R14);
+    ok_eq_hex64(pContext->R15, continueContext.R15);
+    ok_eq_xmm(pContext->Xmm0, continueContext.Xmm0);
+    ok_eq_xmm(pContext->Xmm1, continueContext.Xmm1);
+    ok_eq_xmm(pContext->Xmm2, continueContext.Xmm2);
+    ok_eq_xmm(pContext->Xmm3, continueContext.Xmm3);
+    ok_eq_xmm(pContext->Xmm4, continueContext.Xmm4);
+    ok_eq_xmm(pContext->Xmm5, continueContext.Xmm5);
+    ok_eq_xmm(pContext->Xmm6, continueContext.Xmm6);
+    ok_eq_xmm(pContext->Xmm7, continueContext.Xmm7);
+    ok_eq_xmm(pContext->Xmm8, continueContext.Xmm8);
+    ok_eq_xmm(pContext->Xmm9, continueContext.Xmm9);
+    ok_eq_xmm(pContext->Xmm10, continueContext.Xmm10);
+    ok_eq_xmm(pContext->Xmm11, continueContext.Xmm11);
+    ok_eq_xmm(pContext->Xmm12, continueContext.Xmm12);
+    ok_eq_xmm(pContext->Xmm13, continueContext.Xmm13);
+    ok_eq_xmm(pContext->Xmm14, continueContext.Xmm14);
+    ok_eq_xmm(pContext->Xmm15, continueContext.Xmm15);
+
+    // Clear the frame register to prevent unwinding, which is broken
+    ((_JUMP_BUFFER*)&jmpbuf)->Frame = 0;
 #endif
 
     /* Return where we came from */
@@ -122,16 +178,16 @@ void check(CONTEXT * pContext)
 
 START_TEST(NtContinue)
 {
-#ifdef __RUNTIME_CHECKS__
-    skip("This test breaks MSVC runtime checks!");
-    return;
-#endif /* __RUNTIME_CHECKS__ */
     initrand();
+
+    RtlFillMemory(&continueContext, sizeof(continueContext), 0xBBBBBBBB);
 
     /* First time */
     if(setjmp(jmpbuf) == 0)
     {
-        CONTEXT bogus;
+        CONTEXT bogus[2];
+
+        RtlFillMemory(&bogus, sizeof(bogus), 0xCCCCCCCC);
 
         continueContext.ContextFlags = CONTEXT_FULL;
         GetThreadContext(GetCurrentThread(), &continueContext);
@@ -159,6 +215,39 @@ START_TEST(NtContinue)
         continueContext.Eip = (ULONG)((ULONG_PTR)continuePoint & 0xFFFFFFF);
 
         /* Can't do a lot about segments */
+#elif defined(_M_AMD64)
+        continueContext.ContextFlags = CONTEXT_FULL | CONTEXT_DEBUG_REGISTERS;
+
+        /* Fill the integer registers with random values */
+        PULONG64 Registers = &continueContext.Rax;
+        for (ULONG i = 0; i < 16; i++)
+        {
+            Registers[i] = randULONG64();
+        }
+
+        /* Fill the XMM registers with random values */
+        Registers = (PULONG64)&continueContext.Xmm0;
+        for (ULONG i = 0; i < 32; i++)
+        {
+            Registers[i] = randULONG64();
+        }
+
+        continueContext.Dr0 = randULONG64() & 0xFFFF;
+        continueContext.Dr1 = randULONG64() & 0xFFFF;
+        continueContext.Dr2 = randULONG64() & 0xFFFF;
+        continueContext.Dr3 = randULONG64() & 0xFFFF;
+        continueContext.Dr6 = randULONG64() & 0xFFFF;
+        continueContext.Dr7 = randULONG64() & 0xFFFF;
+
+        /* Randomize all the allowed flags (determined experimentally with WinDbg) */
+        continueContext.EFlags = randULONG64() & 0x3C0CD5;
+
+        /* Randomize the stack pointer as much as possible */
+        continueContext.Rsp = (((ULONG_PTR)&bogus)) + (randULONG() & 0xF) * 16;
+        continueContext.Rsp = ALIGN_DOWN_BY(continueContext.Rsp, 16);
+
+        /* continuePoint() is implemented in assembler */
+        continueContext.Rip = ((ULONG_PTR)continuePoint);
 #endif
 
         NtContinue(&continueContext, FALSE);

@@ -54,6 +54,7 @@ list(APPEND SOURCE
     GetTextExtentExPoint.c
     GetTextFace.c
     GetTextMetrics.c
+    LPtoDP.c
     MaskBlt.c
     NtGdiAddFontResource.c
     OffsetClipRgn.c
@@ -68,17 +69,26 @@ list(APPEND SOURCE
     SetDCPenColor.c
     SetDIBits.c
     SetDIBitsToDevice.c
+    SetLayout.c
     SetMapMode.c
     SetPixel.c
     SetSysColors.c
     SetWindowExtEx.c
     SetWorldTransform.c
-    init.c
-    precomp.h)
+    StretchBlt.c
+    TextTransform.c
+    init.c)
 
-add_executable(gdi32_apitest ${SOURCE} testlist.c resource.rc)
+list(APPEND PCH_SKIP_SOURCE
+    testlist.c)
+
+add_executable(gdi32_apitest
+    ${SOURCE}
+    ${PCH_SKIP_SOURCE}
+    resource.rc)
+
 target_link_libraries(gdi32_apitest ${PSEH_LIB} win32ksys)
 set_module_type(gdi32_apitest win32cui)
 add_importlibs(gdi32_apitest gdi32 user32 msvcrt kernel32 ntdll)
-add_pch(gdi32_apitest precomp.h SOURCE)
+add_pch(gdi32_apitest precomp.h "${PCH_SKIP_SOURCE}")
 add_rostests_file(TARGET gdi32_apitest)

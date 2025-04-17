@@ -4,11 +4,6 @@
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
 
-#undef CRTDLL
-#ifndef _DLL
-#define _DLL
-#endif
-
 #define SPECIAL_CRTEXE
 
 #include <oscalls.h>
@@ -24,14 +19,10 @@
 #include <mbstring.h>
 #endif
 
-#ifndef __winitenv
-extern wchar_t *** __MINGW_IMP_SYMBOL(__winitenv);
-#define __winitenv (* __MINGW_IMP_SYMBOL(__winitenv))
-#endif
-
-#ifndef __initenv
-extern char *** __MINGW_IMP_SYMBOL(__initenv);
-#define __initenv (* __MINGW_IMP_SYMBOL(__initenv))
+/* Special handling for ARM & ARM64, __winitenv & __initenv aren't present there. */
+#if !defined(__arm__) && !defined(__aarch64__)
+_CRTIMP extern wchar_t** __winitenv;
+_CRTIMP extern char** __initenv;
 #endif
 
 /* Hack, for bug in ld.  Will be removed soon.  */
@@ -46,13 +37,6 @@ extern void __cdecl _fpreset (void);
 #define SPACECHAR _T(' ')
 #define DQUOTECHAR _T('\"')
 
-extern int * __MINGW_IMP_SYMBOL(_fmode);
-extern int * __MINGW_IMP_SYMBOL(_commode);
-
-#undef _fmode
-extern int _fmode;
-extern int * __MINGW_IMP_SYMBOL(_commode);
-#define _commode (* __MINGW_IMP_SYMBOL(_commode))
 extern int _dowildcard;
 
 extern _CRTIMP void __cdecl _initterm(_PVFV *, _PVFV *);
@@ -109,6 +93,10 @@ _CRTALLOC(".CRT$XCAA") _PVFV mingw_pcppinit = pre_cpp_init;
 
 extern int _MINGW_INSTALL_DEBUG_MATHERR;
 
+#ifdef __GNUC__
+extern void __do_global_dtors(void);
+#endif
+
 static int __cdecl
 pre_c_init (void)
 {
@@ -117,10 +105,7 @@ pre_c_init (void)
     __set_app_type(_GUI_APP);
   else
     __set_app_type (_CONSOLE_APP);
-  __onexitbegin = __onexitend = (_PVFV *) _encode_pointer ((_PVFV *)(-1));
-
-  * __MINGW_IMP_SYMBOL(_fmode) = _fmode;
-  * __MINGW_IMP_SYMBOL(_commode) = _commode;
+  __onexitbegin = __onexitend = (_PVFV *)(-1);
 
 #ifdef WPRFLAG
   _wsetargv();
@@ -131,7 +116,7 @@ pre_c_init (void)
     {
       __setusermatherr (_matherr);
     }
-#ifndef __clang__ /* FIXME: CORE-14042 */
+#if !defined(__clang__) && (!defined(_M_ARM64) || (_MSC_VER < 1930)) /* FIXME: CORE-14042 */
   if (__globallocalestatus == -1)
     {
     }
@@ -178,6 +163,7 @@ int __cdecl WinMainCRTStartup (void)
 }
 
 int __cdecl mainCRTStartup (void);
+BOOL crt_process_init(void);
 
 #ifdef _WIN64
 int __mingw_init_ehandler (void);
@@ -186,6 +172,12 @@ int __mingw_init_ehandler (void);
 int __cdecl mainCRTStartup (void)
 {
   int ret = 255;
+#ifndef _DLL
+  if (!crt_process_init())
+  {
+      return -1;
+  }
+#endif
 #ifdef __SEH__
   asm ("\t.l_start:\n"
     "\t.seh_handler __C_specific_handler, @except\n"
@@ -219,7 +211,7 @@ __tmainCRTStartup (void)
   /* We need to make sure that this function is build with frame-pointer
      and that we align the stack to 16 bytes for the sake of SSE ops in main
      or in functions inlined into main.  */
-  lpszCommandLine = (_TCHAR *) alloca (32);
+  lpszCommandLine = (_TCHAR *) _alloca (32);
   memset (lpszCommandLine, 0xcc, 32);
 #ifdef __GNUC__
   asm  __volatile__  ("andl $-16, %%esp" : : : "%esp");
@@ -306,14 +298,23 @@ __tmainCRTStartup (void)
     duplicate_ppstrings (argc, &argv);
     __main ();
 #ifdef WPRFLAG
+#if !defined(__arm__) && !defined(__aarch64__)
     __winitenv = envp;
+#endif
     /* C++ initialization.
        gcc inserts this call automatically for a function called main, but not for wmain.  */
     mainret = wmain (argc, argv, envp);
 #else
+#if !defined(__arm__) && !defined(__aarch64__)
     __initenv = envp;
+#endif
     mainret = main (argc, argv, envp);
 #endif
+
+#ifdef __GNUC__
+    __do_global_dtors();
+#endif
+
     if (!managedapp)
       exit (mainret);
 

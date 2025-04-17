@@ -50,7 +50,7 @@ DrvEnableSurface(
                           &(ppdev->ModeIndex), sizeof(ULONG), NULL, 0,
                           &ulTemp))
    {
-      return FALSE;
+      return NULL;
    }
 
    /*
@@ -63,7 +63,7 @@ DrvEnableSurface(
                           &VideoMemoryInfo, sizeof(VIDEO_MEMORY_INFORMATION),
                           &ulTemp))
    {
-      return FALSE;
+      return NULL;
    }
 
    ppdev->ScreenPtr = VideoMemoryInfo.FrameBufferBase;
@@ -88,7 +88,7 @@ DrvEnableSurface(
          break;
 
       default:
-         return FALSE;
+         return NULL;
    }
 
    ppdev->iDitherFormat = BitmapType;
@@ -101,7 +101,7 @@ DrvEnableSurface(
                                      ppdev->ScreenPtr);
    if (hSurface == NULL)
    {
-      return FALSE;
+      return NULL;
    }
 
    /*
@@ -111,7 +111,7 @@ DrvEnableSurface(
    if (!EngAssociateSurface(hSurface, ppdev->hDevEng, 0))
    {
       EngDeleteSurface(hSurface);
-      return FALSE;
+      return NULL;
    }
 
    ppdev->hSurfEng = hSurface;
@@ -174,27 +174,28 @@ DrvAssertMode(
 
    if (bEnable)
    {
-      BOOLEAN Result;
       /*
        * Reinitialize the device to a clean state.
        */
-      Result = EngDeviceIoControl(ppdev->hDriver, IOCTL_VIDEO_SET_CURRENT_MODE,
-                                  &(ppdev->ModeIndex), sizeof(ULONG), NULL, 0,
-                                  &ulTemp);
+      if (EngDeviceIoControl(ppdev->hDriver, IOCTL_VIDEO_SET_CURRENT_MODE,
+                             &(ppdev->ModeIndex), sizeof(ULONG), NULL, 0,
+                             &ulTemp))
+      {
+          /* We failed, bail out */
+          return FALSE;
+      }
       if (ppdev->BitsPerPixel == 8)
       {
 	     IntSetPalette(dhpdev, ppdev->PaletteEntries, 0, 256);
       }
 
-      return Result;
-
+      return TRUE;
    }
    else
    {
       /*
        * Call the miniport driver to reset the device to a known state.
        */
-
       return !EngDeviceIoControl(ppdev->hDriver, IOCTL_VIDEO_RESET_DEVICE,
                                  NULL, 0, NULL, 0, &ulTemp);
    }

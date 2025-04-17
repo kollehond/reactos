@@ -1,12 +1,20 @@
 
+#add_definitions(-DDBG)
+
 list(APPEND SOURCE
     cabinet.cxx
+    cabinet.h
     dfp.cxx
-    main.cxx
+    dfp.h
+    cabman.cxx
+    cabman.h
     mszip.cxx
+    mszip.h
     raw.cxx
-    CCFDATAStorage.cxx)
+    raw.h
+    CCFDATAStorage.cxx
+    CCFDATAStorage.h)
 
-include_directories(${REACTOS_SOURCE_DIR}/sdk/include/reactos/libs/zlib)
 add_host_tool(cabman ${SOURCE})
-target_link_libraries(cabman zlibhost)
+target_link_libraries(cabman PRIVATE host_includes zlibhost)
+set_property(TARGET cabman PROPERTY CXX_STANDARD 11)

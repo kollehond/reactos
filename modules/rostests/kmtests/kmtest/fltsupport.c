@@ -11,6 +11,7 @@
 #include "kmtest.h"
 #include <kmt_public.h>
 
+#include <ndk/setypes.h>
 #include <assert.h>
 #include <debug.h>
 
@@ -24,10 +25,6 @@ KmtpCreateService(
     IN PCWSTR DisplayName OPTIONAL,
     IN DWORD ServiceType,
     OUT SC_HANDLE *ServiceHandle);
-
-DWORD EnablePrivilegeInCurrentProcess(
-    _In_z_ LPWSTR lpPrivName,
-    _In_ BOOL bEnable);
 
 // move to a shared location
 typedef struct _KMTFLT_MESSAGE_HEADER
@@ -67,11 +64,11 @@ KmtFltCreateService(
 {
     WCHAR ServicePath[MAX_PATH];
 
-    StringCbCopy(ServicePath, sizeof ServicePath, ServiceName);
-    StringCbCat(ServicePath, sizeof ServicePath, L"_drv.sys");
+    StringCbCopyW(ServicePath, sizeof(ServicePath), ServiceName);
+    StringCbCatW(ServicePath, sizeof(ServicePath), L"_drv.sys");
 
-    StringCbCopy(TestServiceName, sizeof TestServiceName, L"Kmtest-");
-    StringCbCat(TestServiceName, sizeof TestServiceName, ServiceName);
+    StringCbCopyW(TestServiceName, sizeof(TestServiceName), L"Kmtest-");
+    StringCbCatW(TestServiceName, sizeof(TestServiceName), ServiceName);
 
     return KmtpCreateService(TestServiceName,
                              ServicePath,
@@ -110,7 +107,7 @@ KmtFltDeleteService(
  */
 DWORD
 KmtFltLoadDriver(
-    _In_ BOOLEAN EnableDriverLoadPrivlege,
+    _In_ BOOLEAN EnableDriverLoadPrivilege,
     _In_ BOOLEAN RestartIfRunning,
     _In_ BOOLEAN ConnectComms,
     _Out_ HANDLE *hPort
@@ -118,13 +115,16 @@ KmtFltLoadDriver(
 {
     DWORD Error;
 
-    if (EnableDriverLoadPrivlege)
+    if (EnableDriverLoadPrivilege)
     {
-        Error = EnablePrivilegeInCurrentProcess(SE_LOAD_DRIVER_NAME , TRUE);
+        BOOLEAN WasEnabled;
+        Error = RtlNtStatusToDosError(RtlAdjustPrivilege(
+                    SE_LOAD_DRIVER_PRIVILEGE,
+                    TRUE,
+                    FALSE, // Enable in current process.
+                    &WasEnabled));
         if (Error)
-        {
             return Error;
-        }
     }
 
     Error = KmtFltLoad(TestServiceName);
@@ -141,14 +141,10 @@ KmtFltLoadDriver(
     }
 
     if (Error)
-    {
         return Error;
-    }
 
     if (ConnectComms)
-    {
         Error = KmtFltConnectComms(hPort);
-    }
 
     return Error;
 }
@@ -455,9 +451,9 @@ KmtFltAddAltitude(
     DWORD Zero = 0;
     LONG Error;
 
-    StringCbCopy(KeyPath, sizeof KeyPath, L"SYSTEM\\CurrentControlSet\\Services\\");
-    StringCbCat(KeyPath, sizeof KeyPath, TestServiceName);
-    StringCbCat(KeyPath, sizeof KeyPath, L"\\Instances\\");
+    StringCbCopyW(KeyPath, sizeof(KeyPath), L"SYSTEM\\CurrentControlSet\\Services\\");
+    StringCbCatW(KeyPath, sizeof(KeyPath), TestServiceName);
+    StringCbCatW(KeyPath, sizeof(KeyPath), L"\\Instances\\");
 
     Error = RegCreateKeyEx(HKEY_LOCAL_MACHINE,
                            KeyPath,
@@ -473,15 +469,15 @@ KmtFltAddAltitude(
         return Error;
     }
 
-    StringCbCopy(DefaultInstance, sizeof DefaultInstance, TestServiceName);
-    StringCbCat(DefaultInstance, sizeof DefaultInstance, L" Instance");
+    StringCbCopyW(DefaultInstance, sizeof(DefaultInstance), TestServiceName);
+    StringCbCatW(DefaultInstance, sizeof(DefaultInstance), L" Instance");
 
     Error = RegSetValueExW(hKey,
                            L"DefaultInstance",
                            0,
                            REG_SZ,
                            (LPBYTE)DefaultInstance,
-                           (wcslen(DefaultInstance) + 1) * sizeof(WCHAR));
+                           (lstrlenW(DefaultInstance) + 1) * sizeof(WCHAR));
     if (Error != ERROR_SUCCESS)
     {
         goto Quit;
@@ -498,7 +494,7 @@ KmtFltAddAltitude(
                            0,
                            REG_SZ,
                            (LPBYTE)Altitude,
-                           (wcslen(Altitude) + 1) * sizeof(WCHAR));
+                           (lstrlenW(Altitude) + 1) * sizeof(WCHAR));
     if (Error != ERROR_SUCCESS)
     {
         goto Quit;
@@ -523,64 +519,4 @@ Quit:
 
     return Error;
 
-}
-
-/*
-* Private functions, not meant for use in kmtests
-*/
-
-DWORD EnablePrivilege(
-    _In_ HANDLE hToken,
-    _In_z_ LPWSTR lpPrivName,
-    _In_ BOOL bEnable)
-{
-    TOKEN_PRIVILEGES TokenPrivileges;
-    LUID luid;
-    BOOL bSuccess;
-    DWORD dwError = ERROR_SUCCESS;
-
-    /* Get the luid for this privilege */
-    if (!LookupPrivilegeValueW(NULL, lpPrivName, &luid))
-        return GetLastError();
-
-    /* Setup the struct with the priv info */
-    TokenPrivileges.PrivilegeCount = 1;
-    TokenPrivileges.Privileges[0].Luid = luid;
-    TokenPrivileges.Privileges[0].Attributes = bEnable ? SE_PRIVILEGE_ENABLED : 0;
-
-    /* Enable the privilege info in the token */
-    bSuccess = AdjustTokenPrivileges(hToken,
-                                     FALSE,
-                                     &TokenPrivileges,
-                                     sizeof(TOKEN_PRIVILEGES),
-                                     NULL,
-                                     NULL);
-    if (bSuccess == FALSE) dwError = GetLastError();
-
-    /* return status */
-    return dwError;
-}
-
-DWORD EnablePrivilegeInCurrentProcess(
-    _In_z_ LPWSTR lpPrivName,
-    _In_ BOOL bEnable)
-{
-    HANDLE hToken;
-    BOOL bSuccess;
-    DWORD dwError = ERROR_SUCCESS;
-
-    /* Get a handle to our token */
-    bSuccess = OpenProcessToken(GetCurrentProcess(),
-                                TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
-                                &hToken);
-    if (bSuccess == FALSE) return GetLastError();
-
-    /* Enable the privilege in the agent token */
-    dwError = EnablePrivilege(hToken, lpPrivName, bEnable);
-
-    /* We're done with this now */
-    CloseHandle(hToken);
-
-    /* return status */
-    return dwError;
 }

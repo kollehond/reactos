@@ -1,6 +1,6 @@
-/* 
+/*
  * COPYRIGHT:            See COPYING in the top level directory
- * PROJECT:              ReactOS 
+ * PROJECT:              ReactOS
  * PURPOSE:              LPK Library
  * PROGRAMMER:           Magnus Olsen (greatlrd)
  *
@@ -18,6 +18,9 @@
 #include <winnls.h>
 #include <usp10.h>
 #include <strsafe.h>
+#include "undocgdi.h"
+#include "wine/unicode.h"
+#include "wine/debug.h"
 
 /* FIXME USP10 api that does not have prototype in any include file */
 VOID WINAPI LpkPresent(VOID);
@@ -63,10 +66,7 @@ DWORD WINAPI EditAdjustCaret(DWORD x1, DWORD x2, DWORD x3, DWORD x5);
 
 DWORD WINAPI LpkInitialize(DWORD x1);
 DWORD WINAPI LpkTabbedTextOut(DWORD x1,DWORD x2,DWORD x3,DWORD x4,DWORD x5,DWORD x6,DWORD x7,DWORD x8,DWORD x9,DWORD x10,DWORD x11,DWORD x12);
-BOOL WINAPI LpkDllInitialize (HANDLE  hDll, DWORD dwReason, LPVOID lpReserved);
 DWORD WINAPI LpkDrawTextEx(DWORD x1,DWORD x2,DWORD x3,DWORD x4,DWORD x5,DWORD x6,DWORD x7,DWORD x8,DWORD x9, DWORD x10);
-DWORD WINAPI LpkGetTextExtentExPoint(DWORD x1,DWORD x2,DWORD x3,DWORD x4,DWORD x5,DWORD x6,DWORD x7,DWORD x8,DWORD x9);
-DWORD WINAPI LpkPSMTextOut(DWORD x1,DWORD x2,DWORD x3,DWORD x4,DWORD x5,DWORD x6);
 DWORD WINAPI LpkUseGDIWidthCache(DWORD x1,DWORD x2,DWORD x3,DWORD x4,DWORD x5);
 DWORD WINAPI ftsWordBreak(DWORD x1,DWORD x2,DWORD x3,DWORD x4,DWORD x5);
 
@@ -75,8 +75,14 @@ DWORD WINAPI ftsWordBreak(DWORD x1,DWORD x2,DWORD x3,DWORD x4,DWORD x5);
 BOOL WINAPI LpkExtTextOut(HDC hdc, int x, int y, UINT fuOptions, const RECT *lprc,
                           LPCWSTR lpString, UINT uCount , const INT *lpDx, INT unknown);
 
-DWORD WINAPI LpkGetCharacterPlacement(HDC hdc, LPCWSTR lpString, INT uCount, INT nMaxExtent, 
+DWORD WINAPI LpkGetCharacterPlacement(HDC hdc, LPCWSTR lpString, INT uCount, INT nMaxExtent,
                                       GCP_RESULTSW *lpResults, DWORD dwFlags, DWORD dwUnused);
+
+INT WINAPI LpkPSMTextOut(HDC hdc, int x, int y, LPCWSTR lpString, int cString, DWORD dwFlags);
+
+BOOL WINAPI LpkGetTextExtentExPoint(HDC hdc, LPCWSTR lpString, INT cString, INT nMaxExtent,
+                                    LPINT lpnFit, LPINT lpnDx, LPSIZE lpSize, DWORD dwUnused,
+                                    int unknown);
 /* bidi.c */
 
 #define WINE_GCPW_FORCE_LTR 0

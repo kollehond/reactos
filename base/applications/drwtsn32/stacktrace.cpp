@@ -2,11 +2,13 @@
  * PROJECT:     Dr. Watson crash reporter
  * LICENSE:     GPL-2.0+ (https://spdx.org/licenses/GPL-2.0+)
  * PURPOSE:     Print a stacktrace
- * COPYRIGHT:   Copyright 2017 Mark Jansen (mark.jansen@reactos.org)
+ * COPYRIGHT:   Copyright 2017,2018 Mark Jansen <mark.jansen@reactos.org>
  */
 
 #include "precomp.h"
 #include <dbghelp.h>
+
+#define STACK_MAX_RECURSION_DEPTH   50
 
 
 void BeginStackBacktrace(DumpData& data)
@@ -36,46 +38,63 @@ void PrintStackBacktrace(FILE* output, DumpData& data, ThreadData& thread)
     DWORD MachineType;
     STACKFRAME64 StackFrame = { { 0 } };
 
-#ifdef _M_X64
+    StackFrame.AddrPC.Mode = AddrModeFlat;
+    StackFrame.AddrReturn.Mode = AddrModeFlat;
+    StackFrame.AddrFrame.Mode = AddrModeFlat;
+    StackFrame.AddrStack.Mode = AddrModeFlat;
+    StackFrame.AddrBStore.Mode = AddrModeFlat;
+
+
+#if defined(_M_IX86)
+    MachineType = IMAGE_FILE_MACHINE_I386;
+    StackFrame.AddrPC.Offset = thread.Context.Eip;
+    StackFrame.AddrStack.Offset = thread.Context.Esp;
+    StackFrame.AddrFrame.Offset = thread.Context.Ebp;
+#elif defined(_M_AMD64)
     MachineType = IMAGE_FILE_MACHINE_AMD64;
     StackFrame.AddrPC.Offset = thread.Context.Rip;
-    StackFrame.AddrPC.Mode = AddrModeFlat;
     StackFrame.AddrStack.Offset = thread.Context.Rsp;
-    StackFrame.AddrStack.Mode = AddrModeFlat;
     StackFrame.AddrFrame.Offset = thread.Context.Rbp;
-    StackFrame.AddrFrame.Mode = AddrModeFlat;
+#elif defined(_M_ARM)
+    MachineType = IMAGE_FILE_MACHINE_ARMNT;
+    StackFrame.AddrPC.Offset = thread.Context.Pc;
+    StackFrame.AddrStack.Offset = thread.Context.Sp;
+    StackFrame.AddrFrame.Offset = thread.Context.R11;
+#elif defined(_M_ARM64)
+    MachineType = IMAGE_FILE_MACHINE_ARM64;
+    StackFrame.AddrPC.Offset = thread.Context.Pc;
+    StackFrame.AddrStack.Offset = thread.Context.Sp;
+    StackFrame.AddrFrame.Offset = thread.Context.u.s.Fp;
 #else
-    MachineType = IMAGE_FILE_MACHINE_I386;
-    StackFrame.AddrPC.Offset =  thread.Context.Eip;
-    StackFrame.AddrPC.Mode = AddrModeFlat;
-    StackFrame.AddrStack.Offset = thread.Context.Esp;
-    StackFrame.AddrStack.Mode = AddrModeFlat;
-    StackFrame.AddrFrame.Offset = thread.Context.Ebp;
-    StackFrame.AddrFrame.Mode = AddrModeFlat;
+#error "Unknown architecture"
 #endif
-
 
 #define STACKWALK_MAX_NAMELEN   512
     char buf[sizeof(SYMBOL_INFO) + STACKWALK_MAX_NAMELEN] = {0};
     SYMBOL_INFO* sym = (SYMBOL_INFO *)buf;
     IMAGEHLP_MODULE64 Module = { 0 };
+    LONG RecursionDepth = 0;
     sym->SizeOfStruct = sizeof(sym);
 
-    /* FIXME: Disasm function! */
+    /* FIXME: dump x bytes at PC here + disasm it! */
 
     xfprintf(output, NEWLINE "*----> Stack Back Trace <----*" NEWLINE NEWLINE);
     bool first = true;
-    ULONG_PTR LastFrame = StackFrame.AddrFrame.Offset - 8;
-    while(StackWalk64(MachineType, data.ProcessHandle, thread.Handle, &StackFrame, &thread.Context,
-                         NULL, SymFunctionTableAccess64, SymGetModuleBase64, NULL))
+    while (StackWalk64(MachineType, data.ProcessHandle, thread.Handle, &StackFrame, &thread.Context,
+                       NULL, SymFunctionTableAccess64, SymGetModuleBase64, NULL))
     {
-        if (!StackFrame.AddrPC.Offset)
-            break;
-
-        if (LastFrame >= StackFrame.AddrFrame.Offset)
-            break;
-
-        LastFrame = StackFrame.AddrFrame.Offset;
+        if (StackFrame.AddrPC.Offset == StackFrame.AddrReturn.Offset)
+        {
+            if (RecursionDepth++ > STACK_MAX_RECURSION_DEPTH)
+            {
+                xfprintf(output, "- Aborting stackwalk -" NEWLINE);
+                break;
+            }
+        }
+        else
+        {
+            RecursionDepth = 0;
+        }
 
         if (first)
         {
@@ -85,22 +104,22 @@ void PrintStackBacktrace(FILE* output, DumpData& data, ThreadData& thread)
 
         Module.SizeOfStruct = sizeof(Module);
         DWORD64 ModBase = SymGetModuleBase64(data.ProcessHandle, StackFrame.AddrPC.Offset);
-        if (!SymGetModuleInfo64(data.ProcessHandle, ModBase, &Module))
+        if (!ModBase || !SymGetModuleInfo64(data.ProcessHandle, ModBase, &Module))
             strcpy(Module.ModuleName, "<nomod>");
 
         memset(sym, '\0', sizeof(*sym) + STACKWALK_MAX_NAMELEN);
         sym->SizeOfStruct = sizeof(*sym);
         sym->MaxNameLen = STACKWALK_MAX_NAMELEN;
-        DWORD64 displacement;
+        DWORD64 displacement = 0;
 
-        if (!SymFromAddr(data.ProcessHandle, StackFrame.AddrPC.Offset, &displacement, sym))
+        if (!StackFrame.AddrPC.Offset || !SymFromAddr(data.ProcessHandle, StackFrame.AddrPC.Offset, &displacement, sym))
             strcpy(sym->Name, "<nosymbols>");
 
-        xfprintf(output, "%p %p %p %p %p %p %s!%s" NEWLINE,
+        xfprintf(output, "%p %p %p %p %p %p %s!%s +0x%I64x" NEWLINE,
                  (ULONG_PTR)StackFrame.AddrFrame.Offset, (ULONG_PTR)StackFrame.AddrPC.Offset,
                  (ULONG_PTR)StackFrame.Params[0], (ULONG_PTR)StackFrame.Params[1],
                  (ULONG_PTR)StackFrame.Params[2], (ULONG_PTR)StackFrame.Params[3],
-                 Module.ModuleName, sym->Name);
+                 Module.ModuleName, sym->Name, displacement);
     }
 
     UCHAR stackData[0x10 * 10];
@@ -109,6 +128,8 @@ void PrintStackBacktrace(FILE* output, DumpData& data, ThreadData& thread)
     ULONG_PTR stackPointer = thread.Context.Esp;
 #elif defined(_M_AMD64)
     ULONG_PTR stackPointer = thread.Context.Rsp;
+#elif defined(_M_ARM) || defined(_M_ARM64)
+    ULONG_PTR stackPointer = thread.Context.Sp;
 #else
 #error Unknown architecture
 #endif

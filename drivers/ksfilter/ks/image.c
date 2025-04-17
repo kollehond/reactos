@@ -38,7 +38,7 @@ KsLoadResource(
     /* set up resource info */
     ResourceInfo.Type = ResourceType;
     ResourceInfo.Name = ResourceName;
-    ResourceInfo.Language = 0;
+    ResourceInfo.Language = MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL);
 
     _SEH2_TRY
     {
@@ -239,7 +239,7 @@ KsMapModuleName(
     RtlAppendUnicodeStringToString(&SubKeyName, ModuleName);
 
     /* initialize subkey attributes */
-    InitializeObjectAttributes(&ObjectAttributes, &SubKeyName, OBJ_CASE_INSENSITIVE, hKey, NULL);
+    InitializeObjectAttributes(&ObjectAttributes, &SubKeyName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, hKey, NULL);
 
     /* now open the subkey */
     Status = ZwOpenKey(&hSubKey, GENERIC_READ, &ObjectAttributes);
@@ -263,6 +263,3 @@ KsMapModuleName(
     /* return status */
     return Status;
 }
-
-
-

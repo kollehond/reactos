@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2017, Intel Corp.
+ * Copyright (C) 2000 - 2022, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
  * NO WARRANTY
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
  * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
@@ -46,6 +46,7 @@
 #include "acparser.h"
 #include "amlcode.h"
 #include "acconvert.h"
+#include "acnamesp.h"
 
 #define _COMPONENT          ACPI_PARSER
         ACPI_MODULE_NAME    ("psobject")
@@ -74,7 +75,7 @@ static ACPI_STATUS
 AcpiPsGetAmlOpcode (
     ACPI_WALK_STATE         *WalkState)
 {
-    UINT32                  AmlOffset;
+    ACPI_ERROR_ONLY (UINT32 AmlOffset);
 
 
     ACPI_FUNCTION_TRACE_PTR (PsGetAmlOpcode, WalkState);
@@ -109,8 +110,8 @@ AcpiPsGetAmlOpcode (
 
         if (WalkState->PassNumber == 2)
         {
-            AmlOffset = (UINT32) ACPI_PTR_DIFF (WalkState->Aml,
-                WalkState->ParserState.AmlStart);
+            ACPI_ERROR_ONLY(AmlOffset = (UINT32) ACPI_PTR_DIFF (WalkState->Aml,
+                WalkState->ParserState.AmlStart));
 
             ACPI_ERROR ((AE_INFO,
                 "Unknown opcode 0x%.2X at table offset 0x%.4X, ignoring",
@@ -392,15 +393,10 @@ AcpiPsCreateOp (
              * external declaration opcode. Setting WalkState->Aml to
              * WalkState->ParserState.Aml + 2 moves increments the
              * WalkState->Aml past the object type and the paramcount of the
-             * external opcode. For the error message, only print the AML
-             * offset. We could attempt to print the name but this may cause
-             * a segmentation fault when printing the namepath because the
-             * AML may be incorrect.
+             * external opcode.
              */
-            AcpiOsPrintf (
-                "// Invalid external declaration at AML offset 0x%x.\n",
-                WalkState->Aml - WalkState->ParserState.AmlStart);
             WalkState->Aml = WalkState->ParserState.Aml + 2;
+            WalkState->ParserState.Aml = WalkState->Aml;
             return_ACPI_STATUS (AE_CTRL_PARSE_CONTINUE);
         }
 #endif
@@ -548,7 +544,7 @@ AcpiPsCompleteOp (
             WalkState->Opcode = (*Op)->Common.AmlOpcode;
 
             Status = WalkState->AscendingCallback (WalkState);
-            Status = AcpiPsNextParseState (WalkState, *Op, Status);
+            (void) AcpiPsNextParseState (WalkState, *Op, Status);
 
             Status2 = AcpiPsCompleteThisOp (WalkState, *Op);
             if (ACPI_FAILURE (Status2))
@@ -557,7 +553,6 @@ AcpiPsCompleteOp (
             }
         }
 
-        Status = AE_OK;
         break;
 
     case AE_CTRL_BREAK:
@@ -578,7 +573,7 @@ AcpiPsCompleteOp (
         WalkState->Opcode = (*Op)->Common.AmlOpcode;
 
         Status = WalkState->AscendingCallback (WalkState);
-        Status = AcpiPsNextParseState (WalkState, *Op, Status);
+        (void) AcpiPsNextParseState (WalkState, *Op, Status);
 
         Status2 = AcpiPsCompleteThisOp (WalkState, *Op);
         if (ACPI_FAILURE (Status2))
@@ -586,7 +581,6 @@ AcpiPsCompleteOp (
             return_ACPI_STATUS (Status2);
         }
 
-        Status = AE_OK;
         break;
 
     case AE_CTRL_TERMINATE:
@@ -619,6 +613,20 @@ AcpiPsCompleteOp (
         {
             if (*Op)
             {
+                /*
+                 * These Opcodes need to be removed from the namespace because they
+                 * get created even if these opcodes cannot be created due to
+                 * errors.
+                 */
+                if (((*Op)->Common.AmlOpcode == AML_REGION_OP) ||
+                    ((*Op)->Common.AmlOpcode == AML_DATA_REGION_OP))
+                {
+                    AcpiNsDeleteChildren ((*Op)->Common.Node);
+                    AcpiNsRemoveNode ((*Op)->Common.Node);
+                    (*Op)->Common.Node = NULL;
+                    AcpiPsDeleteParseTree (*Op);
+                }
+
                 Status2 = AcpiPsCompleteThisOp (WalkState, *Op);
                 if (ACPI_FAILURE (Status2))
                 {
@@ -644,6 +652,20 @@ AcpiPsCompleteOp (
 #endif
         WalkState->PrevOp = NULL;
         WalkState->PrevArgTypes = WalkState->ArgTypes;
+
+        if (WalkState->ParseFlags & ACPI_PARSE_MODULE_LEVEL)
+        {
+            /*
+             * There was something that went wrong while executing code at the
+             * module-level. We need to skip parsing whatever caused the
+             * error and keep going. One runtime error during the table load
+             * should not cause the entire table to not be loaded. This is
+             * because there could be correct AML beyond the parts that caused
+             * the runtime error.
+             */
+            ACPI_INFO (("Ignoring error and continuing table load"));
+            return_ACPI_STATUS (AE_OK);
+        }
         return_ACPI_STATUS (Status);
     }
 

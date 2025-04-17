@@ -21,43 +21,68 @@
 #ifndef __REGISTRY_H
 #define __REGISTRY_H
 
+#include <cmlib.h>
+
 typedef HANDLE HKEY, *PHKEY;
 
-LONG
-RegInitCurrentControlSet(BOOLEAN LastKnownGood);
+#define HKEY_TO_HCI(hKey)               ((HCELL_INDEX)(ULONG_PTR)(hKey))
 
+BOOLEAN
+RegImportBinaryHive(
+    _In_ PVOID ChunkBase,
+    _In_ ULONG ChunkSize,
+    _In_ PCSTR SearchPath,
+    _In_ BOOLEAN LoadAlternate);
+
+BOOLEAN
+RegInitCurrentControlSet(
+    _In_ BOOLEAN LastKnownGood);
+
+extern PHHIVE SystemHive;
+extern HKEY CurrentControlSetKey;
+
+/*
+ * LONG
+ * RegCloseKey(
+ *     _In_ HKEY hKey);
+ */
+#define RegCloseKey(hKey)   (ERROR_SUCCESS)
+
+#if 0
 LONG
 RegEnumKey(
     _In_ HKEY Key,
     _In_ ULONG Index,
     _Out_ PWCHAR Name,
-    _Inout_ ULONG* NameSize,
+    _Inout_ PULONG NameSize,
     _Out_opt_ PHKEY SubKey);
+#endif
 
 LONG
-RegOpenKey(HKEY ParentKey,
-           PCWSTR KeyName,
-           PHKEY Key);
+RegOpenKey(
+    _In_ HKEY ParentKey,
+    _In_z_ PCWSTR KeyName,
+    _Out_ PHKEY Key);
 
 LONG
-RegQueryValue(HKEY Key,
-          PCWSTR ValueName,
-          ULONG* Type,
-          PUCHAR Data,
-          ULONG* DataSize);
+RegQueryValue(
+    _In_ HKEY Key,
+    _In_z_ PCWSTR ValueName,
+    _Out_opt_ PULONG Type,
+    _Out_opt_ PUCHAR Data,
+    _Inout_opt_ PULONG DataSize);
 
+#if 0
 LONG
-RegEnumValue(HKEY Key,
-         ULONG Index,
-         PWCHAR ValueName,
-         ULONG* NameSize,
-         ULONG* Type,
-         PUCHAR Data,
-         ULONG* DataSize);
-
-BOOLEAN
-RegImportBinaryHive(PVOID ChunkBase,
-             ULONG ChunkSize);
+RegEnumValue(
+    _In_ HKEY Key,
+    _In_ ULONG Index,
+    _Out_ PWCHAR ValueName,
+    _Inout_ PULONG NameSize,
+    _Out_opt_ PULONG Type,
+    _Out_opt_ PUCHAR Data,
+    _Inout_opt_ PULONG DataSize)
+#endif
 
 #endif /* __REGISTRY_H */
 

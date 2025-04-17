@@ -17,209 +17,191 @@
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifdef _M_IX86
+#if defined(_M_IX86) || defined(_M_AMD64)
 
 /* INCLUDES *******************************************************************/
 
 #include <freeldr.h>
 
+#include <debug.h>
+DBG_DEFAULT_CHANNEL(DISK);
+
 /* FUNCTIONS ******************************************************************/
 
-VOID
-LoadAndBootBootSector(IN OperatingSystemItem* OperatingSystem,
-                      IN USHORT OperatingSystemVersion)
+/**
+ * @brief
+ * Loads and boots a disk MBR, a partition VBR or a file boot sector.
+ **/
+ARC_STATUS
+LoadAndBootSector(
+    _In_ ULONG Argc,
+    _In_ PCHAR Argv[],
+    _In_ PCHAR Envp[])
 {
-    ULONG_PTR SectionId;
-    PCSTR SectionName = OperatingSystem->SystemPartition;
-    CHAR  FileName[260];
-    PFILE FilePointer;
+    ARC_STATUS Status;
+    PCSTR ArgValue;
+    PCSTR BootPath;
+    PCSTR FileName;
+    UCHAR BiosDriveNumber = 0;
+    ULONG PartitionNumber = 0;
+    ULONG LoadAddress;
+    ULONG FileId;
     ULONG BytesRead;
+    CHAR ArcPath[MAX_PATH];
+
+#if DBG
+    /* Ensure the boot type is the one expected */
+    ArgValue = GetArgumentValue(Argc, Argv, "BootType");
+    if (!ArgValue || !*ArgValue || _stricmp(ArgValue, "BootSector") != 0)
+    {
+        ERR("Unexpected boot type '%s', aborting\n", ArgValue ? ArgValue : "n/a");
+        return EINVAL;
+    }
+#endif
 
     /* Find all the message box settings and run them */
-    UiShowMessageBoxesInSection(SectionName);
+    UiShowMessageBoxesInArgv(Argc, Argv);
 
-    /* Try to open the operating system section in the .ini file */
-    if (!IniOpenSection(SectionName, &SectionId))
+    /*
+     * Check whether we have a "BootPath" value (takes precedence
+     * over both "BootDrive" and "BootPartition").
+     */
+    BootPath = GetArgumentValue(Argc, Argv, "BootPath");
+    if (!BootPath || !*BootPath)
     {
-        UiMessageBox("Section [%s] not found in freeldr.ini.", SectionName);
-        return;
+        /* We don't have one, check whether we use "BootDrive" and "BootPartition" */
+
+        /* Retrieve the boot drive (optional, fall back to using default path otherwise) */
+        ArgValue = GetArgumentValue(Argc, Argv, "BootDrive");
+        if (ArgValue && *ArgValue)
+        {
+            BiosDriveNumber = DriveMapGetBiosDriveNumber(ArgValue);
+
+            /* Retrieve the boot partition (optional, fall back to zero otherwise) */
+            PartitionNumber = 0;
+            ArgValue = GetArgumentValue(Argc, Argv, "BootPartition");
+            if (ArgValue && *ArgValue)
+                PartitionNumber = atoi(ArgValue);
+        }
+        else
+        {
+            /* Fall back to using the system partition as default path */
+            BootPath = GetArgumentValue(Argc, Argv, "SystemPartition");
+        }
     }
 
-    if (!IniReadSettingByName(SectionId, "BootSectorFile", FileName, sizeof(FileName)))
+    /*
+     * The ARC "BootPath" value takes precedence over
+     * both the BiosDriveNumber and PartitionNumber options.
+     */
+    if (BootPath && *BootPath)
     {
-        UiMessageBox("Boot sector file not specified for selected OS!");
-        return;
+        /*
+         * Retrieve the BIOS drive and partition numbers; verify also that the
+         * path is "valid" in the sense that it must not contain any file name.
+         */
+        FileName = NULL;
+        if (!DissectArcPath(BootPath, &FileName, &BiosDriveNumber, &PartitionNumber) ||
+            (FileName && *FileName))
+        {
+            UiMessageBox("Currently unsupported BootPath value:\n%s", BootPath);
+            return EINVAL;
+        }
+    }
+    else
+    {
+        /* We don't have one, so construct the corresponding ARC path */
+        ConstructArcPath(ArcPath, "", BiosDriveNumber, PartitionNumber);
+        *strrchr(ArcPath, '\\') = ANSI_NULL; // Trim the trailing path separator.
+        BootPath = ArcPath;
     }
 
-    FilePointer = FsOpenFile(FileName);
-    if (!FilePointer)
+    FileName = NULL;
+    if (strstr(BootPath, ")partition()") || strstr(BootPath, ")partition(0)"))
     {
-        UiMessageBox("%s not found.", FileName);
-        return;
+        /*
+         * The partition specifier is zero i.e. the device is accessed
+         * in an unpartitioned fashion, do not retrieve a file name.
+         *
+         * NOTE: If we access a floppy drive, we would not have a
+         * partition specifier, and PartitionNumber would be == 0,
+         * so don't check explicitly for PartitionNumber because
+         * we want to retrieve a file name.
+         */
+    }
+    else
+    {
+        /* Retrieve the file name, if any, and normalize
+         * the pointer to make subsequent tests simpler */
+        FileName = GetArgumentValue(Argc, Argv, "BootSectorFile");
+        if (FileName && !*FileName)
+            FileName = NULL;
     }
 
-    /* Read boot sector */
-    if (!FsReadFile(FilePointer, 512, &BytesRead, (void*)0x7c00) || (BytesRead != 512))
+
+    /* If we load a boot sector file, reset the drive number
+     * so as to use the original boot drive/partition */
+    if (FileName)
+        BiosDriveNumber = 0;
+    if (!BiosDriveNumber)
     {
-        UiMessageBox("Unable to read boot sector.");
-        return;
+        BiosDriveNumber = FrldrGetBootDrive();
+        PartitionNumber = FrldrGetBootPartition();
+    }
+
+
+    /* Open the boot sector file or the volume */
+    if (FileName)
+        Status = FsOpenFile(FileName, BootPath, OpenReadOnly, &FileId);
+    else
+        Status = ArcOpen((PSTR)BootPath, OpenReadOnly, &FileId);
+    if (Status != ESUCCESS)
+    {
+        UiMessageBox("Unable to open %s", FileName ? FileName : BootPath);
+        return Status;
+    }
+
+    LoadAddress = MachGetBootSectorLoadAddress(BiosDriveNumber);
+
+    /*
+     * Now try to load the boot sector: disk MBR (when PartitionNumber == 0),
+     * partition VBR or boot sector file. If this fails, abort.
+     */
+    Status = ArcRead(FileId, UlongToPtr(LoadAddress), 512, &BytesRead);
+    ArcClose(FileId);
+    if ((Status != ESUCCESS) || (BytesRead != 512))
+    {
+        PCSTR WhatFailed;
+
+        if (FileName)
+            WhatFailed = "boot sector file";
+        else if (PartitionNumber != 0)
+            WhatFailed = "partition's boot sector";
+        else
+            WhatFailed = "MBR boot sector";
+
+        UiMessageBox("Unable to load %s.", WhatFailed);
+        return EIO;
     }
 
     /* Check for validity */
-    if (*((USHORT*)(0x7c00 + 0x1fe)) != 0xaa55)
+    if (*(USHORT*)UlongToPtr(LoadAddress + 0x1FE) != 0xAA55)
     {
-        UiMessageBox("Invalid boot sector magic (0xaa55)");
-        return;
+        UiMessageBox("Invalid boot sector magic (0xAA55)");
+        return ENOEXEC;
     }
 
     UiUnInitialize("Booting...");
+    IniCleanup();
 
-    /*
-     * Don't stop the floppy drive motor when we
-     * are just booting a bootsector, or drive, or partition.
-     * If we were to stop the floppy motor then
-     * the BIOS wouldn't be informed and if the
-     * next read is to a floppy then the BIOS will
-     * still think the motor is on and this will
-     * result in a read error.
-     */
-    // DiskStopFloppyMotor();
-    // DisableA20();
-    ChainLoadBiosBootSectorCode();
+#ifndef UEFIBOOT
+    /* Boot the loaded sector code */
+    ChainLoadBiosBootSectorCode(BiosDriveNumber, PartitionNumber);
+#endif
+    /* Must not return! */
+    return ESUCCESS;
 }
 
-VOID
-LoadAndBootPartition(IN OperatingSystemItem* OperatingSystem,
-                     IN USHORT OperatingSystemVersion)
-{
-    ULONG_PTR SectionId;
-    PCSTR SectionName = OperatingSystem->SystemPartition;
-    CHAR  SettingValue[80];
-    PARTITION_TABLE_ENTRY PartitionTableEntry;
-    UCHAR DriveNumber;
-    ULONG PartitionNumber;
+#endif /* _M_IX86 || _M_AMD64 */
 
-    /* Find all the message box settings and run them */
-    UiShowMessageBoxesInSection(SectionName);
-
-    /* Try to open the operating system section in the .ini file */
-    if (!IniOpenSection(SectionName, &SectionId))
-    {
-        UiMessageBox("Section [%s] not found in freeldr.ini.", SectionName);
-        return;
-    }
-
-    /* Read the boot drive */
-    if (!IniReadSettingByName(SectionId, "BootDrive", SettingValue, sizeof(SettingValue)))
-    {
-        UiMessageBox("Boot drive not specified for selected OS!");
-        return;
-    }
-
-    DriveNumber = DriveMapGetBiosDriveNumber(SettingValue);
-
-    /* Read the boot partition */
-    if (!IniReadSettingByName(SectionId, "BootPartition", SettingValue, sizeof(SettingValue)))
-    {
-        UiMessageBox("Boot partition not specified for selected OS!");
-        return;
-    }
-
-    PartitionNumber = atoi(SettingValue);
-
-    /* Get the partition table entry */
-    if (!DiskGetPartitionEntry(DriveNumber, PartitionNumber, &PartitionTableEntry))
-    {
-        return;
-    }
-
-    /* Now try to read the partition boot sector. If this fails then abort. */
-    if (!MachDiskReadLogicalSectors(DriveNumber, PartitionTableEntry.SectorCountBeforePartition, 1, (PVOID)0x7C00))
-    {
-        UiMessageBox("Unable to read partition's boot sector.");
-        return;
-    }
-
-    /* Check for validity */
-    if (*((USHORT*)(0x7c00 + 0x1fe)) != 0xaa55)
-    {
-        UiMessageBox("Invalid boot sector magic (0xaa55)");
-        return;
-    }
-
-    UiUnInitialize("Booting...");
-
-    /*
-     * Don't stop the floppy drive motor when we
-     * are just booting a bootsector, or drive, or partition.
-     * If we were to stop the floppy motor then
-     * the BIOS wouldn't be informed and if the
-     * next read is to a floppy then the BIOS will
-     * still think the motor is on and this will
-     * result in a read error.
-     */
-    // DiskStopFloppyMotor();
-    // DisableA20();
-    FrldrBootDrive = DriveNumber;
-    ChainLoadBiosBootSectorCode();
-}
-
-VOID
-LoadAndBootDrive(IN OperatingSystemItem* OperatingSystem,
-                 IN USHORT OperatingSystemVersion)
-{
-    ULONG_PTR SectionId;
-    PCSTR SectionName = OperatingSystem->SystemPartition;
-    CHAR  SettingValue[80];
-    UCHAR DriveNumber;
-
-    /* Find all the message box settings and run them */
-    UiShowMessageBoxesInSection(SectionName);
-
-    /* Try to open the operating system section in the .ini file */
-    if (!IniOpenSection(SectionName, &SectionId))
-    {
-        UiMessageBox("Section [%s] not found in freeldr.ini.", SectionName);
-        return;
-    }
-
-    if (!IniReadSettingByName(SectionId, "BootDrive", SettingValue, sizeof(SettingValue)))
-    {
-        UiMessageBox("Boot drive not specified for selected OS!");
-        return;
-    }
-
-    DriveNumber = DriveMapGetBiosDriveNumber(SettingValue);
-
-    /* Now try to read the boot sector (or mbr). If this fails then abort. */
-    if (!MachDiskReadLogicalSectors(DriveNumber, 0, 1, (PVOID)0x7C00))
-    {
-        UiMessageBox("Unable to read boot sector");
-        return;
-    }
-
-    /* Check for validity */
-    if (*((USHORT*)(0x7c00 + 0x1fe)) != 0xaa55)
-    {
-        UiMessageBox("Invalid boot sector magic (0xaa55)");
-        return;
-    }
-
-    UiUnInitialize("Booting...");
-
-    /*
-     * Don't stop the floppy drive motor when we
-     * are just booting a bootsector, or drive, or partition.
-     * If we were to stop the floppy motor then
-     * the BIOS wouldn't be informed and if the
-     * next read is to a floppy then the BIOS will
-     * still think the motor is on and this will
-     * result in a read error.
-     */
-    // DiskStopFloppyMotor();
-    // DisableA20();
-    FrldrBootDrive = DriveNumber;
-    ChainLoadBiosBootSectorCode();
-}
-
-#endif // _M_IX86
+/* EOF */

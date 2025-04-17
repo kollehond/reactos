@@ -147,7 +147,11 @@ extern "C" {
 #define NM_THEMECHANGED (NM_FIRST-22)
 
 #ifndef CCSIZEOF_STRUCT
+#if defined(__clang__) /* Clang-CL fails without this workaround. See CORE-17547 */
+#define CCSIZEOF_STRUCT(structname,member) (__builtin_offsetof(structname,member) + sizeof(((structname*)0)->member))
+#else
 #define CCSIZEOF_STRUCT(structname,member) (((int)((LPBYTE)(&((structname*)0)->member) - ((LPBYTE)((structname*)0))))+sizeof(((structname*)0)->member))
+#endif
 #endif
 
   typedef struct tagNMTOOLTIPSCREATED {
@@ -218,8 +222,8 @@ extern "C" {
 #define TBN_FIRST (0U-700U)
 #define TBN_LAST (0U-720U)
 
-#define UDN_FIRST (0U-721)
-#define UDN_LAST (0U-740)
+#define UDN_FIRST (0U-721U)
+#define UDN_LAST (0U-740U)
 
 #define MCN_FIRST (0U-750U)
 #define MCN_LAST (0U-759U)
@@ -242,8 +246,19 @@ extern "C" {
 #define WMN_LAST (0U-1200U)
 #endif
 
+#define BCSIF_GLYPH 0x00000001
+#define BCSIF_IMAGE 0x00000002
+#define BCSIF_STYLE 0x00000004
+#define BCSIF_SIZE  0x00000008
+
+#define BCSS_STRETCH 0x00000002
+#define BCSS_IMAGE   0x00000008
+
 #define BCN_FIRST (0U-1250U)
 #define BCN_LAST (0U-1350U)
+
+#define BCN_HOTITEMCHANGE (BCN_FIRST + 1)
+#define BCN_DROPDOWN (BCN_FIRST + 2)
 
 #define MSGF_COMMCTRL_BEGINDRAG 0x4200
 #define MSGF_COMMCTRL_SIZEHEADER 0x4201
@@ -845,6 +860,8 @@ extern "C" {
 #define HDN_ENDFILTEREDIT (HDN_FIRST-15)
 #define HDN_ITEMSTATEICONCLICK (HDN_FIRST-16)
 #define HDN_ITEMKEYDOWN (HDN_FIRST-17)
+#define HDN_DROPDOWN (HDN_FIRST-18)
+#define HDN_OVERFLOWCLICK (HDN_FIRST-19)
 
 #define HDN_ITEMCHANGING __MINGW_NAME_AW(HDN_ITEMCHANGING)
 #define HDN_ITEMCHANGED __MINGW_NAME_AW(HDN_ITEMCHANGED)
@@ -907,6 +924,19 @@ extern "C" {
   } NMHDFILTERBTNCLICK,*LPNMHDFILTERBTNCLICK;
 
 #endif /* !NOHEADER */
+
+typedef struct tagBUTTON_SPLITINFO {
+  UINT mask;
+  HIMAGELIST himlGlyph;
+  UINT uSplitStyle;
+  SIZE size;
+} BUTTON_SPLITINFO, *PBUTTON_SPLITINFO;
+
+typedef struct tagNMBCDROPDOWN {
+  NMHDR hdr;
+  RECT rcButton;
+} NMBCDROPDOWN;
+
 
 #ifndef NOTOOLBAR
 
@@ -1750,6 +1780,11 @@ extern "C" {
 #define TTI_INFO 1
 #define TTI_WARNING 2
 #define TTI_ERROR 3
+#if (_WIN32_WINNT >= 0x0600)
+#define TTI_INFO_LARGE 4
+#define TTI_WARNING_LARGE 5
+#define TTI_ERROR_LARGE 6
+#endif
 
 #define TTM_ACTIVATE (WM_USER+1)
 #define TTM_SETDELAYTIME (WM_USER+3)
@@ -3130,6 +3165,9 @@ extern "C" {
 #define LVN_GETDISPINFO __MINGW_NAME_AW(LVN_GETDISPINFO)
 #define LVN_SETDISPINFO __MINGW_NAME_AW(LVN_SETDISPINFO)
 
+#define LVN_INCREMENTALSEARCHA  (LVN_FIRST-62)
+#define LVN_INCREMENTALSEARCHW  (LVN_FIRST-63)
+
 #define LVIF_DI_SETITEM 0x1000
 
 #define LV_DISPINFOA NMLVDISPINFOA
@@ -4319,6 +4357,8 @@ typedef struct {
 #define DTM_GETMCFONT (DTM_FIRST+10)
 #define DateTime_GetMonthCalFont(hdp) SNDMSG(hdp,DTM_GETMCFONT,0,0)
 
+#define DTM_GETIDEALSIZE (DTM_FIRST+15)
+
 #define DTS_UPDOWN 0x1
 #define DTS_SHOWNONE 0x2
 #define DTS_SHORTDATEFORMAT 0x0
@@ -4618,12 +4658,17 @@ typedef struct {
 #define BCM_SETSHIELD (BCM_FIRST+0xC)
 #define Button_SetElevationRequiredState(hwnd,frequired) (BOOL)SNDMSG((hwnd),BCM_SETSHIELD,0,(LPARAM)(frequired))
 
+#define BCM_SETDROPDOWNSTATE (BCM_FIRST + 6)
+#define BCM_SETSPLITINFO (BCM_FIRST + 7)
+#define BCM_GETSPLITINFO (BCM_FIRST + 8)
+#define BCM_SETNOTE (BCM_FIRST + 9)
+#define BCM_GETNOTE (BCM_FIRST + 10)
+#define BCM_GETNOTELENGTH (BCM_FIRST + 11)
+
   typedef struct tagNMBCHOTITEM {
     NMHDR hdr;
     DWORD dwFlags;
   } NMBCHOTITEM,*LPNMBCHOTITEM;
-
-#define BCN_HOTITEMCHANGE (BCN_FIRST+0x1)
 
 #define BST_HOT 0x200
 

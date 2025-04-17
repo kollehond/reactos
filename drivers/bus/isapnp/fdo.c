@@ -1,145 +1,210 @@
 /*
  * PROJECT:         ReactOS ISA PnP Bus driver
- * FILE:            fdo.c
+ * LICENSE:         GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
  * PURPOSE:         FDO-specific code
- * PROGRAMMERS:     Cameron Gutman (cameron.gutman@reactos.org)
+ * COPYRIGHT:       Copyright 2010 Cameron Gutman <cameron.gutman@reactos.org>
+ *                  Copyright 2020 Hervé Poussineau <hpoussin@reactos.org>
+ *                  Copyright 2021 Dmitry Borisov <di.sean@protonmail.com>
  */
 
-#include <isapnp.h>
+#include "isapnp.h"
 
 #define NDEBUG
 #include <debug.h>
 
+static
+CODE_SEG("PAGE")
 NTSTATUS
-NTAPI
 IsaFdoStartDevice(
-  IN PISAPNP_FDO_EXTENSION FdoExt,
-  IN PIRP Irp,
-  IN PIO_STACK_LOCATION IrpSp)
+    _In_ PISAPNP_FDO_EXTENSION FdoExt,
+    _Inout_ PIRP Irp)
 {
-  NTSTATUS Status;
-  KIRQL OldIrql;
+    NTSTATUS Status;
 
-  UNREFERENCED_PARAMETER(Irp);
-  UNREFERENCED_PARAMETER(IrpSp);
+    PAGED_CODE();
 
-  KeAcquireSpinLock(&FdoExt->Lock, &OldIrql);
+    if (!IoForwardIrpSynchronously(FdoExt->Ldo, Irp))
+    {
+        return STATUS_UNSUCCESSFUL;
+    }
+    Status = Irp->IoStatus.Status;
+    if (!NT_SUCCESS(Status))
+    {
+        return Status;
+    }
 
-  Status = IsaHwDetectReadDataPort(FdoExt);
-  if (!NT_SUCCESS(Status))
-  {
-      KeReleaseSpinLock(&FdoExt->Lock, OldIrql);
-      return Status;
-  }
+    FdoExt->Common.State = dsStarted;
 
-  FdoExt->Common.State = dsStarted;
-
-  KeReleaseSpinLock(&FdoExt->Lock, OldIrql);
-
-  return STATUS_SUCCESS;
+    return STATUS_SUCCESS;
 }
 
+static
+CODE_SEG("PAGE")
 NTSTATUS
-NTAPI
-IsaFdoQueryDeviceRelations(
-  IN PISAPNP_FDO_EXTENSION FdoExt,
-  IN PIRP Irp,
-  IN PIO_STACK_LOCATION IrpSp)
+IsaFdoQueryBusRelations(
+    _In_ PISAPNP_FDO_EXTENSION FdoExt,
+    _Inout_ PIRP Irp)
 {
-  NTSTATUS Status;
-  PLIST_ENTRY CurrentEntry;
-  PISAPNP_LOGICAL_DEVICE IsaDevice;
-  PDEVICE_RELATIONS DeviceRelations;
-  KIRQL OldIrql;
-  ULONG i = 0;
+    PAGED_CODE();
 
-  if (IrpSp->Parameters.QueryDeviceRelations.Type != BusRelations)
-      return Irp->IoStatus.Status;
-
-  KeAcquireSpinLock(&FdoExt->Lock, &OldIrql);
-
-  Status = IsaHwFillDeviceList(FdoExt);
-  if (!NT_SUCCESS(Status))
-  {
-      KeReleaseSpinLock(&FdoExt->Lock, OldIrql);
-      return Status;
-  }
-
-  DeviceRelations = ExAllocatePool(NonPagedPool,
-                            sizeof(DEVICE_RELATIONS) + sizeof(DEVICE_OBJECT) * (FdoExt->DeviceCount - 1));
-  if (!DeviceRelations)
-  {
-      KeReleaseSpinLock(&FdoExt->Lock, OldIrql);
-      return STATUS_INSUFFICIENT_RESOURCES;
-  }
-
-  CurrentEntry = FdoExt->DeviceListHead.Flink;
-  while (CurrentEntry != &FdoExt->DeviceListHead)
-  {
-     IsaDevice = CONTAINING_RECORD(CurrentEntry, ISAPNP_LOGICAL_DEVICE, ListEntry);
-
-     DeviceRelations->Objects[i++] = IsaDevice->Common.Self;
-
-     ObReferenceObject(IsaDevice->Common.Self);
-
-     CurrentEntry = CurrentEntry->Flink;
-  }
-
-  DeviceRelations->Count = FdoExt->DeviceCount;
-
-  KeReleaseSpinLock(&FdoExt->Lock, OldIrql);
-
-  Irp->IoStatus.Information = (ULONG_PTR)DeviceRelations;
-
-  return STATUS_SUCCESS;
+    return IsaPnpFillDeviceRelations(FdoExt, Irp, TRUE);
 }
 
+static
+CODE_SEG("PAGE")
 NTSTATUS
-NTAPI
+IsaFdoRemoveDevice(
+    _In_ PISAPNP_FDO_EXTENSION FdoExt,
+    _Inout_ PIRP Irp)
+{
+    NTSTATUS Status;
+    PLIST_ENTRY Entry;
+
+    PAGED_CODE();
+
+    IsaPnpAcquireDeviceDataLock(FdoExt);
+
+    /* Remove our logical devices */
+    while (!IsListEmpty(&FdoExt->DeviceListHead))
+    {
+        PISAPNP_LOGICAL_DEVICE LogDevice = CONTAINING_RECORD(RemoveHeadList(&FdoExt->
+                                                                            DeviceListHead),
+                                                             ISAPNP_LOGICAL_DEVICE,
+                                                             DeviceLink);
+
+        --FdoExt->DeviceCount;
+
+        if (LogDevice->Pdo)
+        {
+            IsaPnpRemoveLogicalDeviceDO(LogDevice->Pdo);
+        }
+    }
+
+    IsaPnpReleaseDeviceDataLock(FdoExt);
+
+    IsaPnpAcquireBusDataLock();
+
+    /* Remove the Read Port */
+    if (FdoExt->ReadPortPdo)
+    {
+        IsaPnpRemoveReadPortDO(FdoExt->ReadPortPdo);
+        ReadPortCreated = FALSE;
+    }
+
+    /* Find the next ISA bus, if any */
+    Entry = BusListHead.Flink;
+    if (Entry != &BusListHead)
+    {
+        PISAPNP_FDO_EXTENSION NextIsaBus = CONTAINING_RECORD(Entry,
+                                                             ISAPNP_FDO_EXTENSION,
+                                                             BusLink);
+
+        /* Create a new Read Port for it */
+        if (!ReadPortCreated)
+            IoInvalidateDeviceRelations(NextIsaBus->Pdo, BusRelations);
+    }
+
+    RemoveEntryList(&FdoExt->BusLink);
+
+    IsaPnpReleaseBusDataLock();
+
+    Irp->IoStatus.Status = STATUS_SUCCESS;
+    IoSkipCurrentIrpStackLocation(Irp);
+    Status = IoCallDriver(FdoExt->Ldo, Irp);
+
+    IoDetachDevice(FdoExt->Ldo);
+    IoDeleteDevice(FdoExt->Common.Self);
+
+    return Status;
+}
+
+CODE_SEG("PAGE")
+NTSTATUS
 IsaFdoPnp(
-  IN PISAPNP_FDO_EXTENSION FdoExt,
-  IN PIRP Irp,
-  IN PIO_STACK_LOCATION IrpSp)
+    _In_ PISAPNP_FDO_EXTENSION FdoExt,
+    _Inout_ PIRP Irp,
+    _In_ PIO_STACK_LOCATION IrpSp)
 {
-  NTSTATUS Status = Irp->IoStatus.Status;
+    NTSTATUS Status;
 
-  switch (IrpSp->MinorFunction)
-  {
-     case IRP_MN_START_DEVICE:
-       Status = IsaForwardIrpSynchronous(FdoExt, Irp);
+    PAGED_CODE();
 
-       if (NT_SUCCESS(Status))
-         Status = IsaFdoStartDevice(FdoExt, Irp, IrpSp);
+    DPRINT("%s(%p, %p) FDO %lu, Minor - %X\n",
+           __FUNCTION__,
+           FdoExt,
+           Irp,
+           FdoExt->BusNumber,
+           IrpSp->MinorFunction);
 
-       Irp->IoStatus.Status = Status;
+    switch (IrpSp->MinorFunction)
+    {
+        case IRP_MN_START_DEVICE:
+            Status = IsaFdoStartDevice(FdoExt, Irp);
 
-       IoCompleteRequest(Irp, IO_NO_INCREMENT);
-       return Status;
+            Irp->IoStatus.Status = Status;
+            IoCompleteRequest(Irp, IO_NO_INCREMENT);
+            return Status;
 
-     case IRP_MN_STOP_DEVICE:
-       FdoExt->Common.State = dsStopped;
+        case IRP_MN_QUERY_DEVICE_RELATIONS:
+        {
+            if (IrpSp->Parameters.QueryDeviceRelations.Type != BusRelations)
+                break;
 
-       Status = STATUS_SUCCESS;
-       break;
+            Status = IsaFdoQueryBusRelations(FdoExt, Irp);
+            if (!NT_SUCCESS(Status))
+            {
+                Irp->IoStatus.Status = Status;
+                IoCompleteRequest(Irp, IO_NO_INCREMENT);
 
-     case IRP_MN_QUERY_DEVICE_RELATIONS:
-       Status = IsaFdoQueryDeviceRelations(FdoExt, Irp, IrpSp);
+                return Status;
+            }
 
-       Irp->IoStatus.Status = Status;
+            Irp->IoStatus.Status = Status;
+            break;
+        }
 
-       IoCompleteRequest(Irp, IO_NO_INCREMENT);
-       return Status;
+        case IRP_MN_REMOVE_DEVICE:
+            return IsaFdoRemoveDevice(FdoExt, Irp);
 
-     case IRP_MN_FILTER_RESOURCE_REQUIREMENTS:
-       DPRINT("IRP_MN_FILTER_RESOURCE_REQUIREMENTS\n");
-       break;
+        case IRP_MN_QUERY_PNP_DEVICE_STATE:
+            Irp->IoStatus.Information |= PNP_DEVICE_NOT_DISABLEABLE;
+            Irp->IoStatus.Status = STATUS_SUCCESS;
+            break;
 
-     default:
-       DPRINT1("Unknown PnP code: %x\n", IrpSp->MinorFunction);
-       break;
-  }
+        case IRP_MN_QUERY_INTERFACE:
+        {
+            Status = IsaFdoQueryInterface(FdoExt, IrpSp);
+            if (Status == STATUS_NOT_SUPPORTED)
+            {
+                break;
+            }
+            else if (!NT_SUCCESS(Status))
+            {
+                Irp->IoStatus.Status = Status;
+                IoCompleteRequest(Irp, IO_NO_INCREMENT);
 
-  IoSkipCurrentIrpStackLocation(Irp);
+                return Status;
+            }
 
-  return IoCallDriver(FdoExt->Ldo, Irp);
+            Irp->IoStatus.Status = Status;
+            break;
+        }
+
+        case IRP_MN_SURPRISE_REMOVAL:
+        case IRP_MN_QUERY_STOP_DEVICE:
+        case IRP_MN_QUERY_REMOVE_DEVICE:
+        case IRP_MN_CANCEL_STOP_DEVICE:
+        case IRP_MN_CANCEL_REMOVE_DEVICE:
+        case IRP_MN_STOP_DEVICE:
+            Irp->IoStatus.Status = STATUS_SUCCESS;
+            break;
+
+        default:
+            DPRINT("Unknown PnP code: %X\n", IrpSp->MinorFunction);
+            break;
+    }
+
+    IoSkipCurrentIrpStackLocation(Irp);
+
+    return IoCallDriver(FdoExt->Ldo, Irp);
 }

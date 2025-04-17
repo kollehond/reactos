@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2017, Intel Corp.
+ * Copyright (C) 2000 - 2022, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
  * NO WARRANTY
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
  * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
@@ -199,6 +199,9 @@ AcpiPsExecuteMethod (
         goto Cleanup;
     }
 
+    WalkState->MethodPathname = Info->FullPathname;
+    WalkState->MethodIsNested = FALSE;
+
     if (Info->ObjDesc->Method.InfoFlags & ACPI_METHOD_MODULE_LEVEL)
     {
         WalkState->ParseFlags |= ACPI_PARSE_MODULE_LEVEL;
@@ -328,6 +331,9 @@ AcpiPsExecuteTable (
     {
         goto Cleanup;
     }
+
+    WalkState->MethodPathname = Info->FullPathname;
+    WalkState->MethodIsNested = FALSE;
 
     if (Info->ObjDesc->Method.InfoFlags & ACPI_METHOD_MODULE_LEVEL)
     {

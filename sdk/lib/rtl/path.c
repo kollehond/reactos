@@ -47,6 +47,11 @@ const UNICODE_STRING RtlpDosNULDevice = RTL_CONSTANT_STRING(L"NUL");
 
 const UNICODE_STRING RtlpDoubleSlashPrefix   = RTL_CONSTANT_STRING(L"\\\\");
 
+static const UNICODE_STRING RtlpDefaultExtension = RTL_CONSTANT_STRING(L".DLL");
+static const UNICODE_STRING RtlpDotLocal = RTL_CONSTANT_STRING(L".Local\\");
+static const UNICODE_STRING RtlpPathDividers = RTL_CONSTANT_STRING(L"\\/");
+
+
 PRTLP_CURDIR_REF RtlpCurDirRef;
 
 /* PRIVATE FUNCTIONS **********************************************************/
@@ -304,7 +309,7 @@ RtlpCollapsePath(PWSTR Path, /* ULONG PathBufferSize, ULONG PathLength, */ ULONG
 
     // FIXME: Do not suppose NULL-terminated strings!!
 
-    ULONG PathLength = wcslen(Path);
+    SIZE_T PathLength = wcslen(Path);
     PWSTR EndBuffer = Path + PathLength; // Path + PathBufferSize / sizeof(WCHAR);
     PWSTR EndPath;
 
@@ -441,30 +446,287 @@ NTAPI
 RtlpApplyLengthFunction(IN ULONG Flags,
                         IN ULONG Type,
                         IN PVOID UnicodeStringOrUnicodeStringBuffer,
-                        IN PVOID LengthFunction)
+                        IN NTSTATUS(NTAPI* LengthFunction)(ULONG, PUNICODE_STRING, PULONG))
 {
-    UNIMPLEMENTED;
-    return STATUS_NOT_IMPLEMENTED;
+    NTSTATUS Status;
+    PUNICODE_STRING String;
+    ULONG Length;
+
+    if (Flags || UnicodeStringOrUnicodeStringBuffer == NULL || LengthFunction == NULL)
+    {
+        DPRINT1("ERROR: Flags=0x%x, UnicodeStringOrUnicodeStringBuffer=%p, LengthFunction=%p\n",
+            Flags, UnicodeStringOrUnicodeStringBuffer, LengthFunction);
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    if (Type == sizeof(UNICODE_STRING))
+    {
+        String = (PUNICODE_STRING)UnicodeStringOrUnicodeStringBuffer;
+    }
+    else if (Type == sizeof(RTL_UNICODE_STRING_BUFFER))
+    {
+        String = &((PRTL_UNICODE_STRING_BUFFER)UnicodeStringOrUnicodeStringBuffer)->String;
+    }
+    else
+    {
+        DPRINT1("ERROR: Type = %u\n", Type);
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    Length = 0;
+    Status = LengthFunction(0, String, &Length);
+    if (!NT_SUCCESS(Status))
+        return Status;
+
+    if (Length > UNICODE_STRING_MAX_CHARS)
+        return STATUS_NAME_TOO_LONG;
+
+    String->Length = (USHORT)(Length * sizeof(WCHAR));
+
+    if (Type == sizeof(RTL_UNICODE_STRING_BUFFER))
+    {
+        String->Buffer[Length] = UNICODE_NULL;
+    }
+
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS
 NTAPI
 RtlGetLengthWithoutLastFullDosOrNtPathElement(IN ULONG Flags,
-                                              IN PWCHAR Path,
+                                              IN PCUNICODE_STRING Path,
                                               OUT PULONG LengthOut)
 {
-    UNIMPLEMENTED;
-    return STATUS_NOT_IMPLEMENTED;
+    static const UNICODE_STRING PathDividers = RTL_CONSTANT_STRING(L"\\/");
+    USHORT Position;
+    RTL_PATH_TYPE PathType;
+
+    /* All failure paths have this in common, so simplify code */
+    if (LengthOut)
+        *LengthOut = 0;
+
+    if (Flags || !Path || !LengthOut)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    if ((Path->Length / sizeof(WCHAR)) == 0)
+    {
+        /* Nothing to do here */
+        return STATUS_SUCCESS;
+    }
+
+
+    PathType = RtlDetermineDosPathNameType_Ustr(Path);
+    switch (PathType)
+    {
+    case RtlPathTypeLocalDevice:
+        // Handle \\\\?\\C:\\ with the last ':' or '\\' missing:
+        if (Path->Length / sizeof(WCHAR) < 7 ||
+            Path->Buffer[5] != ':' ||
+            !IS_PATH_SEPARATOR(Path->Buffer[6]))
+        {
+            return STATUS_INVALID_PARAMETER;
+        }
+        break;
+    case RtlPathTypeRooted:
+        // "\\??\\"
+        break;
+    case RtlPathTypeUncAbsolute:
+        // "\\\\"
+        break;
+    case RtlPathTypeDriveAbsolute:
+        // "C:\\"
+        break;
+    default:
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    /* Find the last path separator */
+    if (!NT_SUCCESS(RtlFindCharInUnicodeString(RTL_FIND_CHAR_IN_UNICODE_STRING_START_AT_END, Path, &PathDividers, &Position)))
+        Position = 0;
+
+    /* Is it the last char of the string? */
+    if (Position && Position + sizeof(WCHAR) == Path->Length)
+    {
+        UNICODE_STRING Tmp = *Path;
+        Tmp.Length = Position;
+
+        /* Keep walking path separators to eliminate multiple next to eachother */
+        while (Tmp.Length > sizeof(WCHAR) && IS_PATH_SEPARATOR(Tmp.Buffer[Tmp.Length / sizeof(WCHAR)]))
+            Tmp.Length -= sizeof(WCHAR);
+
+        /* Find the previous occurence */
+        if (!NT_SUCCESS(RtlFindCharInUnicodeString(RTL_FIND_CHAR_IN_UNICODE_STRING_START_AT_END, &Tmp, &PathDividers, &Position)))
+            Position = 0;
+    }
+
+    /* Simplify code by working in chars instead of bytes */
+    if (Position)
+        Position /= sizeof(WCHAR);
+
+    if (Position)
+    {
+        // Keep walking path separators to eliminate multiple next to eachother, but ensure we leave one in place!
+        while (Position > 1 && IS_PATH_SEPARATOR(Path->Buffer[Position - 1]))
+            Position--;
+    }
+
+    if (Position > 0)
+    {
+        /* Return a length, not an index */
+        *LengthOut = Position + 1;
+    }
+
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS
 NTAPI
-RtlComputePrivatizedDllName_U(IN PUNICODE_STRING DllName,
-                              IN PUNICODE_STRING a2,
-                              IN PUNICODE_STRING a3)
+RtlComputePrivatizedDllName_U(
+    _In_ PUNICODE_STRING DllName,
+    _Inout_ PUNICODE_STRING RealName,
+    _Inout_ PUNICODE_STRING LocalName)
 {
-    UNIMPLEMENTED;
-    return STATUS_NOT_IMPLEMENTED;
+    static const UNICODE_STRING ExtensionChar = RTL_CONSTANT_STRING(L".");
+
+    USHORT Position;
+    UNICODE_STRING ImagePathName, DllNameOnly, CopyRealName, CopyLocalName;
+    BOOLEAN HasExtension;
+    ULONG RequiredSize;
+    NTSTATUS Status;
+    C_ASSERT(sizeof(UNICODE_NULL) == sizeof(WCHAR));
+
+    CopyRealName = *RealName;
+    CopyLocalName = *LocalName;
+
+
+    /* Get the image path */
+    ImagePathName = RtlGetCurrentPeb()->ProcessParameters->ImagePathName;
+
+    /* Check if it's not normalized */
+    if (!(RtlGetCurrentPeb()->ProcessParameters->Flags & RTL_USER_PROCESS_PARAMETERS_NORMALIZED))
+    {
+        /* Normalize it */
+        ImagePathName.Buffer = (PWSTR)((ULONG_PTR)ImagePathName.Buffer + (ULONG_PTR)RtlGetCurrentPeb()->ProcessParameters);
+    }
+
+
+    if (!NT_SUCCESS(RtlFindCharInUnicodeString(RTL_FIND_CHAR_IN_UNICODE_STRING_START_AT_END,
+                                               DllName, &RtlpPathDividers, &Position)))
+    {
+        DllNameOnly = *DllName;
+    }
+    else
+    {
+        /* Just keep the dll name, ignore path components */
+        Position += sizeof(WCHAR);
+        DllNameOnly.Buffer = DllName->Buffer + Position / sizeof(WCHAR);
+        DllNameOnly.Length = DllName->Length - Position;
+        DllNameOnly.MaximumLength = DllName->MaximumLength - Position;
+    }
+
+    if (!NT_SUCCESS(RtlFindCharInUnicodeString(RTL_FIND_CHAR_IN_UNICODE_STRING_START_AT_END,
+                                               &DllNameOnly, &ExtensionChar, &Position)))
+    {
+        Position = 0;
+    }
+
+    HasExtension = Position > 1;
+
+    /* First we create the c:\path\processname.exe.Local\something.dll path */
+    RequiredSize = ImagePathName.Length + RtlpDotLocal.Length + DllNameOnly.Length +
+        (HasExtension ? 0 : RtlpDefaultExtension.Length) + sizeof(UNICODE_NULL);
+
+    /* This is not going to work out */
+    if (RequiredSize > UNICODE_STRING_MAX_BYTES)
+        return STATUS_NAME_TOO_LONG;
+
+    /* We need something extra */
+    if (RequiredSize > CopyLocalName.MaximumLength)
+    {
+        CopyLocalName.Buffer = RtlpAllocateStringMemory(RequiredSize, TAG_USTR);
+        if (CopyLocalName.Buffer == NULL)
+            return STATUS_NO_MEMORY;
+        CopyLocalName.MaximumLength = RequiredSize;
+    }
+    /* Now build the entire path */
+    CopyLocalName.Length = 0;
+    Status = RtlAppendUnicodeStringToString(&CopyLocalName, &ImagePathName);
+    ASSERT(NT_SUCCESS(Status));
+    if (NT_SUCCESS(Status))
+    {
+        Status = RtlAppendUnicodeStringToString(&CopyLocalName, &RtlpDotLocal);
+        ASSERT(NT_SUCCESS(Status));
+    }
+    if (NT_SUCCESS(Status))
+    {
+        Status = RtlAppendUnicodeStringToString(&CopyLocalName, &DllNameOnly);
+        ASSERT(NT_SUCCESS(Status));
+    }
+    /* Do we need to append an extension? */
+    if (NT_SUCCESS(Status) && !HasExtension)
+    {
+        Status = RtlAppendUnicodeStringToString(&CopyLocalName, &RtlpDefaultExtension);
+        ASSERT(NT_SUCCESS(Status));
+    }
+
+    if (NT_SUCCESS(Status))
+    {
+        /* then we create the c:\path\something.dll path */
+        if (NT_SUCCESS(RtlFindCharInUnicodeString(RTL_FIND_CHAR_IN_UNICODE_STRING_START_AT_END,
+                                                  &ImagePathName, &RtlpPathDividers, &Position)))
+        {
+            ImagePathName.Length = Position + sizeof(WCHAR);
+        }
+
+        RequiredSize = ImagePathName.Length + DllNameOnly.Length +
+            (HasExtension ? 0 : RtlpDefaultExtension.Length) + sizeof(UNICODE_NULL);
+
+        if (RequiredSize >= UNICODE_STRING_MAX_BYTES)
+        {
+            Status = STATUS_NAME_TOO_LONG;
+        }
+        else
+        {
+            if (RequiredSize > CopyRealName.MaximumLength)
+            {
+                CopyRealName.Buffer = RtlpAllocateStringMemory(RequiredSize, TAG_USTR);
+                if (CopyRealName.Buffer == NULL)
+                    Status = STATUS_NO_MEMORY;
+                CopyRealName.MaximumLength = RequiredSize;
+            }
+            CopyRealName.Length = 0;
+            if (NT_SUCCESS(Status))
+            {
+                Status = RtlAppendUnicodeStringToString(&CopyRealName, &ImagePathName);
+                ASSERT(NT_SUCCESS(Status));
+            }
+            if (NT_SUCCESS(Status))
+            {
+                Status = RtlAppendUnicodeStringToString(&CopyRealName, &DllNameOnly);
+                ASSERT(NT_SUCCESS(Status));
+            }
+            if (NT_SUCCESS(Status) && !HasExtension)
+            {
+                Status = RtlAppendUnicodeStringToString(&CopyRealName, &RtlpDefaultExtension);
+                ASSERT(NT_SUCCESS(Status));
+            }
+        }
+    }
+
+    if (!NT_SUCCESS(Status))
+    {
+        if (CopyRealName.Buffer && CopyRealName.Buffer != RealName->Buffer)
+            RtlpFreeStringMemory(CopyRealName.Buffer, TAG_USTR);
+        if (CopyLocalName.Buffer && CopyLocalName.Buffer != LocalName->Buffer)
+            RtlpFreeStringMemory(CopyLocalName.Buffer, TAG_USTR);
+        return Status;
+    }
+
+    *RealName = CopyRealName;
+    *LocalName = CopyLocalName;
+    return STATUS_SUCCESS;
 }
 
 ULONG
@@ -681,7 +943,7 @@ RtlGetFullPathName_Ustr(
                         goto Quit;
 
                     default:
-                        DPRINT1("RtlQueryEnvironmentVariable_U returned 0x%08lx\n", Status);
+                        DPRINT1("RtlQueryEnvironmentVariable_U(\"%wZ\") returned 0x%08lx\n", &EnvVarName, Status);
 
                         EnvVarNameBuffer[0] = NewDrive;
                         EnvVarNameBuffer[1] = L':';
@@ -1672,6 +1934,37 @@ Leave:
     return Status;
 }
 
+/*
+ * @implemented
+ */
+ULONG
+NTAPI
+RtlGetFullPathName_UEx(
+    _In_ PWSTR FileName,
+    _In_ ULONG BufferLength,
+    _Out_writes_bytes_(BufferLength) PWSTR Buffer,
+    _Out_opt_ PWSTR *FilePart,
+    _Out_opt_ RTL_PATH_TYPE *InputPathType)
+{
+    UNICODE_STRING FileNameString;
+    NTSTATUS status;
+
+    if (InputPathType)
+        *InputPathType = 0;
+
+    /* Build the string */
+    status = RtlInitUnicodeStringEx(&FileNameString, FileName);
+    if (!NT_SUCCESS(status)) return 0;
+
+    /* Call the extended function */
+    return RtlGetFullPathName_Ustr(
+        &FileNameString,
+        BufferLength,
+        Buffer,
+        (PCWSTR*)FilePart,
+        NULL,
+        InputPathType);
+}
 
 /******************************************************************
  *    RtlGetFullPathName_U  (NTDLL.@)
@@ -1697,20 +1990,13 @@ RtlGetFullPathName_U(
     _Out_z_bytecap_(Size) PWSTR Buffer,
     _Out_opt_ PWSTR *ShortName)
 {
-    NTSTATUS Status;
-    UNICODE_STRING FileNameString;
     RTL_PATH_TYPE PathType;
 
-    /* Build the string */
-    Status = RtlInitUnicodeStringEx(&FileNameString, FileName);
-    if (!NT_SUCCESS(Status)) return 0;
-
     /* Call the extended function */
-    return RtlGetFullPathName_Ustr(&FileNameString,
+    return RtlGetFullPathName_UEx((PWSTR)FileName,
                                    Size,
                                    Buffer,
-                                   (PCWSTR*)ShortName,
-                                   NULL,
+                                   ShortName,
                                    &PathType);
 }
 
@@ -2246,11 +2532,11 @@ Quickie:
     DPRINT("Status: %lx %S %S\n", Status, StaticBuffer, TempDynamicString.Buffer);
     if ((StaticString) && (StaticBuffer) && (StaticBuffer != StaticString->Buffer))
     {
-        RtlpFreeMemory(StaticBuffer, TAG_USTR);
+        RtlpFreeStringMemory(StaticBuffer, TAG_USTR);
     }
     if (TempDynamicString.Buffer)
     {
-        RtlpFreeMemory(TempDynamicString.Buffer, TAG_USTR);
+        RtlpFreeStringMemory(TempDynamicString.Buffer, TAG_USTR);
     }
 
     /* Print out any unusual errors */
@@ -2285,8 +2571,8 @@ RtlDosSearchPath_Ustr(IN ULONG Flags,
     NTSTATUS Status;
     RTL_PATH_TYPE PathType;
     PWCHAR p, End, CandidateEnd, SegmentEnd;
-    SIZE_T SegmentSize, ByteCount, PathSize, MaxPathSize = 0;
-    USHORT NamePlusExtLength, WorstCaseLength, ExtensionLength = 0;
+    SIZE_T WorstCaseLength, NamePlusExtLength, SegmentSize, ByteCount, PathSize, MaxPathSize = 0;
+    USHORT ExtensionLength = 0;
     PUNICODE_STRING FullIsolatedPath;
     DPRINT("DOS Path Search: %lx %wZ %wZ %wZ %wZ %wZ\n",
             Flags, PathString, FileNameString, ExtensionString, CallerBuffer, DynamicString);
@@ -2383,7 +2669,8 @@ RtlDosSearchPath_Ustr(IN ULONG Flags,
                 while (End > FileNameString->Buffer)
                 {
                     /* If we find a path separator, there's no extension */
-                    if (IS_PATH_SEPARATOR(*--End)) break;
+                    --End;
+                    if (IS_PATH_SEPARATOR(*End)) break;
 
                     /* Otherwise, did we find an extension dot? */
                     if (*End == L'.')
@@ -2403,17 +2690,20 @@ RtlDosSearchPath_Ustr(IN ULONG Flags,
             /* Start parsing the path name, looking for path separators */
             End = &PathString->Buffer[PathString->Length / sizeof(WCHAR)];
             p = End;
-            while ((p > PathString->Buffer) && (*--p == L';'))
+            while (p > PathString->Buffer)
             {
-                /* This is the size of the path -- handle a trailing slash */
-                PathSize = End - p - 1;
-                if ((PathSize) && !(IS_PATH_SEPARATOR(*(End - 1)))) PathSize++;
+                if (*--p == L';')
+                {
+                    /* This is the size of the path -- handle a trailing slash */
+                    PathSize = End - p - 1;
+                    if ((PathSize) && !(IS_PATH_SEPARATOR(*(End - 1)))) PathSize++;
 
-                /* Check if we found a bigger path than before */
-                if (PathSize > MaxPathSize) MaxPathSize = PathSize;
+                    /* Check if we found a bigger path than before */
+                    if (PathSize > MaxPathSize) MaxPathSize = PathSize;
 
-                /* Keep going with the path after this path separator */
-                End = p;
+                    /* Keep going with the path after this path separator */
+                    End = p;
+                }
             }
 
             /* This is the trailing path, run the same code as above */
@@ -2463,7 +2753,7 @@ RtlDosSearchPath_Ustr(IN ULONG Flags,
 
             /* Now check if our initial static buffer is too small */
             if (StaticCandidateString.MaximumLength <
-                (SegmentSize + ExtensionLength + FileNameString->Length))
+                (SegmentSize + ExtensionLength + FileNameString->Length + sizeof(UNICODE_NULL)))
             {
                 /* At this point we should've been using our static buffer */
                 ASSERT(StaticCandidateString.Buffer == StaticCandidateBuffer);
@@ -2498,8 +2788,7 @@ RtlDosSearchPath_Ustr(IN ULONG Flags,
                 }
 
                 /* Now allocate the dynamic string */
-                StaticCandidateString.MaximumLength = FileNameString->Length +
-                                                      WorstCaseLength;
+                StaticCandidateString.MaximumLength = WorstCaseLength;
                 StaticCandidateString.Buffer = RtlpAllocateStringMemory(WorstCaseLength,
                                                                         TAG_USTR);
                 if (!StaticCandidateString.Buffer)
@@ -2546,6 +2835,7 @@ RtlDosSearchPath_Ustr(IN ULONG Flags,
             StaticCandidateString.Length = (USHORT)(CandidateEnd -
                                             StaticCandidateString.Buffer) *
                                            sizeof(WCHAR);
+            ASSERT(StaticCandidateString.Length < StaticCandidateString.MaximumLength);
 
             /* Check if this file exists */
             DPRINT("BUFFER: %S\n", StaticCandidateString.Buffer);
@@ -2615,7 +2905,8 @@ RtlDosSearchPath_Ustr(IN ULONG Flags,
                 while (End > p)
                 {
                     /* If there's a path separator, there's no extension */
-                    if (IS_PATH_SEPARATOR(*--End)) break;
+                    --End;
+                    if (IS_PATH_SEPARATOR(*End)) break;
 
                     /* Othwerwise, did we find an extension dot? */
                     if (*End == L'.')

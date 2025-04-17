@@ -48,7 +48,7 @@ typedef enum _GETDCDWORD
     GdiGetJournal,
     GdiGetRelAbs,
     GdiGetBreakExtra,
-    GdiGerCharBreak,
+    GdiGetCharBreak,
     GdiGetArcDirection,
     GdiGetEMFRestorDc,
     GdiGetFontLanguageInfo,
@@ -59,7 +59,8 @@ typedef enum _GETDCDWORD
 
 typedef enum _GETSETDCDWORD
 {
-    GdiGetSetCopyCount = 2,
+    GdiGetSetEPSPrintingEscape = 1,
+    GdiGetSetCopyCount,
     GdiGetSetTextAlign,
     GdiGetSetRelAbs,
     GdiGetSetTextCharExtra,
@@ -161,6 +162,8 @@ typedef enum GDILoObjType
     GDILoObjType_LO_REGION_TYPE = 0x40000,
     GDILoObjType_LO_ICMLCS_TYPE = 0x90000,
     GDILoObjType_LO_CLIENTOBJ_TYPE = 0x60000,
+    GDILoObjType_LO_UMPD_TYPE = 0x110000,
+    GDILoObjType_LO_META_TYPE = 0x150000,
     GDILoObjType_LO_ALTDC_TYPE = 0x210000,
     GDILoObjType_LO_PEN_TYPE = 0x300000,
     GDILoObjType_LO_EXTPEN_TYPE = 0x500000,
@@ -231,14 +234,17 @@ typedef DWORD LFTYPE;
 #define METARGN 2 // GetMetaRgn
 #define APIRGN  3
 
-/* New flag for fdwInit in CreateDIBitmap. See support.microsoft.com/kb/kbview/108497*/
+/* New flag for fdwInit in CreateDIBitmap. See https://www.betaarchive.com/wiki/index.php?title=Microsoft_KB_Archive/108497 */
 #define CBM_CREATDIB 2
 
-/* New color use parameter. See support.microsoft.com/kb/kbview/108497 */
+/* New color use parameter. See https://www.betaarchive.com/wiki/index.php?title=Microsoft_KB_Archive/108497 */
 #define DIB_PAL_INDICES 2
 
 /* Get/SetBounds/Rect support. */
 #define DCB_WINDOWMGR 0x8000 /* Queries the Windows bounding rectangle instead of the application's */
+
+#define GDITAG_TYPE_EMF 'XEFM' // EnhMetaFile
+#define GDITAG_TYPE_MFP '_PFM' // MetaFile Picture
 
 /* TYPES *********************************************************************/
 
@@ -495,12 +501,17 @@ typedef struct _GDIBSPPATBLT
   PATRECT pRect[1]; // POLYPATBLT
 } GDIBSPPATBLT, *PGDIBSPPATBLT;
 
+//
+// Both ExtSelectClipRgn and TextOut pass a nill RECT.
+//
+#define GDIBS_NORECT 0x80000000
+
 typedef struct _GDIBSTEXTOUT
 {
   GDIBATCHHDR gbHdr;
   COLORREF crForegroundClr;
   COLORREF crBackgroundClr;
-  LONG lmBkMode;
+  LONG lBkMode;
   ULONG ulForegroundClr;
   ULONG ulBackgroundClr;
   int x;
@@ -513,7 +524,10 @@ typedef struct _GDIBSTEXTOUT
   HANDLE hlfntNew;
   FLONG flTextAlign;
   POINTL ptlViewportOrg;
+  union {
   WCHAR String[2];
+  ULONG Buffer[1];
+  };
 } GDIBSTEXTOUT, *PGDIBSTEXTOUT;
 
 typedef struct _GDIBSEXTTEXTOUT
@@ -559,7 +573,7 @@ typedef struct _DRIVER_FUNCTIONS
     PFN_DrvDisableSurface          DisableSurface;
     PFN_DrvAssertMode              AssertMode;
     PFN_DrvOffset                  Offset;
-    PFN_DrvResetDevice             ResetPDEV;
+    PFN_DrvResetPDEV               ResetPDEV;
     PFN_DrvDisableDriver           DisableDriver;
     PVOID                          Unknown1;
     PFN_DrvCreateDeviceBitmap      CreateDeviceBitmap;

@@ -26,6 +26,8 @@ Arc(
                   xEndArc,
                   yEndArc);
 
+    if ( GdiConvertAndCheckDC(hdc) == NULL ) return FALSE;
+
     return NtGdiArcInternal(GdiTypeArc,
                             hdc,
                             xLeft,
@@ -52,15 +54,17 @@ AngleArc(
     _In_ FLOAT eStartAngle,
     _In_ FLOAT eSweepAngle)
 {
-    HANDLE_METADC(BOOL,
+    HANDLE_EMETAFDC(BOOL,
                   AngleArc,
                   FALSE,
                   hdc,
                   x,
                   y,
                   dwRadius,
-                  RCAST(DWORD, eStartAngle),
-                  RCAST(DWORD, eSweepAngle));
+                  eStartAngle,
+                  eSweepAngle);
+
+    if ( GdiConvertAndCheckDC(hdc) == NULL ) return FALSE;
 
     return NtGdiAngleArc(hdc,
                          x,
@@ -83,7 +87,7 @@ ArcTo(
     _In_ INT xRadial2,
     _In_ INT yRadial2)
 {
-    HANDLE_METADC(BOOL,
+    HANDLE_EMETAFDC(BOOL,
                   ArcTo,
                   FALSE,
                   hdc,
@@ -95,6 +99,8 @@ ArcTo(
                   yRadial1,
                   xRadial2,
                   yRadial2);
+
+    if ( GdiConvertAndCheckDC(hdc) == NULL ) return FALSE;
 
     return NtGdiArcInternal(GdiTypeArcTo,
                             hdc,
@@ -133,6 +139,8 @@ Chord(
                   yRadial1,
                   xRadial2,
                   yRadial2);
+
+    if ( GdiConvertAndCheckDC(hdc) == NULL ) return FALSE;
 
     return NtGdiArcInternal(GdiTypeChord,
                             hdc,
@@ -175,6 +183,8 @@ Pie(
                   yRadial1,
                   xRadial2,
                   yRadial2);
+
+    if ( GdiConvertAndCheckDC(hdc) == NULL ) return FALSE;
 
     return NtGdiArcInternal(GdiTypePie,
                             hdc,

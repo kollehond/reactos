@@ -39,6 +39,31 @@ typedef struct _SPEED_DATA
     RECT rcCursor;
 } SPEED_DATA, *PSPEED_DATA;
 
+static VOID
+UpdateCaretBlinkTimeReg(
+    _In_ UINT uCaretBlinkTime)
+{
+    HKEY hKey;
+    WCHAR szBuffer[12];
+
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+                      L"Control Panel\\Desktop",
+                      0, KEY_SET_VALUE,
+                      &hKey) != ERROR_SUCCESS)
+    {
+         return;
+    }
+
+    wsprintf(szBuffer, L"%d", uCaretBlinkTime);
+
+    RegSetValueExW(hKey, L"CursorBlinkRate",
+                   0, REG_SZ,
+                   (CONST BYTE*)szBuffer,
+                   (wcslen(szBuffer) + 1) * sizeof(WCHAR));
+
+    RegCloseKey(hKey);
+}
+
 /* Property page dialog callback */
 static INT_PTR CALLBACK
 KeyboardSpeedProc(IN HWND hwndDlg,
@@ -97,7 +122,16 @@ KeyboardSpeedProc(IN HWND hwndDlg,
             SendDlgItemMessage(hwndDlg, IDC_SLIDER_CURSOR_BLINK, TBM_SETPOS, (WPARAM)TRUE, (LPARAM)(12 - (pSpeedData->uCaretBlinkTime / 100)));
 
             /* Start the blink timer */
-            SetTimer(hwndDlg, ID_BLINK_TIMER, pSpeedData->uCaretBlinkTime, NULL);
+            pSpeedData->uCaretBlinkTime = pSpeedData->uCaretBlinkTime >= 1200 ? -1 : pSpeedData->uCaretBlinkTime;
+            if ((INT)pSpeedData->uCaretBlinkTime > 0)
+            {
+                SetTimer(hwndDlg, ID_BLINK_TIMER, pSpeedData->uCaretBlinkTime, NULL);
+            }
+            else
+            {
+                PostMessage(hwndDlg, WM_TIMER, ID_BLINK_TIMER, 0);
+            }
+
             break;
 
         case WM_HSCROLL:
@@ -172,7 +206,15 @@ KeyboardSpeedProc(IN HWND hwndDlg,
                         case TB_ENDTRACK:
                             pSpeedData->uCaretBlinkTime = (12 - (UINT)SendDlgItemMessage(hwndDlg, IDC_SLIDER_CURSOR_BLINK, TBM_GETPOS, 0, 0)) * 100;
                             KillTimer(hwndDlg, ID_BLINK_TIMER);
-                            SetTimer(hwndDlg, ID_BLINK_TIMER, pSpeedData->uCaretBlinkTime, NULL);
+                            pSpeedData->uCaretBlinkTime = pSpeedData->uCaretBlinkTime >= 1200 ? -1 : pSpeedData->uCaretBlinkTime;
+                            if ((INT)pSpeedData->uCaretBlinkTime > 0)
+                            {
+                                SetTimer(hwndDlg, ID_BLINK_TIMER, pSpeedData->uCaretBlinkTime, NULL);
+                            }
+                            else if (pSpeedData->fShowCursor)
+                            {
+                                SendMessage(hwndDlg, WM_TIMER, ID_BLINK_TIMER, 0);
+                            }
                             SetCaretBlinkTime(pSpeedData->uCaretBlinkTime);
                             PropSheet_Changed(GetParent(hwndDlg), hwndDlg);
                             break;
@@ -180,7 +222,15 @@ KeyboardSpeedProc(IN HWND hwndDlg,
                         case TB_THUMBTRACK:
                             pSpeedData->uCaretBlinkTime = (12 - (UINT)HIWORD(wParam)) * 100;
                             KillTimer(hwndDlg, ID_BLINK_TIMER);
-                            SetTimer(hwndDlg, ID_BLINK_TIMER, pSpeedData->uCaretBlinkTime, NULL);
+                            pSpeedData->uCaretBlinkTime = pSpeedData->uCaretBlinkTime >= 1200 ? -1 : pSpeedData->uCaretBlinkTime;
+                            if ((INT)pSpeedData->uCaretBlinkTime > 0)
+                            {
+                                SetTimer(hwndDlg, ID_BLINK_TIMER, pSpeedData->uCaretBlinkTime, NULL);
+                            }
+                            else if (pSpeedData->fShowCursor)
+                            {
+                                SendMessage(hwndDlg, WM_TIMER, ID_BLINK_TIMER, 0);
+                            }
                             SetCaretBlinkTime(pSpeedData->uCaretBlinkTime);
                             PropSheet_Changed(GetParent(hwndDlg), hwndDlg);
                             break;
@@ -196,7 +246,6 @@ KeyboardSpeedProc(IN HWND hwndDlg,
                     HDC hDC = GetDC(hwndDlg);
                     HBRUSH hBrush = GetSysColorBrush(COLOR_BTNTEXT);
                     FillRect(hDC, &pSpeedData->rcCursor, hBrush);
-                    DeleteObject(hBrush);
                     ReleaseDC(hwndDlg, hDC);
                 }
                 else
@@ -216,6 +265,11 @@ KeyboardSpeedProc(IN HWND hwndDlg,
             {
                 case PSN_APPLY:
                     /* Set the new keyboard settings */
+                    if (pSpeedData->uOrigCaretBlinkTime != pSpeedData->uCaretBlinkTime)
+                    {
+                        UpdateCaretBlinkTimeReg(pSpeedData->uCaretBlinkTime);
+                    }
+
                     SystemParametersInfo(SPI_SETKEYBOARDDELAY,
                                          pSpeedData->nKeyboardDelay,
                                          0,
@@ -282,6 +336,22 @@ KeybHardwareProc(IN HWND hwndDlg,
     return FALSE;
 }
 
+static int CALLBACK
+PropSheetProc(HWND hwndDlg, UINT uMsg, LPARAM lParam)
+{
+    // NOTE: This callback is needed to set large icon correctly.
+    HICON hIcon;
+    switch (uMsg)
+    {
+        case PSCB_INITIALIZED:
+        {
+            hIcon = LoadIconW(hApplet, MAKEINTRESOURCEW(IDC_CPLICON_2));
+            SendMessageW(hwndDlg, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+            break;
+        }
+    }
+    return 0;
+}
 
 LONG APIENTRY
 KeyboardApplet(HWND hwnd, UINT uMsg, LPARAM wParam, LPARAM lParam)
@@ -289,7 +359,7 @@ KeyboardApplet(HWND hwnd, UINT uMsg, LPARAM wParam, LPARAM lParam)
     HPROPSHEETPAGE hpsp[MAX_CPL_PAGES];
     PROPSHEETHEADER psh;
     HPSXA hpsxa;
-    TCHAR szCaption[256];
+    INT nPage = 0;
     LONG ret;
 
     UNREFERENCED_PARAMETER(lParam);
@@ -297,17 +367,19 @@ KeyboardApplet(HWND hwnd, UINT uMsg, LPARAM wParam, LPARAM lParam)
     UNREFERENCED_PARAMETER(uMsg);
     UNREFERENCED_PARAMETER(hwnd);
 
-    LoadString(hApplet, IDS_CPLNAME_2, szCaption, sizeof(szCaption) / sizeof(TCHAR));
+    if (uMsg == CPL_STARTWPARMSW && lParam != 0)
+        nPage = _wtoi((PWSTR)lParam);
 
     ZeroMemory(&psh, sizeof(PROPSHEETHEADER));
     psh.dwSize = sizeof(PROPSHEETHEADER);
-    psh.dwFlags =  PSH_PROPTITLE;
+    psh.dwFlags =  PSH_PROPTITLE | PSH_USEICONID | PSH_USECALLBACK;
     psh.hwndParent = hwnd;
     psh.hInstance = hApplet;
-    psh.hIcon = LoadIcon(hApplet, MAKEINTRESOURCE(IDC_CPLICON_2));
-    psh.pszCaption = szCaption;
+    psh.pszIcon = MAKEINTRESOURCE(IDC_CPLICON_2);
+    psh.pszCaption = MAKEINTRESOURCE(IDS_CPLNAME_2);
     psh.nStartPage = 0;
     psh.phpage = hpsp;
+    psh.pfnCallback = PropSheetProc;
 
     /* Load additional pages provided by shell extensions */
     hpsxa = SHCreatePropSheetExtArray(HKEY_LOCAL_MACHINE, REGSTR_PATH_CONTROLSFOLDER TEXT("\\Keyboard"), MAX_CPL_PAGES - psh.nPages);
@@ -319,6 +391,9 @@ KeyboardApplet(HWND hwnd, UINT uMsg, LPARAM wParam, LPARAM lParam)
 
     if (hpsxa != NULL)
         SHAddFromPropSheetExtArray(hpsxa, PropSheetAddPage, (LPARAM)&psh);
+
+    if (nPage != 0 && nPage <= psh.nPages)
+        psh.nStartPage = nPage;
 
     ret = (LONG)(PropertySheet(&psh) != -1);
 

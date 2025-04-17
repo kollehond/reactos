@@ -18,7 +18,7 @@ idt _KiUnexpectedInterrupt&Vector, INT_32_DPL0
 ENDM
 
 MACRO(GENERATE_INT_HANDLER, Vector)
-//.func KiUnexpectedInterrupt&Number
+//.func KiUnexpectedInterrupt&Vector
 _KiUnexpectedInterrupt&Vector:
     /* This is a push instruction with 8bit operand. Since the instruction
        sign extends the value to 32 bits, we need to offset it */
@@ -27,12 +27,10 @@ _KiUnexpectedInterrupt&Vector:
 //.endfunc
 ENDM
 
-EXTERN _KiTrap02:PROC
-
 /* GLOBALS *******************************************************************/
 
 .data
-ASSUME nothing
+ASSUME CS:nothing
 
 .align 16
 
@@ -99,12 +97,13 @@ ENDR
 
 TRAP_ENTRY KiTrap00, KI_PUSH_FAKE_ERROR_CODE
 TRAP_ENTRY KiTrap01, KI_PUSH_FAKE_ERROR_CODE
+TASK_ENTRY KiTrap02, KI_NMI
 TRAP_ENTRY KiTrap03, KI_PUSH_FAKE_ERROR_CODE
 TRAP_ENTRY KiTrap04, KI_PUSH_FAKE_ERROR_CODE
 TRAP_ENTRY KiTrap05, KI_PUSH_FAKE_ERROR_CODE
 TRAP_ENTRY KiTrap06, KI_PUSH_FAKE_ERROR_CODE
 TRAP_ENTRY KiTrap07, KI_PUSH_FAKE_ERROR_CODE
-TRAP_ENTRY KiTrap08, 0
+TASK_ENTRY KiTrap08, 0
 TRAP_ENTRY KiTrap09, KI_PUSH_FAKE_ERROR_CODE
 TRAP_ENTRY KiTrap0A, 0
 TRAP_ENTRY KiTrap0B, 0
@@ -126,6 +125,7 @@ ALIGN 4
 EXTERN @KiInterruptTemplateHandler@8:PROC
 PUBLIC _KiInterruptTemplate
 _KiInterruptTemplate:
+    CFI_STARTPROC
     KiEnterTrap KI_PUSH_FAKE_ERROR_CODE
 PUBLIC _KiInterruptTemplate2ndDispatch
 _KiInterruptTemplate2ndDispatch:
@@ -136,6 +136,7 @@ _KiInterruptTemplateObject:
     jmp eax
 PUBLIC _KiInterruptTemplateDispatch
 _KiInterruptTemplateDispatch:
+    CFI_ENDPROC
 
 EXTERN @KiSystemServiceHandler@8:PROC
 PUBLIC _KiSystemService
@@ -219,4 +220,38 @@ _KiConvertToGuiThread@0:
     /* return to the caller */
     ret
 
+/*
+NTSTATUS
+NTAPI
+KiSystemCallTrampoline(IN PVOID Handler,
+                       IN PVOID Arguments,
+                       IN ULONG StackBytes);
+*/
+PUBLIC _KiSystemCallTrampoline@12
+_KiSystemCallTrampoline@12:
+    push ebp
+    mov ebp, esp
+    push esi
+    push edi
+
+    /* Get handler */
+    mov eax, [ebp + 8]
+    /* Get arguments */
+    mov esi, [ebp + 12]
+    /* Get stack bytes */
+    mov ecx, [ebp + 16]
+
+    /* Copy args to the stack */
+    sub esp, ecx
+    mov edi, esp
+    shr ecx, 2
+    rep movsd
+
+    call eax
+
+    pop edi
+    pop esi
+    leave
+
+    ret 12
 END

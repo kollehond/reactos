@@ -27,6 +27,7 @@ test_NhGetInterfaceNameFromGuid(GUID AdapterGUID, DWORD par1, DWORD par2)
     ULONG ulOutBufLen;
     WCHAR Name[MAX_INTERFACE_NAME_LEN + 4];
     GUID UniqueGUID = MY_TEST_GUID;
+    SIZE_T Length;
 
     // Test NULL GUID
     SetLastError(0xbeeffeed);
@@ -37,11 +38,9 @@ test_NhGetInterfaceNameFromGuid(GUID AdapterGUID, DWORD par1, DWORD par2)
     StartSeh()
         ApiReturn = pNhGetInterfaceNameFromGuid(NULL, &Name, &ulOutBufLen, par1, par2);
         Error = GetLastError();
-    EndSeh(STATUS_SUCCESS);
+    EndSeh(((GetVersion() & 0xFF) >= 6) ? STATUS_SUCCESS : STATUS_ACCESS_VIOLATION);
 
-    ok(ApiReturn == ERROR_INVALID_PARAMETER,
-       "ApiReturn returned %ld, expected ERROR_INVALID_PARAMETER\n",
-       ApiReturn);
+    ok_long(ApiReturn, ((GetVersion() & 0xFF) >= 6) ? ERROR_INVALID_PARAMETER : ERROR_SUCCESS);
     ok(Error == 0xbeeffeed,
        "GetLastError() returned %ld, expected 0xbeeffeed\n",
        Error);
@@ -56,12 +55,8 @@ test_NhGetInterfaceNameFromGuid(GUID AdapterGUID, DWORD par1, DWORD par2)
     ApiReturn = pNhGetInterfaceNameFromGuid(&AdapterGUID, NULL, &ulOutBufLen, par1, par2);
     Error = GetLastError();
 
-    ok(ApiReturn == ERROR_SUCCESS,
-       "ApiReturn returned %ld, expected ERROR_SUCCESS\n",
-       ApiReturn);
-    ok(Error == 0xbeeffeed,
-       "GetLastError() returned %ld, expected 0xbeeffeed\n",
-       Error);
+    ok_long(ApiReturn, ((GetVersion() & 0xFF) >= 6) ? ERROR_INVALID_PARAMETER : ERROR_SUCCESS);
+    ok_long(Error, ((GetVersion() & 0xFF) >= 6) ? ERROR_SUCCESS : 0xbeeffeed);
     ok(ulOutBufLen > 0,
        "ulOutBufLen is %ld, expected > 0\n",
        ulOutBufLen);
@@ -71,14 +66,14 @@ test_NhGetInterfaceNameFromGuid(GUID AdapterGUID, DWORD par1, DWORD par2)
     SetLastError(0xbeeffeed);
     Error = 0xbeeffeed;
     ZeroMemory(&Name, sizeof(Name));
-    ApiReturn = ERROR_SUCCESS;
+    ApiReturn = 0xdeadbeef;
     StartSeh()
         ApiReturn = pNhGetInterfaceNameFromGuid(&AdapterGUID, &Name, NULL, par1, par2);
         Error = GetLastError();
-    EndSeh(STATUS_SUCCESS);
+    EndSeh(STATUS_ACCESS_VIOLATION);
 
-    ok(ApiReturn == ERROR_INVALID_PARAMETER,
-       "ApiReturn returned %ld, expected ERROR_INVALID_PARAMETER\n",
+    ok(ApiReturn == 0xdeadbeef,
+       "ApiReturn returned %ld, expected 0xdeadbeef\n",
        ApiReturn);
     ok(Error == 0xbeeffeed,
        "GetLastError() returned %ld, expected 0xbeeffeed\n",
@@ -98,17 +93,15 @@ test_NhGetInterfaceNameFromGuid(GUID AdapterGUID, DWORD par1, DWORD par2)
     ok(ApiReturn == ERROR_SUCCESS,
        "ApiReturn returned %ld, expected ERROR_SUCCESS\n",
        ApiReturn);
-    ok(Error == 0xbeeffeed,
-       "GetLastError() returned %ld, expected 0xbeeffeed\n",
-       Error);
+    ok_long(Error, ((GetVersion() & 0xFF) >= 6) ? 0 : 0xbeeffeed);
     ok(ulOutBufLen > 0,
        "ulOutBufLen is %ld, expected > 0\n",
        ulOutBufLen);
-    Error = wcslen(Name);
-    ok(Error > 0,
+    Length = wcslen(Name);
+    ok(Length > 0,
        "wcslen(Name) is %ld, expected > 0\n",
-       Error);
-    if (Error > 0)
+       Length);
+    if (Length > 0)
         trace("Adapter name: \"%S\"\n", Name);
 
     // Test correct values, but with new unique GUID
@@ -118,12 +111,12 @@ test_NhGetInterfaceNameFromGuid(GUID AdapterGUID, DWORD par1, DWORD par2)
     ApiReturn = pNhGetInterfaceNameFromGuid((PVOID)&UniqueGUID, &Name, &ulOutBufLen, par1, par2);
     Error = GetLastError();
 
-    ok(ApiReturn == ERROR_NOT_FOUND,
-       "ApiReturn returned %ld, expected ERROR_NOT_FOUND\n",
-       ApiReturn);
-    ok(Error == ERROR_PATH_NOT_FOUND,
-       "GetLastError() returned %ld, expected ERROR_PATH_NOT_FOUND\n",
-       Error);
+    ok_long(ApiReturn, ((GetVersion() & 0xFF) >= 6) ? ERROR_INVALID_PARAMETER : ERROR_NOT_FOUND);
+#ifdef _M_AMD64
+    ok_long(Error, ERROR_FILE_NOT_FOUND);
+#else
+    ok_long(Error, 0);
+#endif
     ok(ulOutBufLen == sizeof(Name),
        "ulOutBufLen is %ld, expected = sizeof(Name)\n",
        ulOutBufLen);
@@ -136,15 +129,9 @@ test_NhGetInterfaceNameFromGuid(GUID AdapterGUID, DWORD par1, DWORD par2)
     ApiReturn = pNhGetInterfaceNameFromGuid(&AdapterGUID, &Name, &ulOutBufLen, par1, par2);
     Error = GetLastError();
 
-    ok(ApiReturn == ERROR_INSUFFICIENT_BUFFER,
-       "ApiReturn returned %ld, expected ERROR_INSUFFICIENT_BUFFER\n",
-       ApiReturn);
-    ok(Error == 0xbeeffeed,
-       "GetLastError() returned %ld, expected 0xbeeffeed\n",
-       Error);
-    ok(ulOutBufLen == MAX_INTERFACE_NAME_LEN * 2,
-       "ulOutBufLen is %ld, expected = MAX_INTERFACE_NAME_LEN * 2\n",
-       ulOutBufLen);
+    ok_long(ApiReturn, ((GetVersion() & 0xFF) >= 6) ? ERROR_NOT_ENOUGH_MEMORY : ERROR_INSUFFICIENT_BUFFER);
+    ok_long(Error, ((GetVersion() & 0xFF) >= 6) ? 0 : 0xbeeffeed);
+    ok_long(ulOutBufLen, MAX_INTERFACE_NAME_LEN * 2 + ((GetVersion() & 0xFF) >= 6 ? 2 : 0));
     ok_wstr(L"", Name);
 }
 
@@ -159,6 +146,7 @@ test_NhGetInterfaceNameFromDeviceGuid(GUID AdapterGUID, DWORD par1, DWORD par2)
     ULONG ulOutBufLen;
     WCHAR Name[MAX_INTERFACE_NAME_LEN];
     GUID UniqueGUID = MY_TEST_GUID;
+    SIZE_T Length;
 
     // Test NULL GUID
     // Windows XP: NhGetInterfaceNameFromDeviceGuid throws exception here
@@ -170,12 +158,10 @@ test_NhGetInterfaceNameFromDeviceGuid(GUID AdapterGUID, DWORD par1, DWORD par2)
     StartSeh()
         ApiReturn = pNhGetInterfaceNameFromDeviceGuid(NULL, &Name, &ulOutBufLen, par1, par2);
         Error = GetLastError();
-    EndSeh(STATUS_SUCCESS);
+    EndSeh(((GetVersion() & 0xFF) >= 6) ? STATUS_SUCCESS : STATUS_ACCESS_VIOLATION);
 
-    ok(ApiReturn == ERROR_INVALID_PARAMETER,
-       "ApiReturn returned %ld, expected ERROR_INVALID_PARAMETER\n",
-       ApiReturn);
-    ok(Error == ERROR_SUCCESS,
+    ok_long(ApiReturn, ((GetVersion() & 0xFF) >= 6) ? ERROR_INVALID_PARAMETER : 0);
+    ok(Error == 0xbeeffeed,
        "GetLastError() returned %ld, expected ERROR_SUCCESS\n",
        Error);
     ok(ulOutBufLen == sizeof(Name),
@@ -191,14 +177,10 @@ test_NhGetInterfaceNameFromDeviceGuid(GUID AdapterGUID, DWORD par1, DWORD par2)
     StartSeh()
         ApiReturn = pNhGetInterfaceNameFromDeviceGuid(&AdapterGUID, NULL, &ulOutBufLen, par1, par2);
         Error = GetLastError();
-    EndSeh(STATUS_SUCCESS);
+    EndSeh(((GetVersion() & 0xFF) >= 6) ? STATUS_SUCCESS : STATUS_ACCESS_VIOLATION);
 
-    ok(ApiReturn == ERROR_INVALID_PARAMETER,
-       "ApiReturn returned %ld, expected ERROR_INVALID_PARAMETER\n",
-       ApiReturn);
-    ok(Error == ERROR_SUCCESS,
-       "GetLastError() returned %ld, expected ERROR_SUCCESS\n",
-       Error);
+    ok_long(ApiReturn, ((GetVersion() & 0xFF) >= 6) ? ERROR_INVALID_PARAMETER : 0);
+    ok_long(Error, ((GetVersion() & 0xFF) >= 6) ? ERROR_SUCCESS : 0xbeeffeed);
     ok(ulOutBufLen > 0,
        "ulOutBufLen is %ld, expected > 0\n",
        ulOutBufLen);
@@ -212,14 +194,10 @@ test_NhGetInterfaceNameFromDeviceGuid(GUID AdapterGUID, DWORD par1, DWORD par2)
     StartSeh()
         ApiReturn = pNhGetInterfaceNameFromDeviceGuid(&AdapterGUID, &Name, NULL, par1, par2);
         Error = GetLastError();
-    EndSeh(STATUS_SUCCESS);
+    EndSeh(STATUS_ACCESS_VIOLATION);
 
-    ok(ApiReturn == ERROR_INVALID_PARAMETER,
-       "ApiReturn returned %ld, expected ERROR_INVALID_PARAMETER\n",
-       ApiReturn);
-    ok(Error == ERROR_SUCCESS,
-       "GetLastError() returned %ld, expected ERROR_SUCCESS\n",
-       Error);
+    ok_long(ApiReturn, 0);
+    ok_long(Error, 0xbeeffeed);
     ok(ulOutBufLen > 0,
        "ulOutBufLen is %ld, expected > 0\n",
        ulOutBufLen);
@@ -241,11 +219,11 @@ test_NhGetInterfaceNameFromDeviceGuid(GUID AdapterGUID, DWORD par1, DWORD par2)
     ok(ulOutBufLen > 0,
        "ulOutBufLen is %ld, expected > 0\n",
        ulOutBufLen);
-    Error = wcslen(Name);
-    ok(Error > 0,
+    Length = wcslen(Name);
+    ok(Length > 0,
        "wcslen(Name) is %ld, expected > 0\n",
-       Error);
-    if (Error > 0)
+       Length);
+    if (Length > 0)
         trace("Adapter name: \"%S\"\n", Name);
 
     // Test correct values, but with new unique GUID
@@ -255,9 +233,7 @@ test_NhGetInterfaceNameFromDeviceGuid(GUID AdapterGUID, DWORD par1, DWORD par2)
     ApiReturn = pNhGetInterfaceNameFromDeviceGuid((PVOID)&UniqueGUID, &Name, &ulOutBufLen, par1, par2);
     Error = GetLastError();
 
-    ok(ApiReturn == ERROR_NOT_FOUND,
-       "ApiReturn returned %ld, expected ERROR_NOT_FOUND\n",
-       ApiReturn);
+    ok_long(ApiReturn, ((GetVersion() & 0xFF) >= 6) ? ERROR_INVALID_PARAMETER : ERROR_NOT_FOUND);
     ok(Error == ERROR_SUCCESS,
        "GetLastError() returned %ld, expected ERROR_SUCCESS\n",
        Error);
@@ -273,15 +249,11 @@ test_NhGetInterfaceNameFromDeviceGuid(GUID AdapterGUID, DWORD par1, DWORD par2)
     ApiReturn = pNhGetInterfaceNameFromDeviceGuid(&AdapterGUID, &Name, &ulOutBufLen, par1, par2);
     Error = GetLastError();
 
-    ok(ApiReturn == ERROR_INSUFFICIENT_BUFFER,
-       "ApiReturn returned %ld, expected ERROR_INSUFFICIENT_BUFFER\n",
-       ApiReturn);
+    ok_long(ApiReturn, ((GetVersion() & 0xFF) >= 6) ? ERROR_NOT_ENOUGH_MEMORY : ERROR_INSUFFICIENT_BUFFER);
     ok(Error == ERROR_SUCCESS,
        "GetLastError() returned %ld, expected ERROR_SUCCESS\n",
        Error);
-    ok(ulOutBufLen == MAX_INTERFACE_NAME_LEN * 2,
-       "ulOutBufLen is %ld, expected = MAX_INTERFACE_NAME_LEN * 2\n",
-       ulOutBufLen);
+    ok_long(ulOutBufLen, MAX_INTERFACE_NAME_LEN * 2 + (((GetVersion() & 0xFF) >= 6) ? 2 : 0));
     ok_wstr(L"", Name);
 }
 

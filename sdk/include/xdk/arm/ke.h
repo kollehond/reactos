@@ -334,25 +334,22 @@ typedef struct _KPCR
 } KPCR, *PKPCR;
 
 #define CP15_PCR_RESERVED_MASK 0xFFF
-//#define KIPCR() ((ULONG_PTR)(_MoveFromCoprocessor(CP15_TPIDRPRW)) & ~CP15_PCR_RESERVED_MASK)
+#define KIPCR() (((ULONG_PTR)_MoveFromCoprocessor(CP15_TPIDRPRW)) & ~CP15_PCR_RESERVED_MASK)
 
 FORCEINLINE
 PKPCR
-KeGetPcr(
-    VOID)
+KeGetPcr(VOID)
 {
-    return (PKPCR)(_MoveFromCoprocessor(CP15_TPIDRPRW) & ~CP15_PCR_RESERVED_MASK);
+    return (PKPCR)KIPCR();
 }
 
 #if (NTDDI_VERSION < NTDDI_WIN7) || !defined(NT_PROCESSOR_GROUPS)
 FORCEINLINE
 ULONG
-KeGetCurrentProcessorNumber(
-    VOID)
-
+KeGetCurrentProcessorNumber(VOID)
 {
-    return *((PUCHAR)KeGetPcr() + 0x580);
+    return (ULONG)*((PUCHAR)KIPCR() + 0x580);
 }
 #endif /* (NTDDI_VERSION < NTDDI_WIN7) || !defined(NT_PROCESSOR_GROUPS) */
 
-$endif
+$endif (_NTDDK_)

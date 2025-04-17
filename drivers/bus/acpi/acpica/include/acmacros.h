@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2017, Intel Corp.
+ * Copyright (C) 2000 - 2022, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
  * NO WARRANTY
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
  * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
@@ -459,21 +459,23 @@
  * the plist contains a set of parens to allow variable-length lists.
  * These macros are used for both the debug and non-debug versions of the code.
  */
-#define ACPI_ERROR_NAMESPACE(s, e)          AcpiUtNamespaceError (AE_INFO, s, e);
+#define ACPI_ERROR_NAMESPACE(s, p, e)       AcpiUtPrefixedNamespaceError (AE_INFO, s, p, e);
 #define ACPI_ERROR_METHOD(s, n, p, e)       AcpiUtMethodError (AE_INFO, s, n, p, e);
 #define ACPI_WARN_PREDEFINED(plist)         AcpiUtPredefinedWarning plist
 #define ACPI_INFO_PREDEFINED(plist)         AcpiUtPredefinedInfo plist
 #define ACPI_BIOS_ERROR_PREDEFINED(plist)   AcpiUtPredefinedBiosError plist
+#define ACPI_ERROR_ONLY(s)                  s
 
 #else
 
 /* No error messages */
 
-#define ACPI_ERROR_NAMESPACE(s, e)
+#define ACPI_ERROR_NAMESPACE(s, p, e)
 #define ACPI_ERROR_METHOD(s, n, p, e)
 #define ACPI_WARN_PREDEFINED(plist)
 #define ACPI_INFO_PREDEFINED(plist)
 #define ACPI_BIOS_ERROR_PREDEFINED(plist)
+#define ACPI_ERROR_ONLY(s)
 
 #endif /* ACPI_NO_ERROR_MESSAGES */
 
@@ -500,7 +502,7 @@
 
 
 /*
- * Macors used for the ASL-/ASL+ converter utility
+ * Macros used for the ASL-/ASL+ converter utility
  */
 #ifdef ACPI_ASL_COMPILER
 
@@ -515,7 +517,7 @@
 #define ASL_CV_PRINT_ONE_COMMENT(a,b,c,d) CvPrintOneCommentType (a,b,c,d);
 #define ASL_CV_PRINT_ONE_COMMENT_LIST(a,b) CvPrintOneCommentList (a,b);
 #define ASL_CV_FILE_HAS_SWITCHED(a)       CvFileHasSwitched(a)
-#define ASL_CV_INIT_FILETREE(a,b,c)      CvInitFileTree(a,b,c);
+#define ASL_CV_INIT_FILETREE(a,b)      CvInitFileTree(a,b);
 
 #else
 
@@ -530,7 +532,7 @@
 #define ASL_CV_PRINT_ONE_COMMENT(a,b,c,d)
 #define ASL_CV_PRINT_ONE_COMMENT_LIST(a,b)
 #define ASL_CV_FILE_HAS_SWITCHED(a)       0
-#define ASL_CV_INIT_FILETREE(a,b,c)
+#define ASL_CV_INIT_FILETREE(a,b)
 
 #endif
 
