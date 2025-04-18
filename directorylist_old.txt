@@ -1,0 +1,11 @@
+//base\applications\network\dwnl\lang\en-US.rc
+//base\applications\network\netstat\lang\en-US.rc
+//base\applications\utilman\lang\en-US.rc
+//base\system\chkdsk\lang\en-US.rc
+//dll\shellext\cryptext\lang\en-US.rc
+//dll\shellext\devcpux\lang\en-US.rc
+//dll\shellext\netplwiz\lang\en-US.rc
+//dll\win32\themeui\lang\en-US.rc
+//media\themes\Lunar\lunar.msstyles\lang\en-US.rc
+//media\themes\Mizu\mizu.msstyles\lang\en-US.rc
+//modules\rosapps\applications\vcdcontroltool\lang\en-US.rc
