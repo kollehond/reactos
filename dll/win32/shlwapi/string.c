@@ -883,7 +883,7 @@ int WINAPI StrToIntW(LPCWSTR lpszStr)
  *  the string is treated as a decimal string. A leading '-' is ignored for
  *  hexadecimal numbers.
  */
-BOOL WINAPI StrToIntExA(LPCSTR lpszStr, DWORD dwFlags, LPINT lpiRet)
+BOOL WINAPI StrToIntExA(LPCSTR lpszStr, DWORD dwFlags, int *lpiRet)
 {
   LONGLONG li;
   BOOL bRes;
@@ -967,7 +967,7 @@ BOOL WINAPI StrToInt64ExA(LPCSTR lpszStr, DWORD dwFlags, LONGLONG *lpiRet)
  *
  * See StrToIntExA.
  */
-BOOL WINAPI StrToIntExW(LPCWSTR lpszStr, DWORD dwFlags, LPINT lpiRet)
+BOOL WINAPI StrToIntExW(LPCWSTR lpszStr, DWORD dwFlags, int *lpiRet)
 {
   LONGLONG li;
   BOOL bRes;
@@ -1068,6 +1068,10 @@ LPSTR WINAPI StrDupA(LPCSTR lpszStr)
 
   TRACE("(%s)\n",debugstr_a(lpszStr));
 
+#ifdef __REACTOS__
+  if (!lpszStr)
+    return NULL;
+#endif
   iLen = lpszStr ? strlen(lpszStr) + 1 : 1;
   lpszRet = LocalAlloc(LMEM_FIXED, iLen);
 
@@ -1093,6 +1097,10 @@ LPWSTR WINAPI StrDupW(LPCWSTR lpszStr)
 
   TRACE("(%s)\n",debugstr_w(lpszStr));
 
+#ifdef __REACTOS__
+  if (!lpszStr)
+    return NULL;
+#endif
   iLen = (lpszStr ? strlenW(lpszStr) + 1 : 1) * sizeof(WCHAR);
   lpszRet = LocalAlloc(LMEM_FIXED, iLen);
 
@@ -1627,8 +1635,14 @@ HRESULT WINAPI StrRetToStrW(LPSTRRET lpStrRet, const ITEMIDLIST *pidl, LPWSTR *p
   switch (lpStrRet->uType)
   {
   case STRRET_WSTR:
+#ifdef __REACTOS__
+    hRet = lpStrRet->u.pOleStr ? S_OK : E_FAIL;
+    *ppszName = lpStrRet->u.pOleStr;
+    lpStrRet->u.pOleStr = NULL; /* Windows does this, presumably in case someone calls SHFree */
+#else
     hRet = SHStrDupW(lpStrRet->u.pOleStr, ppszName);
     CoTaskMemFree(lpStrRet->u.pOleStr);
+#endif
     break;
 
   case STRRET_CSTR:
@@ -2354,7 +2368,11 @@ typedef struct tagSHLWAPI_BYTEFORMATS
   double   dDivisor;
   double   dNormaliser;
   int      nDecimals;
+#ifdef __REACTOS__
+  UINT     nFormatID;
+#else
   WCHAR     wPrefix;
+#endif
 } SHLWAPI_BYTEFORMATS;
 
 /*************************************************************************
@@ -2383,6 +2401,24 @@ LPWSTR WINAPI StrFormatByteSizeW(LONGLONG llBytes, LPWSTR lpszDest, UINT cchMax)
 
   static const SHLWAPI_BYTEFORMATS bfFormats[] =
   {
+#ifdef __REACTOS__
+    { 10*KB, 10.24, 100.0, 2, IDS_KB_FORMAT }, /* 10 KB */
+    { 100*KB, 102.4, 10.0, 1, IDS_KB_FORMAT }, /* 100 KB */
+    { 1000*KB, 1024.0, 1.0, 0, IDS_KB_FORMAT }, /* 1000 KB */
+    { 10*MB, 10485.76, 100.0, 2, IDS_MB_FORMAT }, /* 10 MB */
+    { 100*MB, 104857.6, 10.0, 1, IDS_MB_FORMAT }, /* 100 MB */
+    { 1000*MB, 1048576.0, 1.0, 0, IDS_MB_FORMAT }, /* 1000 MB */
+    { 10*GB, 10737418.24, 100.0, 2, IDS_GB_FORMAT }, /* 10 GB */
+    { 100*GB, 107374182.4, 10.0, 1, IDS_GB_FORMAT }, /* 100 GB */
+    { 1000*GB, 1073741824.0, 1.0, 0, IDS_GB_FORMAT }, /* 1000 GB */
+    { 10*TB, 10485.76, 100.0, 2, IDS_TB_FORMAT }, /* 10 TB */
+    { 100*TB, 104857.6, 10.0, 1, IDS_TB_FORMAT }, /* 100 TB */
+    { 1000*TB, 1048576.0, 1.0, 0, IDS_TB_FORMAT }, /* 1000 TB */
+    { 10*PB, 10737418.24, 100.00, 2, IDS_PB_FORMAT }, /* 10 PB */
+    { 100*PB, 107374182.4, 10.00, 1, IDS_PB_FORMAT }, /* 100 PB */
+    { 1000*PB, 1073741824.0, 1.00, 0, IDS_PB_FORMAT }, /* 1000 PB */
+    { 0, 10995116277.76, 100.00, 2, IDS_EB_FORMAT } /* EB's, catch all */
+#else
     { 10*KB, 10.24, 100.0, 2, 'K' }, /* 10 KB */
     { 100*KB, 102.4, 10.0, 1, 'K' }, /* 100 KB */
     { 1000*KB, 1024.0, 1.0, 0, 'K' }, /* 1000 KB */
@@ -2399,8 +2435,13 @@ LPWSTR WINAPI StrFormatByteSizeW(LONGLONG llBytes, LPWSTR lpszDest, UINT cchMax)
     { 100*PB, 107374182.4, 10.00, 1, 'P' }, /* 100 PB */
     { 1000*PB, 1073741824.0, 1.00, 0, 'P' }, /* 1000 PB */
     { 0, 10995116277.76, 100.00, 2, 'E' } /* EB's, catch all */
+#endif
   };
+#ifdef __REACTOS__
+  WCHAR szBuff[40], wszFormat[40];
+#else
   WCHAR wszAdd[] = {' ','?','B',0};
+#endif
   double dBytes;
   UINT i = 0;
 
@@ -2439,10 +2480,17 @@ LPWSTR WINAPI StrFormatByteSizeW(LONGLONG llBytes, LPWSTR lpszDest, UINT cchMax)
 
   dBytes = floor(dBytes / bfFormats[i].dDivisor) / bfFormats[i].dNormaliser;
 
+#ifdef __REACTOS__
+  if (!FormatDouble(dBytes, bfFormats[i].nDecimals, szBuff, ARRAYSIZE(szBuff)))
+    return NULL;
+  LoadStringW(shlwapi_hInstance, bfFormats[i].nFormatID, wszFormat, ARRAYSIZE(wszFormat));
+  snprintfW(lpszDest, cchMax, wszFormat, szBuff);
+#else
   if (!FormatDouble(dBytes, bfFormats[i].nDecimals, lpszDest, cchMax))
     return NULL;
   wszAdd[1] = bfFormats[i].wPrefix;
   StrCatBuffW(lpszDest, wszAdd, cchMax);
+#endif
   return lpszDest;
 }
 
@@ -2844,6 +2892,9 @@ HRESULT WINAPI SHLoadIndirectString(LPCWSTR src, LPWSTR dst, UINT dst_len, void 
     WCHAR *dllname = NULL;
     HMODULE hmod = NULL;
     HRESULT hr = E_FAIL;
+#ifdef __REACTOS__
+    WCHAR szExpanded[512];
+#endif
 
     TRACE("(%s %p %08x %p)\n", debugstr_w(src), dst, dst_len, reserved);
 
@@ -2852,6 +2903,13 @@ HRESULT WINAPI SHLoadIndirectString(LPCWSTR src, LPWSTR dst, UINT dst_len, void 
         WCHAR *index_str;
         int index;
 
+#ifdef __REACTOS__
+        if (wcschr(src, '%') != NULL)
+        {
+            ExpandEnvironmentStringsW(src, szExpanded, ARRAY_SIZE(szExpanded));
+            src = szExpanded;
+        }
+#endif
         dst[0] = 0;
         dllname = StrDupW(src + 1);
         index_str = strchrW(dllname, ',');
@@ -2862,7 +2920,11 @@ HRESULT WINAPI SHLoadIndirectString(LPCWSTR src, LPWSTR dst, UINT dst_len, void 
         index_str++;
         index = atoiW(index_str);
   
+#ifdef __REACTOS__
+        hmod = LoadLibraryExW(dllname, NULL, LOAD_LIBRARY_AS_DATAFILE);
+#else
         hmod = LoadLibraryW(dllname);
+#endif
         if(!hmod) goto end;
 
         if(index < 0)

@@ -17,7 +17,6 @@
  */
 #define COBJMACROS
 
-#include "config.h"
 #include <stdarg.h>
 
 #include "windef.h"
@@ -243,8 +242,10 @@ BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
 
     switch (reason)
     {
+#ifndef __REACTOS__
         case DLL_WINE_PREATTACH:
             return FALSE;    /* prefer native version */
+#endif
         case DLL_PROCESS_ATTACH:
             DisableThreadLibraryCalls( hinst );
             scrrun_instance = hinst;

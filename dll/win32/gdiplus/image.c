@@ -1897,6 +1897,41 @@ GpStatus WINGDIPAPI GdipCreateBitmapFromScan0(INT width, INT height, INT stride,
     return Ok;
 }
 
+#ifdef __REACTOS__
+static HBITMAP hbitmap_from_emf(HENHMETAFILE hemf)
+{
+    BITMAPINFO bmi;
+    HBITMAP hbm;
+    SIZE size;
+    ENHMETAHEADER header;
+    HGDIOBJ hbmOld;
+    RECT rc;
+    HDC hdc;
+
+    GetEnhMetaFileHeader(hemf, sizeof(header), &header);
+    size.cx = header.rclBounds.right - header.rclBounds.left + 1;
+    size.cy = header.rclBounds.bottom - header.rclBounds.top + 1;
+
+    ZeroMemory(&bmi, sizeof(bmi));
+    bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
+    bmi.bmiHeader.biWidth = size.cx;
+    bmi.bmiHeader.biHeight = size.cy;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 24;
+
+    hdc = CreateCompatibleDC(NULL);
+    hbm = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, NULL, NULL, 0);
+
+    hbmOld = SelectObject(hdc, hbm);
+    SetRect(&rc, 0, 0, size.cx, size.cy);
+    PlayEnhMetaFile(hdc, hemf, &rc);
+    SelectObject(hdc, hbmOld);
+
+    DeleteDC(hdc);
+    return hbm;
+}
+
+#endif
 GpStatus WINGDIPAPI GdipCreateBitmapFromStream(IStream* stream,
     GpBitmap **bitmap)
 {
@@ -1909,6 +1944,19 @@ GpStatus WINGDIPAPI GdipCreateBitmapFromStream(IStream* stream,
     if(stat != Ok)
         return stat;
 
+#ifdef __REACTOS__
+    if ((*bitmap)->image.type == ImageTypeMetafile)
+    {
+        HBITMAP hbm = hbitmap_from_emf(((GpMetafile*)*bitmap)->hemf);
+        GdipDisposeImage(&(*bitmap)->image);
+        if (!hbm)
+            return GenericError; /* FIXME: what error to return? */
+
+        GdipCreateBitmapFromHBITMAP(hbm, NULL, bitmap);
+        DeleteObject(hbm);
+    }
+    else
+#endif
     if((*bitmap)->image.type != ImageTypeBitmap){
         GdipDisposeImage(&(*bitmap)->image);
         *bitmap = NULL;
@@ -3955,6 +4003,39 @@ static GpStatus decode_image_jpeg(IStream* stream, GpImage **image)
     return decode_image_wic(stream, &GUID_ContainerFormatJpeg, NULL, image);
 }
 
+static BOOL has_png_transparency_chunk(IStream *pIStream)
+{
+    LARGE_INTEGER seek;
+    BOOL has_tRNS = FALSE;
+    HRESULT hr;
+    BYTE header[8];
+
+    seek.QuadPart = 8;
+    do
+    {
+        ULARGE_INTEGER chunk_start;
+        ULONG bytesread, chunk_size;
+
+        hr = IStream_Seek(pIStream, seek, STREAM_SEEK_SET, &chunk_start);
+        if (FAILED(hr)) break;
+
+        hr = IStream_Read(pIStream, header, 8, &bytesread);
+        if (FAILED(hr) || bytesread < 8) break;
+
+        chunk_size = (header[0] << 24) | (header[1] << 16) | (header[2] << 8) | header[3];
+        if (!memcmp(&header[4], "tRNS", 4))
+        {
+            has_tRNS = TRUE;
+            break;
+        }
+
+        seek.QuadPart = chunk_start.QuadPart + chunk_size + 12; /* skip data and CRC */
+    } while (memcmp(&header[4], "IDAT", 4) && memcmp(&header[4], "IEND", 4));
+
+    TRACE("has_tRNS = %d\n", has_tRNS);
+    return has_tRNS;
+}
+
 static GpStatus decode_image_png(IStream* stream, GpImage **image)
 {
     IWICBitmapDecoder *decoder;
@@ -3976,6 +4057,14 @@ static GpStatus decode_image_png(IStream* stream, GpImage **image)
         {
             if (IsEqualGUID(&format, &GUID_WICPixelFormat8bppGray))
                 force_conversion = TRUE;
+            else if ((IsEqualGUID(&format, &GUID_WICPixelFormat8bppIndexed) ||
+                      IsEqualGUID(&format, &GUID_WICPixelFormat4bppIndexed) ||
+                      IsEqualGUID(&format, &GUID_WICPixelFormat2bppIndexed) ||
+                      IsEqualGUID(&format, &GUID_WICPixelFormat1bppIndexed) ||
+                      IsEqualGUID(&format, &GUID_WICPixelFormat24bppBGR)) &&
+                     has_png_transparency_chunk(stream))
+                force_conversion = TRUE;
+
             status = decode_frame_wic(decoder, force_conversion, 0, png_metadata_reader, image);
         }
         else
@@ -4880,7 +4969,11 @@ static const struct image_codec codecs[NUM_CODECS] = {
     {
         { /* ICO */
             /* Clsid */              { 0x557cf407, 0x1a04, 0x11d3, { 0x9a, 0x73, 0x0, 0x0, 0xf8, 0x1e, 0xf3, 0x2e } },
+#ifdef __REACTOS__
+            /* FormatID */           { 0xb96b3cb5U, 0x0728U, 0x11d3U, {0x9d, 0x7b, 0x00, 0x00, 0xf8, 0x1e, 0xf3, 0x2e} }, /* ImageFormatIcon */
+#else
             /* FormatID */           { 0xb96b3cabU, 0x0728U, 0x11d3U, {0x9d, 0x7b, 0x00, 0x00, 0xf8, 0x1e, 0xf3, 0x2e} },
+#endif
             /* CodecName */          ico_codecname,
             /* DllName */            NULL,
             /* FormatDescription */  ico_format,

@@ -8,16 +8,26 @@
 
 static
 __inline
-VOID
-IopLockFileObject(IN PFILE_OBJECT FileObject)
+NTSTATUS
+IopLockFileObject(
+    _In_ PFILE_OBJECT FileObject,
+    _In_ KPROCESSOR_MODE WaitMode)
 {
+    BOOLEAN LockFailed;
+
     /* Lock the FO and check for contention */
-    InterlockedIncrement((PLONG)&FileObject->Waiters);
-    while (InterlockedCompareExchange((PLONG)&FileObject->Busy, TRUE, FALSE) != FALSE)
+    if (InterlockedExchange((PLONG)&FileObject->Busy, TRUE) == FALSE)
     {
-        /* FIXME - pause for a little while? */
+        ObReferenceObject(FileObject);
+        return STATUS_SUCCESS;
     }
-    InterlockedDecrement((PLONG)&FileObject->Waiters);
+    else
+    {
+        return IopAcquireFileObjectLock(FileObject,
+                                        WaitMode,
+                                        BooleanFlagOn(FileObject->Flags, FO_ALERTABLE_IO),
+                                        &LockFailed);
+    }
 }
 
 static
@@ -26,30 +36,39 @@ VOID
 IopUnlockFileObject(IN PFILE_OBJECT FileObject)
 {
     /* Unlock the FO and wake any waiters up */
-    InterlockedExchange((PLONG)&FileObject->Busy, FALSE);
-    if (FileObject->Waiters) KeSetEvent(&FileObject->Lock, 0, FALSE);
+    NT_VERIFY(InterlockedExchange((PLONG)&FileObject->Busy, FALSE) == TRUE);
+    if (FileObject->Waiters)
+    {
+        KeSetEvent(&FileObject->Lock, IO_NO_INCREMENT, FALSE);
+    }
+    ObDereferenceObject(FileObject);
 }
 
 FORCEINLINE
 VOID
 IopQueueIrpToThread(IN PIRP Irp)
 {
-    KIRQL OldIrql;
+    PETHREAD Thread = Irp->Tail.Overlay.Thread;
 
-    /* Raise to APC Level */
-    KeRaiseIrql(APC_LEVEL, &OldIrql);
+    /* Disable special kernel APCs so we can't race with IopCompleteRequest.
+     * IRP's thread must be the current thread */
+    KeEnterGuardedRegionThread(&Thread->Tcb);
 
     /* Insert it into the list */
-    InsertHeadList(&Irp->Tail.Overlay.Thread->IrpList, &Irp->ThreadListEntry);
+    InsertHeadList(&Thread->IrpList, &Irp->ThreadListEntry);
 
-    /* Lower irql */
-    KeLowerIrql(OldIrql);
+    /* Leave the guarded region */
+    KeLeaveGuardedRegionThread(&Thread->Tcb);
 }
 
 FORCEINLINE
 VOID
 IopUnQueueIrpFromThread(IN PIRP Irp)
 {
+    /* Special kernel APCs must be disabled so we can't race with
+     * IopCompleteRequest (or because we are called from there) */
+    ASSERT(KeAreAllApcsDisabled());
+
     /* Remove it from the list and reset it */
     if (IsListEmpty(&Irp->ThreadListEntry))
         return;

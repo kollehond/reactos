@@ -3,7 +3,7 @@
  * PROJECT:         ReactOS Console Server DLL
  * FILE:            win32ss/user/winsrv/consrv/frontends/gui/guiterm.c
  * PURPOSE:         GUI Terminal Front-End
- * PROGRAMMERS:     Gé van Geldorp
+ * PROGRAMMERS:     GÃ© van Geldorp
  *                  Johannes Anderwald
  *                  Jeffrey Morlan
  *                  Hermes Belusca-Maito (hermes.belusca@sfr.fr)
@@ -16,6 +16,7 @@
 #define NDEBUG
 #include <debug.h>
 
+#include "concfg/font.h"
 #include "guiterm.h"
 #include "resource.h"
 
@@ -96,6 +97,7 @@ InvalidateCell(PGUI_CONSOLE_DATA GuiData,
  *                        GUI Terminal Initialization                         *
  ******************************************************************************/
 
+// FIXME: HACK: Potential HACK for CORE-8129; see revision 63595.
 VOID
 CreateSysMenu(HWND hWnd);
 
@@ -171,7 +173,7 @@ GuiConsoleInputThread(PVOID Param)
 
                 ASSERT(NewWindow == GuiData->hWindow);
 
-                InterlockedIncrement(&WindowCount);
+                _InterlockedIncrement(&WindowCount);
 
                 //
                 // FIXME: TODO: Move everything there into conwnd.c!OnNcCreate()
@@ -236,7 +238,7 @@ GuiConsoleInputThread(PVOID Param)
 
                 NtSetEvent(GuiData->hGuiTermEvent, NULL);
 
-                if (InterlockedDecrement(&WindowCount) == 0)
+                if (_InterlockedDecrement(&WindowCount) == 0)
                 {
                     DPRINT("CONSRV: Going to quit the Input Thread 0x%p\n", InputThreadId);
                     goto Quit;
@@ -293,12 +295,15 @@ GuiInit(IN PCONSOLE_INIT_INFO ConsoleInitInfo,
     HANDLE hInputThread;
     CLIENT_ID ClientId;
 
-    /*
-     * Initialize and register the console window class, if needed.
-     */
+    /* Perform one-time initialization */
     if (!ConsInitialized)
     {
+        /* Initialize and register the console window class */
         if (!RegisterConWndClass(ConSrvDllInstance)) return FALSE;
+
+        /* Initialize the font support -- additional TrueType font cache */
+        InitTTFontCache();
+
         ConsInitialized = TRUE;
     }
 
@@ -525,8 +530,8 @@ GuiInitFrontEnd(IN OUT PFRONTEND This,
     GuiData->hCursor = ghDefaultCursor;
     GuiData->MouseCursorRefCount = 0;
 
-    /* A priori don't ignore mouse signals */
-    GuiData->IgnoreNextMouseSignal = FALSE;
+    /* A priori don't ignore mouse events */
+    GuiData->IgnoreNextMouseEvent = FALSE;
     /* Initialize HACK FOR CORE-8394. See conwnd.c!OnMouse for more details. */
     GuiData->HackCORE8394IgnoreNextMove = FALSE;
 
@@ -763,7 +768,7 @@ GuiSetActiveScreenBuffer(IN OUT PFRONTEND This)
     GuiData->WindowSizeLock = TRUE;
 
     InterlockedExchangePointer((PVOID*)&GuiData->ActiveBuffer,
-                               ConDrvGetActiveScreenBuffer(GuiData->Console));
+                               ConDrvGetActiveScreenBuffer((PCONSOLE)GuiData->Console));
 
     GuiData->WindowSizeLock = FALSE;
     LeaveCriticalSection(&GuiData->Lock);
@@ -865,8 +870,7 @@ static VOID NTAPI
 GuiChangeTitle(IN OUT PFRONTEND This)
 {
     PGUI_CONSOLE_DATA GuiData = This->Context;
-    // PostMessageW(GuiData->hWindow, PM_CONSOLE_SET_TITLE, 0, 0);
-    SetWindowTextW(GuiData->hWindow, GuiData->Console->Title.Buffer);
+    PostMessageW(GuiData->hWindow, PM_CONSOLE_SET_TITLE, 0, 0);
 }
 
 static BOOL NTAPI
@@ -910,6 +914,13 @@ GuiChangeIcon(IN OUT PFRONTEND This,
     }
 
     return TRUE;
+}
+
+static HDESK NTAPI
+GuiGetThreadConsoleDesktop(IN OUT PFRONTEND This)
+{
+    PGUI_CONSOLE_DATA GuiData = This->Context;
+    return GuiData->Desktop;
 }
 
 static HWND NTAPI
@@ -1023,6 +1034,36 @@ GuiSetPalette(IN OUT PFRONTEND This,
     return TRUE;
 }
 
+static BOOL NTAPI
+GuiSetCodePage(IN OUT PFRONTEND This,
+               UINT CodePage)
+{
+    PGUI_CONSOLE_DATA GuiData = This->Context;
+
+    /*
+     * Attempt to reinitialize the current font for the new code page,
+     * trying to keep the current font with the same characteristics.
+     * If the current font does not support the new code page, switch
+     * to a different font supporting the code page but having similar
+     * characteristics.
+     * If no font can be found for this code page, stay using the
+     * original font and refuse changing the code page.
+     */
+    if (!InitFonts(GuiData,
+                   GuiData->GuiInfo.FaceName,
+                   GuiData->GuiInfo.FontWeight,
+                   GuiData->GuiInfo.FontFamily,
+                   GuiData->GuiInfo.FontSize,
+                   CodePage, FALSE))
+    {
+        DPRINT1("Failed to initialize font '%S' for code page %d - Refuse CP change\n",
+                GuiData->GuiInfo.FaceName, CodePage);
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
 static ULONG NTAPI
 GuiGetDisplayMode(IN OUT PFRONTEND This)
 {
@@ -1110,7 +1151,7 @@ GuiMenuControl(IN OUT PFRONTEND This,
     GuiData->CmdIdLow  = CmdIdLow ;
     GuiData->CmdIdHigh = CmdIdHigh;
 
-    return GetSystemMenu(GuiData->hWindow, FALSE);
+    return GuiData->hSysMenu;
 }
 
 static BOOL NTAPI
@@ -1119,17 +1160,16 @@ GuiSetMenuClose(IN OUT PFRONTEND This,
 {
     /*
      * NOTE: See http://www.mail-archive.com/harbour@harbour-project.org/msg27509.html
-     * or http://harbour-devel.1590103.n2.nabble.com/Question-about-hb-gt-win-CtrlHandler-usage-td4670862i20.html
+     * or http://harbour-devel.1590103.n2.nabble.com/Question-about-hb-gt-win-CtrlHandler-usage-td4670862i20.html (DEAD_LINK)
      * for more information.
      */
 
     PGUI_CONSOLE_DATA GuiData = This->Context;
-    HMENU hSysMenu = GetSystemMenu(GuiData->hWindow, FALSE);
 
-    if (hSysMenu == NULL) return FALSE;
+    if (GuiData->hSysMenu == NULL) return FALSE;
 
     GuiData->IsCloseButtonEnabled = Enable;
-    EnableMenuItem(hSysMenu, SC_CLOSE, MF_BYCOMMAND | (Enable ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(GuiData->hSysMenu, SC_CLOSE, MF_BYCOMMAND | (Enable ? MF_ENABLED : MF_GRAYED));
 
     return TRUE;
 }
@@ -1149,10 +1189,12 @@ static FRONTEND_VTBL GuiVtbl =
     GuiRefreshInternalInfo,
     GuiChangeTitle,
     GuiChangeIcon,
+    GuiGetThreadConsoleDesktop,
     GuiGetConsoleWindowHandle,
     GuiGetLargestConsoleWindowSize,
     GuiGetSelectionInfo,
     GuiSetPalette,
+    GuiSetCodePage,
     GuiGetDisplayMode,
     GuiSetDisplayMode,
     GuiShowMouseCursor,
@@ -1227,7 +1269,7 @@ GuiLoadFrontEnd(IN OUT PFRONTEND FrontEnd,
         if ((ConsoleStartInfo->dwStartupFlags & STARTF_TITLEISLINKNAME) == 0)
         {
 #if 0
-            /* Load the terminal infos from the registry */
+            /* Load the terminal information from the registry */
             GuiConsoleReadUserSettings(&GuiInitInfo->TermInfo);
 #endif
 

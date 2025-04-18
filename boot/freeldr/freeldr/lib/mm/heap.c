@@ -18,11 +18,11 @@
  */
 
 #include <freeldr.h>
+
 #include <debug.h>
+DBG_DEFAULT_CHANNEL(HEAP);
 
 #define FREELDR_HEAP_VERIFIER
-
-DBG_DEFAULT_CHANNEL(HEAP);
 
 #define REDZONE_MARK 0xCCCCCCCCCCCCCCCCULL
 #define REDZONE_ALLOCATION 24
@@ -31,8 +31,8 @@ DBG_DEFAULT_CHANNEL(HEAP);
 #define REDZONE_LOW(Block) ((ULONG64*)Block->Data + 1)
 #define REDZONE_HI(Block) ((ULONG64*)((PUCHAR)Block->Data + 16 + *REDZONE_SIZE(Block)))
 
-PVOID FrLdrDefaultHeap;
-PVOID FrLdrTempHeap;
+static PVOID FrLdrDefaultHeap;
+static PVOID FrLdrTempHeap;
 
 typedef struct _BLOCK_DATA
 {
@@ -71,6 +71,7 @@ FrLdrHeapCreate(
     PHEAP_BLOCK Block;
     SIZE_T Remaining;
     USHORT PreviousSize;
+
     TRACE("HeapCreate(MemoryType=%ld)\n", MemoryType);
 
     /* Allocate some memory for the heap */
@@ -78,7 +79,7 @@ FrLdrHeapCreate(
     Heap = MmAllocateMemoryWithType(MaximumSize, MemoryType);
     if (!Heap)
     {
-        ERR("HEAP: Failed to allocate heap of size 0x%lx, Type\n",
+        ERR("HEAP: Failed to allocate heap of size 0x%lx, Type %lu\n",
             MaximumSize, MemoryType);
         return NULL;
     }
@@ -184,7 +185,8 @@ FrLdrHeapRelease(
     PHEAP Heap = HeapHandle;
     PHEAP_BLOCK Block;
     PUCHAR StartAddress, EndAddress;
-    PFN_COUNT FreePages, AllPages, AllFreePages = 0;
+    PFN_COUNT FreePages, AllFreePages = 0;
+
     TRACE("HeapRelease(%p)\n", HeapHandle);
 
     /* Loop all heap chunks */
@@ -240,13 +242,13 @@ FrLdrHeapRelease(
         if (Block->Size == 0) break;
     }
 
-    AllPages = Heap->MaximumSize / MM_PAGE_SIZE;
-    TRACE("HeapRelease() done, freed %lu of %lu pages\n", AllFreePages, AllPages);
+    TRACE("HeapRelease() done, freed %lu of %lu pages\n", AllFreePages, Heap->MaximumSize / MM_PAGE_SIZE);
 }
 
 VOID
 FrLdrHeapCleanupAll(VOID)
 {
+#if DBG
     PHEAP Heap;
 
     Heap = FrLdrDefaultHeap;
@@ -257,17 +259,19 @@ FrLdrHeapCleanupAll(VOID)
           Heap->NumAllocs, Heap->NumFrees);
     TRACE("AllocTime = %I64d, FreeTime = %I64d, sum = %I64d\n",
         Heap->AllocationTime, Heap->FreeTime, Heap->AllocationTime + Heap->FreeTime);
-
+#endif
 
     /* Release free pages from the default heap */
     FrLdrHeapRelease(FrLdrDefaultHeap);
 
+#if DBG
     Heap = FrLdrTempHeap;
     TRACE("Heap statistics for temp heap:\n"
           "CurrentAlloc=0x%lx, MaxAlloc=0x%lx, LargestAllocation=0x%lx\n"
           "NumAllocs=%ld, NumFrees=%ld\n",
           Heap->CurrentAllocBytes, Heap->MaxAllocBytes, Heap->LargestAllocation,
           Heap->NumAllocs, Heap->NumFrees);
+#endif
 
     /* Destroy the temp heap */
     FrLdrHeapDestroy(FrLdrTempHeap);
@@ -442,6 +446,7 @@ FrLdrHeapFreeEx(
 #if DBG && !defined(_M_ARM)
     ULONGLONG Time = __rdtsc();
 #endif
+
     TRACE("HeapFree(%p, %p)\n", HeapHandle, Pointer);
     ASSERT(Tag != 'dnE#');
 
@@ -524,6 +529,32 @@ FrLdrHeapFreeEx(
 #endif
 }
 
+PVOID
+FrLdrHeapAlloc(SIZE_T MemorySize, ULONG Tag)
+{
+    return FrLdrHeapAllocateEx(FrLdrDefaultHeap, MemorySize, Tag);
+}
+
+VOID
+FrLdrHeapFree(PVOID MemoryPointer, ULONG Tag)
+{
+    FrLdrHeapFreeEx(FrLdrDefaultHeap, MemoryPointer, Tag);
+}
+
+PVOID
+FrLdrTempAlloc(
+    _In_ SIZE_T Size,
+    _In_ ULONG Tag)
+{
+    return FrLdrHeapAllocateEx(FrLdrTempHeap, Size, Tag);
+}
+
+VOID
+FrLdrTempFree(
+    PVOID Allocation, ULONG Tag)
+{
+    FrLdrHeapFreeEx(FrLdrTempHeap, Allocation, Tag);
+}
 
 /* Wrapper functions *********************************************************/
 

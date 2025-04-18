@@ -9,10 +9,27 @@
 
 #if defined(_M_IX86)
 #pragma comment(linker, "/alternatename:__CRT_RTC_INITW=__CRT_RTC_INITW0")
-#elif defined(_M_IA64) || defined(_M_AMD64) || defined(_M_ARM)
+#elif defined(_M_IA64) || defined(_M_AMD64) || defined(_M_ARM) || defined(_M_ARM64)
 #pragma comment(linker, "/alternatename:_CRT_RTC_INITW=_CRT_RTC_INITW0")
 #else
 #error Unsupported platform
+#endif
+
+// Provide a fallback memset for libraries like kbdrost.dll
+#if defined(_M_ARM) || defined(_M_ARM64)
+void* __cdecl memset_fallback(void* src, int val, size_t count)
+{
+    char *char_src = (char *)src;
+    while(count > 0)
+    {
+        *char_src = val;
+        char_src++;
+        count--;
+    }
+    return src;
+}
+#pragma comment(linker, "/alternatename:memset=memset_fallback")
+#pragma comment(linker, "/alternatename:__RTC_memset=memset_fallback")
 #endif
 
 int

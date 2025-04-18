@@ -56,49 +56,14 @@ BOOLEAN MiRosKernelVadRootInitialized;
 
 /* FUNCTIONS *****************************************************************/
 
-PMEMORY_AREA NTAPI
+PMEMORY_AREA
+NTAPI
 MmLocateMemoryAreaByAddress(
     PMMSUPPORT AddressSpace,
-    PVOID Address_)
+    PVOID Address)
 {
-    ULONG_PTR StartVpn = (ULONG_PTR)Address_ / PAGE_SIZE;
-    PEPROCESS Process;
-    PMM_AVL_TABLE Table;
-    PMMADDRESS_NODE Node;
-    PMEMORY_AREA MemoryArea;
-    TABLE_SEARCH_RESULT Result;
-    PMMVAD_LONG Vad;
-
-    Process = MmGetAddressSpaceOwner(AddressSpace);
-    Table = (Process != NULL) ? &Process->VadRoot : &MiRosKernelVadRoot;
-
-    Result = MiCheckForConflictingNode(StartVpn, StartVpn, Table, &Node);
-    if (Result != TableFoundNode)
-    {
-        return NULL;
-    }
-
-    Vad = (PMMVAD_LONG)Node;
-    if (Vad->u.VadFlags.Spare == 0)
-    {
-        /* Check if this is VM VAD */
-        if (Vad->ControlArea == NULL)
-        {
-            /* We store the reactos MEMORY_AREA here */
-            MemoryArea = (PMEMORY_AREA)Vad->FirstPrototypePte;
-        }
-        else
-        {
-            /* This is a section VAD. Store the MAREA here for now */
-            MemoryArea = (PMEMORY_AREA)Vad->u4.Banked;
-        }
-    }
-    else
-    {
-        MemoryArea = (PMEMORY_AREA)Node;
-    }
-
-    return MemoryArea;
+    /* Do it the simple way */
+    return MmLocateMemoryAreaByRegion(AddressSpace, Address, 1);
 }
 
 PMEMORY_AREA
@@ -127,19 +92,10 @@ MmLocateMemoryAreaByRegion(
     }
 
     Vad = (PMMVAD_LONG)Node;
-    if (Vad->u.VadFlags.Spare == 0)
+    if (!MI_IS_MEMORY_AREA_VAD(Vad))
     {
-        /* Check if this is VM VAD */
-        if (Vad->ControlArea == NULL)
-        {
-            /* We store the reactos MEMORY_AREA here */
-            MemoryArea = (PMEMORY_AREA)Vad->FirstPrototypePte;
-        }
-        else
-        {
-            /* This is a section VAD. Store the MAREA here for now */
-            MemoryArea = (PMEMORY_AREA)Vad->u4.Banked;
-        }
+        /* This is an ARM3 VAD, we don't return it. */
+        return NULL;
     }
     else
     {
@@ -148,6 +104,28 @@ MmLocateMemoryAreaByRegion(
 
     ASSERT(MemoryArea != NULL);
     return MemoryArea;
+}
+
+BOOLEAN
+NTAPI
+MmIsAddressRangeFree(
+    _In_ PMMSUPPORT AddressSpace,
+    _In_ PVOID Address,
+    _In_ ULONG_PTR Length)
+{
+    ULONG_PTR StartVpn = (ULONG_PTR)Address / PAGE_SIZE;
+    ULONG_PTR EndVpn = ((ULONG_PTR)Address + Length - 1) / PAGE_SIZE;
+    PEPROCESS Process;
+    PMM_AVL_TABLE Table;
+    PMMADDRESS_NODE Node;
+    TABLE_SEARCH_RESULT Result;
+
+    Process = MmGetAddressSpaceOwner(AddressSpace);
+    Table = (Process != NULL) ? &Process->VadRoot : &MiRosKernelVadRoot;
+
+    Result = MiCheckForConflictingNode(StartVpn, EndVpn, Table, &Node);
+
+    return (Result != TableFoundNode);
 }
 
 VOID
@@ -165,12 +143,12 @@ MiMakeProtectionMask(
 static VOID
 MmInsertMemoryArea(
     PMMSUPPORT AddressSpace,
-    PMEMORY_AREA marea)
+    PMEMORY_AREA marea,
+    ULONG Protect)
 {
     PEPROCESS Process = MmGetAddressSpaceOwner(AddressSpace);
 
-    marea->VadNode.u.VadFlags.Spare = 1;
-    marea->VadNode.u.VadFlags.Protection = MiMakeProtectionMask(marea->Protect);
+    marea->VadNode.u.VadFlags.Protection = MiMakeProtectionMask(Protect);
 
     /* Build a lame VAD if this is a user-space allocation */
     if (marea->VadNode.EndingVpn + 1 < (ULONG_PTR)MmSystemRangeStart >> PAGE_SHIFT)
@@ -178,13 +156,16 @@ MmInsertMemoryArea(
         ASSERT(Process != NULL);
         if (marea->Type != MEMORY_AREA_OWNED_BY_ARM3)
         {
+#ifdef NEWCC
             ASSERT(marea->Type == MEMORY_AREA_SECTION_VIEW || marea->Type == MEMORY_AREA_CACHE);
+#else
+            ASSERT(marea->Type == MEMORY_AREA_SECTION_VIEW);
+#endif
 
             /* Insert the VAD */
             MiLockProcessWorkingSetUnsafe(PsGetCurrentProcess(), PsGetCurrentThread());
             MiInsertVad(&marea->VadNode, &Process->VadRoot);
             MiUnlockProcessWorkingSetUnsafe(PsGetCurrentProcess(), PsGetCurrentThread());
-            marea->Vad = &marea->VadNode;
         }
     }
     else
@@ -202,7 +183,6 @@ MmInsertMemoryArea(
         MiLockWorkingSet(PsGetCurrentThread(), &MmSystemCacheWs);
         MiInsertVad(&marea->VadNode, &MiRosKernelVadRoot);
         MiUnlockWorkingSet(PsGetCurrentThread(), &MmSystemCacheWs);
-        marea->Vad = NULL;
     }
 }
 
@@ -295,8 +275,7 @@ MmFreeMemoryArea(
         PEPROCESS CurrentProcess = PsGetCurrentProcess();
         PEPROCESS Process = MmGetAddressSpaceOwner(AddressSpace);
 
-        if (Process != NULL &&
-                Process != CurrentProcess)
+        if ((Process != NULL) && (Process != CurrentProcess))
         {
             KeAttachProcess(&Process->Pcb);
         }
@@ -309,64 +288,54 @@ MmFreeMemoryArea(
             BOOLEAN Dirty = FALSE;
             SWAPENTRY SwapEntry = 0;
             PFN_NUMBER Page = 0;
+            BOOLEAN DoFree;
 
             if (MmIsPageSwapEntry(Process, (PVOID)Address))
             {
                 MmDeletePageFileMapping(Process, (PVOID)Address, &SwapEntry);
+                /* We'll have to do some cleanup when we're on the page file */
+                DoFree = TRUE;
+            }
+            else if (FreePage == NULL)
+            {
+                DoFree = MmDeletePhysicalMapping(Process, (PVOID)Address, &Dirty, &Page);
             }
             else
             {
-                MmDeleteVirtualMapping(Process, (PVOID)Address, &Dirty, &Page);
+                DoFree = MmDeleteVirtualMapping(Process, (PVOID)Address, &Dirty, &Page);
             }
-            if (FreePage != NULL)
+            if (DoFree && (FreePage != NULL))
             {
                 FreePage(FreePageContext, MemoryArea, (PVOID)Address,
                          Page, SwapEntry, (BOOLEAN)Dirty);
             }
-#if (_MI_PAGING_LEVELS == 2)
-            /* Remove page table reference */
-            ASSERT(KeGetCurrentIrql() <= APC_LEVEL);
-            if ((SwapEntry || Page) && ((PVOID)Address < MmSystemRangeStart))
-            {
-                ASSERT(AddressSpace != MmGetKernelAddressSpace());
-                if (MiQueryPageTableReferences((PVOID)Address) == 0)
-                {
-                    /* No PTE relies on this PDE. Release it */
-                    KIRQL OldIrql = MiAcquirePfnLock();
-                    PMMPDE PointerPde = MiAddressToPde(Address);
-                    ASSERT(PointerPde->u.Hard.Valid == 1);
-                    MiDeletePte(PointerPde, MiPdeToPte(PointerPde), Process, NULL);
-                    ASSERT(PointerPde->u.Hard.Valid == 0);
-                    MiReleasePfnLock(OldIrql);
-                }
-            }
-#endif
         }
 
-        if (Process != NULL &&
-                Process != CurrentProcess)
-        {
-            KeDetachProcess();
-        }
-
-        //if (MemoryArea->VadNode.StartingVpn < (ULONG_PTR)MmSystemRangeStart >> PAGE_SHIFT
-        if (MemoryArea->Vad)
+        if (MemoryArea->VadNode.StartingVpn < (ULONG_PTR)MmSystemRangeStart >> PAGE_SHIFT)
         {
             ASSERT(MemoryArea->VadNode.EndingVpn + 1 < (ULONG_PTR)MmSystemRangeStart >> PAGE_SHIFT);
+#ifdef NEWCC
             ASSERT(MemoryArea->Type == MEMORY_AREA_SECTION_VIEW || MemoryArea->Type == MEMORY_AREA_CACHE);
+#else
+            ASSERT(MemoryArea->Type == MEMORY_AREA_SECTION_VIEW);
+#endif
 
-            /* MmCleanProcessAddressSpace might have removed it (and this would be MmDeleteProcessAdressSpace) */
-            ASSERT(MemoryArea->VadNode.u.VadFlags.Spare != 0);
-            if (((PMMVAD)MemoryArea->Vad)->u.VadFlags.Spare == 1)
-            {
-                MiRemoveNode((PMMADDRESS_NODE)&MemoryArea->VadNode, &Process->VadRoot);
-            }
-
-            MemoryArea->Vad = NULL;
+            /* We do not have fake ARM3 memory areas anymore. */
+            ASSERT(MI_IS_MEMORY_AREA_VAD(&MemoryArea->VadNode));
+            MiLockProcessWorkingSet(PsGetCurrentProcess(), PsGetCurrentThread());
+            MiRemoveNode((PMMADDRESS_NODE)&MemoryArea->VadNode, &Process->VadRoot);
+            MiUnlockProcessWorkingSet(PsGetCurrentProcess(), PsGetCurrentThread());
         }
         else
         {
+            MiLockWorkingSet(PsGetCurrentThread(), &MmSystemCacheWs);
             MiRemoveNode((PMMADDRESS_NODE)&MemoryArea->VadNode, &MiRosKernelVadRoot);
+            MiUnlockWorkingSet(PsGetCurrentThread(), &MmSystemCacheWs);
+        }
+
+        if ((Process != NULL) && (Process != CurrentProcess))
+        {
+            KeDetachProcess();
         }
     }
 
@@ -449,10 +418,14 @@ MmCreateMemoryArea(PMMSUPPORT AddressSpace,
 
     RtlZeroMemory(MemoryArea, sizeof(MEMORY_AREA));
     MemoryArea->Type = Type & ~MEMORY_AREA_STATIC;
-    MemoryArea->Protect = Protect;
     MemoryArea->Flags = AllocationFlags;
     MemoryArea->Magic = 'erAM';
     MemoryArea->DeleteInProgress = FALSE;
+    MI_SET_MEMORY_AREA_VAD(&MemoryArea->VadNode);
+    if (MemoryArea->Type != MEMORY_AREA_OWNED_BY_ARM3)
+    {
+        MI_SET_ROSMM_VAD(&MemoryArea->VadNode);
+    }
 
     if (*BaseAddress == 0)
     {
@@ -470,7 +443,7 @@ MmCreateMemoryArea(PMMSUPPORT AddressSpace,
 
         MemoryArea->VadNode.StartingVpn = (ULONG_PTR)*BaseAddress >> PAGE_SHIFT;
         MemoryArea->VadNode.EndingVpn = ((ULONG_PTR)*BaseAddress + tmpLength - 1) >> PAGE_SHIFT;
-        MmInsertMemoryArea(AddressSpace, MemoryArea);
+        MmInsertMemoryArea(AddressSpace, MemoryArea, Protect);
     }
     else
     {
@@ -496,9 +469,7 @@ MmCreateMemoryArea(PMMSUPPORT AddressSpace,
         /* No need to check ARM3 owned memory areas, the range MUST be free */
         if (MemoryArea->Type != MEMORY_AREA_OWNED_BY_ARM3)
         {
-            if (MmLocateMemoryAreaByRegion(AddressSpace,
-                                           *BaseAddress,
-                                           tmpLength) != NULL)
+            if (!MmIsAddressRangeFree(AddressSpace, *BaseAddress, tmpLength))
             {
                 DPRINT("Memory area already occupied\n");
                 if (!(Type & MEMORY_AREA_STATIC)) ExFreePoolWithTag(MemoryArea, TAG_MAREA);
@@ -508,7 +479,7 @@ MmCreateMemoryArea(PMMSUPPORT AddressSpace,
 
         MemoryArea->VadNode.StartingVpn = (ULONG_PTR)*BaseAddress >> PAGE_SHIFT;
         MemoryArea->VadNode.EndingVpn = ((ULONG_PTR)*BaseAddress + tmpLength - 1) >> PAGE_SHIFT;
-        MmInsertMemoryArea(AddressSpace, MemoryArea);
+        MmInsertMemoryArea(AddressSpace, MemoryArea, Protect);
     }
 
     *Result = MemoryArea;
@@ -535,20 +506,19 @@ MiRosCleanupMemoryArea(
             (Process->ActiveThreads == 1)) ||
            (Process->ActiveThreads == 0));
 
-    /* We are in cleanup, we don't need to synchronize */
-    MmUnlockAddressSpace(&Process->Vm);
-
     MemoryArea = (PMEMORY_AREA)Vad;
     BaseAddress = (PVOID)MA_GetStartingAddress(MemoryArea);
 
     if (MemoryArea->Type == MEMORY_AREA_SECTION_VIEW)
     {
-        Status = MiRosUnmapViewOfSection(Process, BaseAddress, Process->ProcessExiting);
+        Status = MiRosUnmapViewOfSection(Process, MemoryArea, BaseAddress, Process->ProcessExiting);
     }
+#ifdef NEWCC
     else if (MemoryArea->Type == MEMORY_AREA_CACHE)
     {
         Status = MmUnmapViewOfCacheSegment(&Process->Vm, BaseAddress);
     }
+#endif
     else
     {
         /* There shouldn't be anything else! */
@@ -557,82 +527,5 @@ MiRosCleanupMemoryArea(
 
     /* Make sure this worked! */
     ASSERT(NT_SUCCESS(Status));
-
-    /* Lock the address space again */
-    MmLockAddressSpace(&Process->Vm);
 }
-
-VOID
-NTAPI
-MmDeleteProcessAddressSpace2(IN PEPROCESS Process);
-
-NTSTATUS
-NTAPI
-MmDeleteProcessAddressSpace(PEPROCESS Process)
-{
-#ifndef _M_AMD64
-    KIRQL OldIrql;
-    PVOID Address;
-#endif
-
-    DPRINT("MmDeleteProcessAddressSpace(Process %p (%s))\n", Process,
-           Process->ImageFileName);
-
-#ifndef _M_AMD64
-    OldIrql = MiAcquireExpansionLock();
-    RemoveEntryList(&Process->MmProcessLinks);
-    MiReleaseExpansionLock(OldIrql);
-#endif
-    MmLockAddressSpace(&Process->Vm);
-
-    /* There should not be any memory areas left! */
-    ASSERT(Process->Vm.WorkingSetExpansionLinks.Flink == NULL);
-
-#if (_MI_PAGING_LEVELS == 2)
-    {
-        KIRQL OldIrql;
-        PMMPDE pointerPde;
-        /* Attach to Process */
-        KeAttachProcess(&Process->Pcb);
-
-        /* Acquire PFN lock */
-        OldIrql = MiAcquirePfnLock();
-
-        for (Address = MI_LOWEST_VAD_ADDRESS;
-                Address < MM_HIGHEST_VAD_ADDRESS;
-                Address =(PVOID)((ULONG_PTR)Address + (PAGE_SIZE * PTE_COUNT)))
-        {
-            /* At this point all references should be dead */
-            if (MiQueryPageTableReferences(Address) != 0)
-            {
-                DPRINT1("Process %p, Address %p, UsedPageTableEntries %lu\n",
-                        Process,
-                        Address,
-                        MiQueryPageTableReferences(Address));
-                ASSERT(MiQueryPageTableReferences(Address) == 0);
-            }
-
-            pointerPde = MiAddressToPde(Address);
-            /* Unlike in ARM3, we don't necesarrily free the PDE page as soon as reference reaches 0,
-             * so we must clean up a bit when process closes */
-            if (pointerPde->u.Hard.Valid)
-                MiDeletePte(pointerPde, MiPdeToPte(pointerPde), Process, NULL);
-            ASSERT(pointerPde->u.Hard.Valid == 0);
-        }
-
-        /* Release lock */
-        MiReleasePfnLock(OldIrql);
-
-        /* Detach */
-        KeDetachProcess();
-    }
-#endif
-
-    MmUnlockAddressSpace(&Process->Vm);
-
-    DPRINT("Finished MmDeleteProcessAddressSpace()\n");
-    MmDeleteProcessAddressSpace2(Process);
-    return(STATUS_SUCCESS);
-}
-
 /* EOF */

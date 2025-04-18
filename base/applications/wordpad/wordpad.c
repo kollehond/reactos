@@ -3,6 +3,7 @@
  *
  * Copyright 2004 by Krzysztof Foltman
  * Copyright 2007-2008 by Alexander N. Sørnes <alex@thehandofagony.com>
+ * Copyright 2020 Katayama Hirofumi MZ <katayama.hirofumi.mz@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -20,7 +21,6 @@
  */
 
 #define WIN32_LEAN_AND_MEAN
-#define _WIN32_IE 0x0400
 
 #include <stdio.h>
 #include <assert.h>
@@ -32,6 +32,7 @@
 #include <commctrl.h>
 #include <commdlg.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <wine/unicode.h>
 
 #include "wordpad.h"
@@ -811,6 +812,8 @@ static void DoOpenFile(LPCWSTR szOpenFileName)
     SetFocus(hEditorWnd);
 
     set_caption(szOpenFileName);
+    if (szOpenFileName[0])
+        SHAddToRecentDocs(SHARD_PATHW, szOpenFileName);
 
     lstrcpyW(wszFileName, szOpenFileName);
     SendMessageW(hEditorWnd, EM_SETMODIFY, FALSE, 0);
@@ -840,8 +843,15 @@ static BOOL DoSaveFile(LPCWSTR wszSaveFileName, WPARAM format)
     EDITSTREAM stream;
     LRESULT ret;
 
+#ifdef __REACTOS__
+    /* Use OPEN_ALWAYS instead of CREATE_ALWAYS in order to succeed
+     * even if the file has HIDDEN or SYSTEM attributes */
+    hFile = CreateFileW(wszSaveFileName, GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL, NULL);
+#else
     hFile = CreateFileW(wszSaveFileName, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
         FILE_ATTRIBUTE_NORMAL, NULL);
+#endif
 
     if(hFile == INVALID_HANDLE_VALUE)
     {
@@ -867,6 +877,10 @@ static BOOL DoSaveFile(LPCWSTR wszSaveFileName, WPARAM format)
 
     ret = SendMessageW(hEditorWnd, EM_STREAMOUT, format, (LPARAM)&stream);
 
+#ifdef __REACTOS__
+    /* Truncate the file and close it */
+    SetEndOfFile(hFile);
+#endif
     CloseHandle(hFile);
 
     SetFocus(hEditorWnd);
@@ -883,6 +897,9 @@ static BOOL DoSaveFile(LPCWSTR wszSaveFileName, WPARAM format)
 
     lstrcpyW(wszFileName, wszSaveFileName);
     set_caption(wszFileName);
+    if (wszFileName[0])
+        SHAddToRecentDocs(SHARD_PATHW, wszFileName);
+
     SendMessageW(hEditorWnd, EM_SETMODIFY, FALSE, 0);
     set_fileformat(format);
 
@@ -899,7 +916,7 @@ static BOOL DialogSaveFile(void)
     ZeroMemory(&sfn, sizeof(sfn));
 
     sfn.lStructSize = sizeof(sfn);
-    sfn.Flags = OFN_HIDEREADONLY | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_ENABLESIZING;
+    sfn.Flags = OFN_EXPLORER | OFN_HIDEREADONLY | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_ENABLESIZING;
     sfn.hwndOwner = hMainWnd;
     sfn.lpstrFilter = wszFilter;
     sfn.lpstrFile = wszFile;
@@ -983,7 +1000,7 @@ static void DialogOpenFile(void)
     ZeroMemory(&ofn, sizeof(ofn));
 
     ofn.lStructSize = sizeof(ofn);
-    ofn.Flags = OFN_HIDEREADONLY | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_ENABLESIZING;
+    ofn.Flags = OFN_EXPLORER | OFN_HIDEREADONLY | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_ENABLESIZING;
     ofn.hwndOwner = hMainWnd;
     ofn.lpstrFilter = wszFilter;
     ofn.lpstrFile = wszFile;
@@ -1000,8 +1017,8 @@ static void DialogOpenFile(void)
 
 static void dialog_about(void)
 {
-    HICON icon = LoadImageW(GetModuleHandleW(0), MAKEINTRESOURCEW(IDI_WORDPAD), IMAGE_ICON, 48, 48, LR_SHARED);
-    ShellAboutW(hMainWnd, wszAppTitle, 0, icon);
+    HICON icon = LoadImageW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDI_WORDPAD), IMAGE_ICON, 48, 48, LR_SHARED);
+    ShellAboutW(hMainWnd, wszAppTitle, NULL, icon);
 }
 
 static INT_PTR CALLBACK formatopts_proc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -2656,7 +2673,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hOldInstance, LPSTR szCmdPar
                                           'T','A','B','L','E','\0'};
 
     InitCommonControlsEx(&classes);
-    
+
     switch (GetUserDefaultUILanguage())
     {
         case MAKELANGID(LANG_HEBREW, SUBLANG_DEFAULT):

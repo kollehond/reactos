@@ -29,6 +29,7 @@ list(APPEND SOURCE
     cor.idl
     cordebug.idl
 #   crtrow.idl
+    ctffunc.idl
     ctxtcall.idl
 #   dbccmd.idl
 #   dbcses.idl
@@ -44,7 +45,9 @@ list(APPEND SOURCE
     docobjectservice.idl
     downloadmgr.idl
     drmexternals.idl
+    dxgiformat.idl
 #   dyngraph.idl
+    emptyvc.idl
     endpointvolume.idl
     exdisp.idl
     fusion.idl
@@ -79,6 +82,7 @@ list(APPEND SOURCE
     msxml.idl
     msxml2.idl
     msxml6.idl
+    natupnp.idl
     netcon.idl
     netfw.idl
     oaidl.idl
@@ -116,13 +120,18 @@ list(APPEND SOURCE
     textstor.idl
     tlogstg.idl
     tom.idl
+    transact.idl
     tuner.idl
+    txcoord.idl
+    txdtc.idl
     unknwn.idl
     urlhist.idl
     urlmon.idl
     vmr9.idl
 #   vmrender.idl
+    vsbackup.idl
     vss.idl
+    vswriter.idl
     wbemcli.idl
     wbemdisp.idl
     wbemprov.idl
@@ -149,6 +158,7 @@ add_custom_target(stdole2 DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/stdole2.tlb)
 
 add_idl_headers(d3d_idl_headers d3dcommon.idl)
 
+add_iid_library(adsiid iads.idl transact.idl)
 add_iid_library(wuguid wuapi.idl)
 add_iid_library(xml_uuids msxml2.idl)
 

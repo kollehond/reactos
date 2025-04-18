@@ -18,9 +18,14 @@ START_TEST(CcCopyRead)
     UNICODE_STRING BigAlignmentTest = RTL_CONSTANT_STRING(L"\\Device\\Kmtest-CcCopyRead\\BigAlignmentTest");
     UNICODE_STRING SmallAlignmentTest = RTL_CONSTANT_STRING(L"\\Device\\Kmtest-CcCopyRead\\SmallAlignmentTest");
     UNICODE_STRING ReallySmallAlignmentTest = RTL_CONSTANT_STRING(L"\\Device\\Kmtest-CcCopyRead\\ReallySmallAlignmentTest");
-    
-    KmtLoadDriver(L"CcCopyRead", FALSE);
-    KmtOpenDriver();
+    UNICODE_STRING FileBig = RTL_CONSTANT_STRING(L"\\Device\\Kmtest-CcCopyRead\\FileBig");
+    UNICODE_STRING BehaviourTestFile = RTL_CONSTANT_STRING(L"\\Device\\Kmtest-CcCopyRead\\BehaviourTestFile");
+    DWORD Error;
+
+    Error = KmtLoadAndOpenDriver(L"CcCopyRead", FALSE);
+    ok_eq_int(Error, ERROR_SUCCESS);
+    if (Error)
+        return;
 
     InitializeObjectAttributes(&ObjectAttributes, &SmallAlignmentTest, OBJ_CASE_INSENSITIVE, NULL, NULL);
     Status = NtOpenFile(&Handle, FILE_ALL_ACCESS, &ObjectAttributes, &IoStatusBlock, 0, FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
@@ -86,6 +91,26 @@ START_TEST(CcCopyRead)
     Status = NtReadFile(Handle, NULL, NULL, NULL, &IoStatusBlock, Buffer, 61, &ByteOffset, NULL);
     ok_eq_hex(Status, STATUS_SUCCESS);
     ok_eq_hex(((USHORT *)Buffer)[0], 0xBABA);
+
+    NtClose(Handle);
+
+    InitializeObjectAttributes(&ObjectAttributes, &FileBig, OBJ_CASE_INSENSITIVE, NULL, NULL);
+    Status = NtOpenFile(&Handle, FILE_ALL_ACCESS, &ObjectAttributes, &IoStatusBlock, 0, FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
+    ok_eq_hex(Status, STATUS_SUCCESS);
+
+    ByteOffset.QuadPart = 0;
+    Status = NtReadFile(Handle, NULL, NULL, NULL, &IoStatusBlock, Buffer, 1024, &ByteOffset, NULL);
+    ok_eq_hex(Status, STATUS_SUCCESS);
+    ok_eq_hex(((USHORT *)Buffer)[0], 0xBABA);
+
+    NtClose(Handle);
+
+    InitializeObjectAttributes(&ObjectAttributes, &BehaviourTestFile, OBJ_CASE_INSENSITIVE, NULL, NULL);
+    Status = NtOpenFile(&Handle, FILE_ALL_ACCESS, &ObjectAttributes, &IoStatusBlock, 0, FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
+    ok_eq_hex(Status, STATUS_SUCCESS);
+
+    ByteOffset.QuadPart = 0;
+    Status = NtReadFile(Handle, NULL, NULL, NULL, &IoStatusBlock, Buffer, 1024, &ByteOffset, NULL);
 
     NtClose(Handle);
 

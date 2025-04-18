@@ -130,9 +130,9 @@ NTAPI
 UDFPhReadSynchronous(
     PDEVICE_OBJECT      DeviceObject,   // the physical device object
     PVOID               Buffer,
-    ULONG               Length,
+    SIZE_T              Length,
     LONGLONG            Offset,
-    PULONG              ReadBytes,
+    PSIZE_T             ReadBytes,
     ULONG               Flags
     )
 {
@@ -252,7 +252,7 @@ try_exit: NOTHING;
 #else
     UDFPrint(("UDFPhReadSynchronous() exit: %08X\n", RC));
 #endif //MEASURE_IO_PERFORMANCE
-    
+
     return(RC);
 } // end UDFPhReadSynchronous()
 
@@ -276,9 +276,9 @@ NTAPI
 UDFPhWriteSynchronous(
     PDEVICE_OBJECT  DeviceObject,   // the physical device object
     PVOID           Buffer,
-    ULONG           Length,
+    SIZE_T          Length,
     LONGLONG        Offset,
-    PULONG          WrittenBytes,
+    PSIZE_T         WrittenBytes,
     ULONG           Flags
     )
 {
@@ -307,7 +307,7 @@ UDFPhWriteSynchronous(
     KeQuerySystemTime((PLARGE_INTEGER)&IoEnterTime);
 #endif //MEASURE_IO_PERFORMANCE
 
-#if defined UDF_DBG || defined USE_PERF_PRINT
+#ifdef USE_PERF_PRINT
     ULONG Lba = (ULONG)(Offset>>0xb);
 //    ASSERT(!(Lba & (32-1)));
     PerfPrint(("UDFPhWrite: Length: %x Lba: %lx\n",Length>>0xb,Lba));
@@ -413,7 +413,7 @@ try_exit: NOTHING;
 #else
     UDFPrint(("nUDFPhWriteSynchronous() exit: %08X\n", RC));
 #endif //MEASURE_IO_PERFORMANCE
-    
+
     return(RC);
 } // end UDFPhWriteSynchronous()
 
@@ -422,9 +422,9 @@ NTSTATUS
 UDFPhWriteVerifySynchronous(
     PDEVICE_OBJECT  DeviceObject,   // the physical device object
     PVOID           Buffer,
-    ULONG           Length,
+    SIZE_T          Length,
     LONGLONG        Offset,
-    PULONG          WrittenBytes,
+    PSIZE_T         WrittenBytes,
     ULONG           Flags
     )
 {
@@ -500,7 +500,7 @@ UDFTSendIOCTL(
  Function: UDFPhSendIOCTL()
 
  Description:
-    UDF FSD will invoke this rotine to send IOCTL's to physical 
+    UDF FSD will invoke this rotine to send IOCTL's to physical
     device
 
  Return Value: STATUS_SUCCESS/Error

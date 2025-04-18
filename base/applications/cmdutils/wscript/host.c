@@ -29,7 +29,6 @@
 
 #include <wine/debug.h>
 #include <wine/heap.h>
-#include <wine/unicode.h>
 
 WINE_DEFAULT_DEBUG_CHANNEL(wscript);
 
@@ -80,11 +79,11 @@ static void print_string(const WCHAR *string)
         return;
     }
 
-    len = strlenW(string);
+    len = lstrlenW(string);
     ret = WriteConsoleW(GetStdHandle(STD_OUTPUT_HANDLE), string, len, &count, NULL);
     if(ret) {
         static const WCHAR crnlW[] = {'\r','\n'};
-        WriteConsoleW(GetStdHandle(STD_OUTPUT_HANDLE), crnlW, sizeof(crnlW)/sizeof(*crnlW), &count, NULL);
+        WriteConsoleW(GetStdHandle(STD_OUTPUT_HANDLE), crnlW, ARRAY_SIZE(crnlW), &count, NULL);
         return;
     }
 
@@ -183,7 +182,7 @@ static HRESULT WINAPI Host_get_FullName(IHost *iface, BSTR *out_Path)
 
     WINE_TRACE("(%p)\n", out_Path);
 
-    if(GetModuleFileNameW(NULL, fullPath, sizeof(fullPath)/sizeof(WCHAR)) == 0)
+    if(GetModuleFileNameW(NULL, fullPath, ARRAY_SIZE(fullPath)) == 0)
         return E_FAIL;
     if(!(*out_Path = SysAllocString(fullPath)))
         return E_OUTOFMEMORY;
@@ -198,9 +197,9 @@ static HRESULT WINAPI Host_get_Path(IHost *iface, BSTR *out_Path)
 
     WINE_TRACE("(%p)\n", out_Path);
 
-    if(GetModuleFileNameW(NULL, path, sizeof(path)/sizeof(WCHAR)) == 0)
+    if(GetModuleFileNameW(NULL, path, ARRAY_SIZE(path)) == 0)
         return E_FAIL;
-    pos = strrchrW(path, '\\');
+    pos = wcsrchr(path, '\\');
     howMany = pos - path;
     if(!(*out_Path = SysAllocStringLen(path, howMany)))
         return E_OUTOFMEMORY;
@@ -237,7 +236,7 @@ static HRESULT WINAPI Host_get_ScriptName(IHost *iface, BSTR *out_ScriptName)
 
     WINE_TRACE("(%p)\n", out_ScriptName);
 
-    scriptName = strrchrW(scriptFullName, '\\');
+    scriptName = wcsrchr(scriptFullName, '\\');
     ++scriptName;
     if(!(*out_ScriptName = SysAllocString(scriptName)))
         return E_OUTOFMEMORY;
@@ -408,8 +407,16 @@ static HRESULT WINAPI Host_DisconnectObject(IHost *iface, IDispatch *Object)
 
 static HRESULT WINAPI Host_Sleep(IHost *iface, LONG Time)
 {
+#ifdef __REACTOS__
+    UNREFERENCED_PARAMETER(iface);
+    if (Time < 0)
+        return E_INVALIDARG;
+    Sleep(Time);
+    return S_OK;
+#else
     WINE_FIXME("(%d)\n", Time);
     return E_NOTIMPL;
+#endif
 }
 
 static HRESULT WINAPI Host_ConnectObject(IHost *iface, IDispatch *Object, BSTR Prefix)

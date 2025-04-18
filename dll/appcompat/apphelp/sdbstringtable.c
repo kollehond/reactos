@@ -1,14 +1,14 @@
 /*
  * PROJECT:     ReactOS Application compatibility module
- * LICENSE:     GPL-2.0+ (https://spdx.org/licenses/GPL-2.0+)
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
  * PURPOSE:     Shim database string table builder
- * COPYRIGHT:   Copyright 2016 Mark Jansen (mark.jansen@reactos.org)
+ * COPYRIGHT:   Copyright 2016-2019 Mark Jansen (mark.jansen@reactos.org)
  */
 
 #if !defined(SDBWRITE_HOSTTOOL)
 #define WIN32_NO_STATUS
 #include "windows.h"
-#include "sdbtypes.h"
+#include <appcompat/sdbtypes.h>
 #include "sdbpapi.h"
 #else /* !defined(SDBWRITE_HOSTTOOL) */
 #include <typedefs.h>
@@ -157,7 +157,7 @@ static BOOL HashAddString(struct SdbStringHashTable* table, struct SdbHashEntry*
     entry = (*position) = SdbAlloc(size);
     if (!entry)
     {
-        SHIM_ERR("Failed to allocate %u bytes.", size);
+        SHIM_ERR("Failed to allocate %u bytes.\n", size);
         return FALSE;
     }
     entry->Tagid = tagid;

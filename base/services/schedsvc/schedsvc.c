@@ -37,14 +37,15 @@ static WCHAR ServiceName[] = L"Schedule";
 static SERVICE_STATUS_HANDLE ServiceStatusHandle;
 static SERVICE_STATUS ServiceStatus;
 
-static BOOL bStopService = FALSE;
+HANDLE Events[3] = {NULL, NULL, NULL}; // StopEvent, UpdateEvent, Timer
+
 
 /* FUNCTIONS *****************************************************************/
 
 static VOID
 UpdateServiceStatus(DWORD dwState)
 {
-    ServiceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+    ServiceStatus.dwServiceType = SERVICE_WIN32_SHARE_PROCESS;
     ServiceStatus.dwCurrentState = dwState;
 
     if (dwState == SERVICE_PAUSED || dwState == SERVICE_RUNNING)
@@ -77,7 +78,7 @@ ServiceControlHandler(DWORD dwControl,
                       LPVOID lpEventData,
                       LPVOID lpContext)
 {
-    TRACE("ServiceControlHandler() called\n");
+    TRACE("ServiceControlHandler()\n");
 
     switch (dwControl)
     {
@@ -87,7 +88,8 @@ ServiceControlHandler(DWORD dwControl,
             UpdateServiceStatus(SERVICE_STOP_PENDING);
             /* Stop listening to incoming RPC messages */
             RpcMgmtStopServerListening(NULL);
-            bStopService = TRUE;
+            if (Events[0] != NULL)
+                SetEvent(Events[0]);
             return ERROR_SUCCESS;
 
         case SERVICE_CONTROL_PAUSE:
@@ -106,13 +108,15 @@ ServiceControlHandler(DWORD dwControl,
                              &ServiceStatus);
             return ERROR_SUCCESS;
 
+#if 0
         case 128:
-            TRACE("  Start Shell contol received\n");
+            TRACE("  Start Shell control received\n");
             return ERROR_SUCCESS;
 
         case 129:
             TRACE("  Logoff control received\n");
             return ERROR_SUCCESS;
+#endif
 
         default:
             TRACE("  Control %lu received\n", dwControl);
@@ -123,7 +127,7 @@ ServiceControlHandler(DWORD dwControl,
 
 static
 DWORD
-ServiceInit(PHANDLE phEvent)
+ServiceInit(VOID)
 {
     HANDLE hThread;
     DWORD dwError;
@@ -160,11 +164,29 @@ ServiceInit(PHANDLE phEvent)
 
     CloseHandle(hThread);
 
-    /* Create the scheduler event */
-    *phEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-    if (*phEvent == NULL)
+    /* Create the stop event */
+    Events[0] = CreateEvent(NULL, FALSE, FALSE, NULL);
+    if (Events[0] == NULL)
     {
-        ERR("Could not create the scheduler event\n");
+        ERR("Could not create the stop event\n");
+        return GetLastError();
+    }
+
+    /* Create the update event */
+    Events[1] = CreateEvent(NULL, FALSE, FALSE, NULL);
+    if (Events[1] == NULL)
+    {
+        ERR("Could not create the update event\n");
+        CloseHandle(Events[0]);
+        return GetLastError();
+    }
+
+    Events[2] = CreateWaitableTimerW(NULL, FALSE, NULL);
+    if (Events[2] == NULL)
+    {
+        ERR("Could not create the timer\n");
+        CloseHandle(Events[1]);
+        CloseHandle(Events[0]);
         return GetLastError();
     }
 
@@ -175,13 +197,12 @@ ServiceInit(PHANDLE phEvent)
 VOID WINAPI
 SchedServiceMain(DWORD argc, LPTSTR *argv)
 {
-    HANDLE hEvent = NULL;
-    DWORD dwError;
+    DWORD dwWait, dwError;
 
     UNREFERENCED_PARAMETER(argc);
     UNREFERENCED_PARAMETER(argv);
 
-    TRACE("SchedServiceMain() called\n");
+    TRACE("SchedServiceMain()\n");
 
     ServiceStatusHandle = RegisterServiceCtrlHandlerExW(ServiceName,
                                                         ServiceControlHandler,
@@ -194,7 +215,7 @@ SchedServiceMain(DWORD argc, LPTSTR *argv)
 
     UpdateServiceStatus(SERVICE_START_PENDING);
 
-    dwError = ServiceInit(&hEvent);
+    dwError = ServiceInit();
     if (dwError != ERROR_SUCCESS)
     {
         ERR("Service stopped (dwError: %lu\n", dwError);
@@ -204,19 +225,41 @@ SchedServiceMain(DWORD argc, LPTSTR *argv)
 
     UpdateServiceStatus(SERVICE_RUNNING);
 
+    GetNextJobTimeout(Events[2]);
+
     for (;;)
     {
-        /* Leave the loop, if the service has to be stopped */
-        if (bStopService)
+        /* Wait for the next event */
+        TRACE("Wait for next event!\n");
+        dwWait = WaitForMultipleObjects(3, Events, FALSE, INFINITE);
+        if (dwWait == WAIT_OBJECT_0)
+        {
+            TRACE("Stop event signaled!\n");
             break;
+        }
+        else if (dwWait == WAIT_OBJECT_0 + 1)
+        {
+            TRACE("Update event signaled!\n");
 
-        /* Wait for the next timeout */
-        WaitForSingleObject(hEvent, 5000);
-        TRACE("Service running!\n");
+            RtlAcquireResourceShared(&JobListLock, TRUE);
+            GetNextJobTimeout(Events[2]);
+            RtlReleaseResource(&JobListLock);
+        }
+        else if (dwWait == WAIT_OBJECT_0 + 2)
+        {
+            TRACE("Timeout: Start the next job!\n");
+
+            RtlAcquireResourceExclusive(&JobListLock, TRUE);
+            RunCurrentJobs();
+            GetNextJobTimeout(Events[2]);
+            RtlReleaseResource(&JobListLock);
+        }
     }
 
-    /* Close the scheduler event handle */
-    CloseHandle(hEvent);
+    /* Close the start and update event handles */
+    CloseHandle(Events[0]);
+    CloseHandle(Events[1]);
+    CloseHandle(Events[2]);
 
     /* Stop the service */
     UpdateServiceStatus(SERVICE_STOPPED);

@@ -9,7 +9,7 @@
 
 /* LOCALS *********************************************************************/
 static
-VOID
+BOOLEAN
 FirstSendHandler(
     _In_ ULONG PacketType,
     _In_ PSTRING MessageHeader,
@@ -33,7 +33,7 @@ PETHREAD TheIdleThread;
 /* PRIVATE FUNCTIONS **********************************************************/
 
 static
-VOID
+BOOLEAN
 GetContextSendHandler(
     _In_ ULONG PacketType,
     _In_ PSTRING MessageHeader,
@@ -47,14 +47,14 @@ GetContextSendHandler(
             || (State->ApiNumber != DbgKdGetContextApi)
             || (MessageData->Length < sizeof(*Context)))
     {
-        /* Should we bugcheck ? */
         KDDBGPRINT("ERROR: Received wrong packet from KD.\n");
-        while (1);
+        return FALSE;
     }
 
     /* Just copy it */
     RtlCopyMemory(&CurrentContext, Context, sizeof(*Context));
     KdpSendPacketHandler = NULL;
+    return TRUE;
 }
 
 static
@@ -80,7 +80,7 @@ GetContextManipulateHandler(
 }
 
 static
-VOID
+BOOLEAN
 SetContextSendHandler(
     _In_ ULONG PacketType,
     _In_ PSTRING MessageHeader,
@@ -96,10 +96,11 @@ SetContextSendHandler(
     {
         /* Should we bugcheck ? */
         KDDBGPRINT("BAD BAD BAD not manipulating state for sending context.\n");
-        while (1);
+        return FALSE;
     }
 
     KdpSendPacketHandler = NULL;
+    return TRUE;
 }
 
 KDSTATUS
@@ -236,35 +237,35 @@ ContinueManipulateStateHandler(
 }
 
 static
-VOID
+BOOLEAN
 GetVersionSendHandler(
     _In_ ULONG PacketType,
     _In_ PSTRING MessageHeader,
     _In_ PSTRING MessageData)
 {
     DBGKD_MANIPULATE_STATE64* State = (DBGKD_MANIPULATE_STATE64*)MessageHeader->Buffer;
-    LIST_ENTRY* DebuggerDataList;
+    PLIST_ENTRY DebuggerDataList;
 
     /* Confirm that all went well */
     if ((PacketType != PACKET_TYPE_KD_STATE_MANIPULATE)
             || (State->ApiNumber != DbgKdGetVersionApi)
             || !NT_SUCCESS(State->ReturnStatus))
     {
-        /* FIXME: should detach from KD and go along without debugging */
         KDDBGPRINT("Wrong packet received after asking for data.\n");
-        while(1);
+        return FALSE;
     }
 
     /* Copy the relevant data */
     RtlCopyMemory(&KdVersion, &State->u.GetVersion64, sizeof(KdVersion));
-    DebuggerDataList = (LIST_ENTRY*)(ULONG_PTR)KdVersion.DebuggerDataList;
+    DebuggerDataList = *(PLIST_ENTRY*)&KdVersion.DebuggerDataList;
     KdDebuggerDataBlock = CONTAINING_RECORD(DebuggerDataList->Flink, KDDEBUGGER_DATA64, Header.List);
-    ProcessListHead = (LIST_ENTRY*)KdDebuggerDataBlock->PsActiveProcessHead.Pointer;
-    ModuleListHead = (LIST_ENTRY*)KdDebuggerDataBlock->PsLoadedModuleList.Pointer;
+    ProcessListHead = *(PLIST_ENTRY*)&KdDebuggerDataBlock->PsActiveProcessHead;
+    ModuleListHead = *(PLIST_ENTRY*)&KdDebuggerDataBlock->PsLoadedModuleList;
 
     /* Now we can get the context for the current state */
     KdpSendPacketHandler = NULL;
     KdpManipulateStateHandler = GetContextManipulateHandler;
+    return TRUE;
 }
 
 static
@@ -288,7 +289,7 @@ GetVersionManipulateStateHandler(
 }
 
 static
-VOID
+BOOLEAN
 FirstSendHandler(
     _In_ ULONG PacketType,
     _In_ PSTRING MessageHeader,
@@ -297,18 +298,10 @@ FirstSendHandler(
     DBGKD_ANY_WAIT_STATE_CHANGE* StateChange = (DBGKD_ANY_WAIT_STATE_CHANGE*)MessageHeader->Buffer;
     PETHREAD Thread;
 
-    if (PacketType == PACKET_TYPE_KD_DEBUG_IO)
-    {
-        /* This is not the packet we are waiting for */
-        send_kd_debug_io((DBGKD_DEBUG_IO*)MessageHeader->Buffer, MessageData);
-        return;
-    }
-
     if (PacketType != PACKET_TYPE_KD_STATE_CHANGE64)
     {
         KDDBGPRINT("First KD packet is not a state change!\n");
-        /* FIXME: What should we send back to KD ? */
-        while(1);
+        return FALSE;
     }
 
     KDDBGPRINT("KDGDB: START!\n");
@@ -332,6 +325,7 @@ FirstSendHandler(
     /* The next receive call will be asking for the version data */
     KdpSendPacketHandler = NULL;
     KdpManipulateStateHandler = GetVersionManipulateStateHandler;
+    return TRUE;
 }
 
 /* PUBLIC FUNCTIONS ***********************************************************/
@@ -360,18 +354,30 @@ KdReceivePacket(
     _Out_ PULONG DataLength,
     _Inout_ PKD_CONTEXT KdContext)
 {
-    KDDBGPRINT("KdReceivePacket.\n");
+    KDDBGPRINT("KdReceivePacket --> ");
 
     if (PacketType == PACKET_TYPE_KD_POLL_BREAKIN)
     {
+        static BOOLEAN firstTime = TRUE;
+        KDDBGPRINT("Polling break in.\n");
+        if (firstTime)
+        {
+            /* Force debug break on init */
+            firstTime = FALSE;
+            return KdPacketReceived;
+        }
+
         return KdpPollBreakIn();
     }
 
     if (PacketType == PACKET_TYPE_KD_DEBUG_IO)
     {
-        /* HACK ! RtlAssert asks for (boipt), always say "o" --> break once. */
+        static BOOLEAN ignore = 0;
+        KDDBGPRINT("Debug prompt.\n");
+        /* HACK ! Debug prompt asks for break or ignore. First break, then ignore. */
         MessageData->Length = 1;
-        MessageData->Buffer[0] = 'o';
+        MessageData->Buffer[0] = ignore ? 'i' : 'b';
+        ignore = !ignore;
         return KdPacketReceived;
     }
 
@@ -379,14 +385,17 @@ KdReceivePacket(
     {
         DBGKD_MANIPULATE_STATE64* State = (DBGKD_MANIPULATE_STATE64*)MessageHeader->Buffer;
 
+        KDDBGPRINT("State manipulation: ");
+
         /* Maybe we are in a send<->receive loop that GDB doesn't need to know about */
         if (KdpManipulateStateHandler != NULL)
         {
-            KDDBGPRINT("KDGBD: We have a manipulate state handler.\n");
+            KDDBGPRINT("We have a manipulate state handler.\n");
             return KdpManipulateStateHandler(State, MessageData, DataLength, KdContext);
         }
 
         /* Receive data from GDB  and interpret it */
+        KDDBGPRINT("Receiving data from GDB.\n");
         return gdb_receive_and_interpret_packet(State, MessageData, DataLength, KdContext);
     }
 
@@ -411,9 +420,9 @@ KdSendPacket(
     }
 
     /* Maybe we are in a send <-> receive loop that GDB doesn't need to know about */
-    if (KdpSendPacketHandler)
+    if (KdpSendPacketHandler
+        && KdpSendPacketHandler(PacketType, MessageHeader, MessageData))
     {
-        KdpSendPacketHandler(PacketType, MessageHeader, MessageData);
         return;
     }
 

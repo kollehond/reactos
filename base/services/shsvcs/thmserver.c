@@ -6,9 +6,9 @@
  * PROGRAMMER:       Giannis Adamopoulos
  */
 
-/* 
- * NOTE: 
- * ThemeWaitForServiceReady and ThemeWatchForStart are called from msgina  
+/*
+ * NOTE:
+ * ThemeWaitForServiceReady and ThemeWatchForStart are called from msgina
  * so all the functions in this file run in the context of winlogon
  */
 
@@ -32,7 +32,7 @@ BOOL WINAPI ThemeWatchForStart(VOID);
 
 /* FUNCTIONS *****************************************************************/
 
-static 
+static
 HANDLE
 GetThemeServiceProcessHandle(VOID)
 {
@@ -76,7 +76,6 @@ CALLBACK
 ThemeStopCallback(PVOID lpParameter, BOOLEAN TimerOrWaitFired)
 {
     CloseHandle(hServiceProcess);
-    UnregisterWait(hThemeStopWaitObject);
     UnregisterWait(hThemeServiceWaitObject);
 
     ThemeWatchForStart();
@@ -92,7 +91,10 @@ ThemeServiceDiedCallback(PVOID lpParameter, BOOLEAN TimerOrWaitFired)
     ResetEvent(hStartEvent);
     ResetEvent(hStopEvent);
 
-    ThemeStopCallback(lpParameter, TimerOrWaitFired);
+    CloseHandle(hServiceProcess);
+    UnregisterWait(hThemeStopWaitObject);
+    ThemeWatchForStart();
+    ThemeHooksRemove();
 }
 
 static
@@ -100,12 +102,10 @@ VOID
 CALLBACK
 ThemeStartCallback(PVOID lpParameter, BOOLEAN TimerOrWaitFired)
 {
-    UnregisterWait(hThemeStartWaitObject);
-
     hServiceProcess = GetThemeServiceProcessHandle();
 
-    RegisterWaitForSingleObject(&hThemeStopWaitObject, hStopEvent, ThemeStopCallback, NULL, INFINITE, WT_EXECUTEDEFAULT);
-    RegisterWaitForSingleObject(&hThemeServiceWaitObject, hServiceProcess, ThemeServiceDiedCallback, NULL, INFINITE, WT_EXECUTEDEFAULT);
+    RegisterWaitForSingleObject(&hThemeStopWaitObject, hStopEvent, ThemeStopCallback, NULL, INFINITE, WT_EXECUTEONLYONCE);
+    RegisterWaitForSingleObject(&hThemeServiceWaitObject, hServiceProcess, ThemeServiceDiedCallback, NULL, INFINITE, WT_EXECUTEONLYONCE);
 
     ThemeHooksInstall();
 }
@@ -117,7 +117,7 @@ ThemeWatchForStart(VOID)
     hStartEvent = CreateEventW(NULL, TRUE, FALSE, L"Global\\ThemeStartEvent");
     hStopEvent = CreateEventW(NULL, TRUE, FALSE, L"Global\\ThemeStopEvent");
 
-    RegisterWaitForSingleObject(&hThemeStartWaitObject, hStartEvent, ThemeStartCallback, NULL, INFINITE, WT_EXECUTEDEFAULT);
+    RegisterWaitForSingleObject(&hThemeStartWaitObject, hStartEvent, ThemeStartCallback, NULL, INFINITE, WT_EXECUTEONLYONCE);
 
     return TRUE;
 }
@@ -162,7 +162,7 @@ ThemeWaitForServiceReady(DWORD dwTimeout)
             break;
         }
 
-        if (GetTickCount() - start_time > dwTimeout) 
+        if (GetTickCount() - start_time > dwTimeout)
         {
             break;
         }

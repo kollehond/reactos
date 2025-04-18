@@ -11,7 +11,14 @@
 #include "precomp.h"
 
 #include <shlwapi.h>
-#include <setupapi.h>
+
+typedef struct _BOOTRECORD
+{
+    DWORD BootType;
+    WCHAR szSectionName[128];
+    WCHAR szBootPath[MAX_PATH];
+    WCHAR szOptions[512];
+} BOOTRECORD, *PBOOTRECORD;
 
 typedef struct _STARTINFO
 {

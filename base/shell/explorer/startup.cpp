@@ -3,6 +3,7 @@
  * Copyright (C) 2002 Shachar Shemesh
  * Copyright (C) 2013 Edijs Kolesnikovics
  * Copyright (C) 2018 Katayama Hirofumi MZ
+ * Copyright (C) 2021 He Yang
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -28,7 +29,7 @@
  * The operations performed are (by order of execution):
  *
  * After log in
- * - HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\RunOnceEx (synch, no imp)
+ * - HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\RunOnceEx (synch)
  * - HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\RunOnce (synch)
  * - HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run (asynch)
  * - HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run (asynch)
@@ -36,7 +37,7 @@
  * - Current user Startup folder "%USERPROFILE%\Start Menu\Programs\Startup" (asynch, no imp)
  * - HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\RunOnce (asynch)
  *
- * None is processed in Safe Mode // FIXME: Check RunOnceEx in Safe Mode
+ * None is processed in Safe Mode
  */
 
 #include "precomp.h"
@@ -62,9 +63,6 @@ static int runCmd(LPWSTR cmdline, LPCWSTR dir, BOOL wait, BOOL minimized)
     STARTUPINFOW si;
     PROCESS_INFORMATION info;
     DWORD exit_code = 0;
-    WCHAR szCmdLineExp[MAX_PATH+1] = L"\0";
-
-    ExpandEnvironmentStringsW(cmdline, szCmdLineExp, _countof(szCmdLineExp));
 
     memset(&si, 0, sizeof(si));
     si.cb = sizeof(si);
@@ -75,7 +73,7 @@ static int runCmd(LPWSTR cmdline, LPCWSTR dir, BOOL wait, BOOL minimized)
     }
     memset(&info, 0, sizeof(info));
 
-    if (!CreateProcessW(NULL, szCmdLineExp, NULL, NULL, FALSE, 0, NULL, dir, &si, &info))
+    if (!CreateProcessW(NULL, cmdline, NULL, NULL, FALSE, 0, NULL, dir, &si, &info))
     {
         TRACE("Failed to run command (%lu)\n", GetLastError());
 
@@ -85,8 +83,37 @@ static int runCmd(LPWSTR cmdline, LPCWSTR dir, BOOL wait, BOOL minimized)
     TRACE("Successfully ran command\n");
 
     if (wait)
-    {   /* wait for the process to exit */
-        WaitForSingleObject(info.hProcess, INFINITE);
+    {
+        HANDLE Handles[] = { info.hProcess };
+        DWORD nCount = _countof(Handles);
+        DWORD dwWait;
+        MSG msg;
+
+        /* wait for the process to exit */
+        for (;;)
+        {
+            /* We need to keep processing messages,
+               otherwise we will hang anything that is trying to send a message to us */
+            dwWait = MsgWaitForMultipleObjects(nCount, Handles, FALSE, INFINITE, QS_ALLINPUT);
+
+            /* WAIT_OBJECT_0 + nCount signals an event in the message queue,
+               so anything other than that means we are done. */
+            if (dwWait != WAIT_OBJECT_0 + nCount)
+            {
+                if (dwWait >= WAIT_OBJECT_0 && dwWait < WAIT_OBJECT_0 + nCount)
+                    TRACE("Event %u signaled\n", dwWait - WAIT_OBJECT_0);
+                else
+                    WARN("Return code: %u\n", dwWait);
+                break;
+            }
+
+            while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE))
+            {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+
         GetExitCodeProcess(info.hProcess, &exit_code);
     }
 
@@ -203,6 +230,7 @@ static BOOL ProcessRunKeys(HKEY hkRoot, LPCWSTR szKeyName, BOOL bDelete,
 
     while (i > 0)
     {
+        WCHAR *szCmdLineExp = NULL;
         DWORD cchValLength = cchMaxValue, cbDataLength = cbMaxCmdLine;
         DWORD type;
 
@@ -231,17 +259,44 @@ static BOOL ProcessRunKeys(HKEY hkRoot, LPCWSTR szKeyName, BOOL bDelete,
             TRACE("Couldn't delete value - %lu, %ld. Running command anyways.\n", i, res);
         }
 
-        if (type != REG_SZ)
+        if (type != REG_SZ && type != REG_EXPAND_SZ)
         {
             TRACE("Incorrect type of value #%lu (%lu)\n", i, type);
 
             continue;
         }
 
-        res = runCmd(szCmdLine, NULL, bSynchronous, FALSE);
+        if (type == REG_EXPAND_SZ)
+        {
+            DWORD dwNumOfChars;
+
+            dwNumOfChars = ExpandEnvironmentStringsW(szCmdLine, NULL, 0);
+            if (dwNumOfChars)
+            {
+                szCmdLineExp = (WCHAR *)HeapAlloc(hProcessHeap, 0, dwNumOfChars * sizeof(*szCmdLineExp));
+
+                if (szCmdLineExp == NULL)
+                {
+                    TRACE("Couldn't allocate memory for the commands to be executed\n");
+
+                    res = ERROR_NOT_ENOUGH_MEMORY;
+                    goto end;
+                }
+
+                ExpandEnvironmentStringsW(szCmdLine, szCmdLineExp, dwNumOfChars);
+            }
+        }
+
+        res = runCmd(szCmdLineExp ? szCmdLineExp : szCmdLine, NULL, bSynchronous, FALSE);
         if (res == INVALID_RUNCMD_RETURN)
         {
             TRACE("Error running cmd #%lu (%lu)\n", i, GetLastError());
+        }
+
+        if (szCmdLineExp != NULL)
+        {
+            HeapFree(hProcessHeap, 0, szCmdLineExp);
+            szCmdLineExp = NULL;
         }
 
         TRACE("Done processing cmd #%lu\n", i);
@@ -257,6 +312,68 @@ end:
         RegCloseKey(hkRun);
     if (hkWin != NULL)
         RegCloseKey(hkWin);
+
+    TRACE("done\n");
+
+    return res == ERROR_SUCCESS ? TRUE : FALSE;
+}
+
+/**
+ * Process "RunOnceEx" type registry key.
+ * rundll32.exe will be invoked if the corresponding key has items inside, and wait for it.
+ * hkRoot is the HKEY from which
+ *      "Software\Microsoft\Windows\CurrentVersion\RunOnceEx"
+ *      is opened.
+ */
+static BOOL ProcessRunOnceEx(HKEY hkRoot)
+{
+    HKEY hkRunOnceEx = NULL;
+    LONG res = ERROR_SUCCESS;
+    WCHAR cmdLine[] = L"rundll32 iernonce.dll RunOnceExProcess";
+    DWORD dwSubKeyCnt;
+
+    res = RegOpenKeyExW(hkRoot,
+                        L"Software\\Microsoft\\Windows\\CurrentVersion\\RunOnceEx",
+                        0,
+                        KEY_READ,
+                        &hkRunOnceEx);
+    if (res != ERROR_SUCCESS)
+    {
+        TRACE("RegOpenKeyW failed on Software\\Microsoft\\Windows\\CurrentVersion\\RunOnceEx (%ld)\n", res);
+        goto end;
+    }
+
+    res = RegQueryInfoKeyW(hkRunOnceEx,
+                           NULL,
+                           NULL,
+                           NULL,
+                           &dwSubKeyCnt,
+                           NULL,
+                           NULL,
+                           NULL,
+                           NULL,
+                           NULL,
+                           NULL,
+                           NULL);
+
+    if (res != ERROR_SUCCESS)
+    {
+        TRACE("RegQueryInfoKeyW failed on Software\\Microsoft\\Windows\\CurrentVersion\\RunOnceEx (%ld)\n", res);
+        goto end;
+    }
+
+    if (dwSubKeyCnt != 0)
+    {
+        if (runCmd(cmdLine, NULL, TRUE, TRUE) == INVALID_RUNCMD_RETURN)
+        {
+            TRACE("runCmd failed (%ld)\n", res = GetLastError());
+            goto end;
+        }
+    }
+
+end:
+    if (hkRunOnceEx != NULL)
+        RegCloseKey(hkRunOnceEx);
 
     TRACE("done\n");
 
@@ -333,7 +450,7 @@ AutoStartupApplications(INT nCSIDL_Folder)
     return TRUE;
 }
 
-INT ProcessStartupItems(VOID)
+INT ProcessStartupItems(BOOL bRunOnce)
 {
     /* TODO: ProcessRunKeys already checks SM_CLEANBOOT -- items prefixed with * should probably run even in safe mode */
     BOOL bNormalBoot = GetSystemMetrics(SM_CLEANBOOT) == 0; /* Perform the operations that are performed every boot */
@@ -360,10 +477,17 @@ INT ProcessStartupItems(VOID)
      * stopping if one fails, skipping if necessary.
      */
     res = TRUE;
-    /* TODO: RunOnceEx */
 
-    if (res && (SHRestricted(REST_NOLOCALMACHINERUNONCE) == 0))
-        res = ProcessRunKeys(HKEY_LOCAL_MACHINE, L"RunOnce", TRUE, TRUE);
+    if (bRunOnce)
+    {
+        if (res && bNormalBoot)
+            ProcessRunOnceEx(HKEY_LOCAL_MACHINE);
+
+        if (res && (SHRestricted(REST_NOLOCALMACHINERUNONCE) == 0))
+            res = ProcessRunKeys(HKEY_LOCAL_MACHINE, L"RunOnce", TRUE, TRUE);
+
+        return !res;
+    }
 
     if (res && bNormalBoot && (SHRestricted(REST_NOLOCALMACHINERUN) == 0))
         res = ProcessRunKeys(HKEY_LOCAL_MACHINE, L"Run", FALSE, FALSE);
@@ -386,7 +510,7 @@ INT ProcessStartupItems(VOID)
     return res ? 0 : 101;
 }
 
-BOOL DoFinishStartupItems(VOID)
+VOID ReleaseStartupMutex()
 {
     if (s_hStartupMutex)
     {
@@ -394,13 +518,10 @@ BOOL DoFinishStartupItems(VOID)
         CloseHandle(s_hStartupMutex);
         s_hStartupMutex = NULL;
     }
-    return TRUE;
 }
 
-BOOL DoStartStartupItems(ITrayWindow *Tray)
+static BOOL InitializeStartupMutex()
 {
-    DWORD dwWait;
-
     if (!bExplorerIsShell)
         return FALSE;
 
@@ -413,15 +534,22 @@ BOOL DoStartStartupItems(ITrayWindow *Tray)
             return FALSE;
     }
 
-    dwWait = WaitForSingleObject(s_hStartupMutex, INFINITE);
+    DWORD dwWait = WaitForSingleObject(s_hStartupMutex, INFINITE);
     TRACE("dwWait: 0x%08lX\n", dwWait);
     if (dwWait != WAIT_OBJECT_0)
     {
         TRACE("LastError: %ld\n", GetLastError());
 
-        DoFinishStartupItems();
+        ReleaseStartupMutex();
         return FALSE;
     }
+    return TRUE;
+}
+
+BOOL DoStartStartupItems(ITrayWindow *Tray)
+{
+    if (!bExplorerIsShell || !InitializeStartupMutex())
+        return FALSE;
 
     const DWORD dwWaitTotal = 3000;     // in milliseconds
     DWORD dwTick = GetTickCount();
@@ -455,4 +583,10 @@ BOOL DoStartStartupItems(ITrayWindow *Tray)
     }
 
     return TRUE;
+}
+
+VOID ProcessRunOnceItems()
+{
+    if (bExplorerIsShell && IsUserAnAdmin() && InitializeStartupMutex())
+        ProcessStartupItems(TRUE);
 }

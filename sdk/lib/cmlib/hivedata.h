@@ -33,7 +33,8 @@
 #define HFILE_TYPE_PRIMARY              0
 #define HFILE_TYPE_LOG                  1
 #define HFILE_TYPE_EXTERNAL             2
-#define HFILE_TYPE_MAX                  3
+#define HFILE_TYPE_ALTERNATE            3 // Technically a HFILE_TYPE_PRIMARY but for mirror backup hives. ONLY USED for the SYSTEM hive!
+#define HFILE_TYPE_MAX                  4
 
 //
 // Hive sizes
@@ -43,8 +44,24 @@
 #define HSECTOR_COUNT                   8
 
 #define HV_LOG_HEADER_SIZE              FIELD_OFFSET(HBASE_BLOCK, Reserved2)
-#define HV_SIGNATURE                    0x66676572  // "regf"
-#define HV_BIN_SIGNATURE                0x6e696268  // "hbin"
+
+//
+// Clean Block identifier
+//
+#define HV_CLEAN_BLOCK 0U
+
+//
+// Hive Log identifiers
+//
+#define HV_LOG_DIRTY_BLOCK 0xFF
+#define HV_LOG_DIRTY_SIGNATURE 0x54524944 // "DIRT"
+
+//
+// Hive structure identifiers
+//
+#define HV_HHIVE_SIGNATURE              0xbee0bee0
+#define HV_HBLOCK_SIGNATURE             0x66676572  // "regf"
+#define HV_HBIN_SIGNATURE               0x6e696268  // "hbin"
 
 //
 // Hive versions
@@ -64,6 +81,19 @@
 // Hive storage
 //
 #define HTYPE_COUNT                     2
+
+//
+// Hive boot types
+//
+#define HBOOT_TYPE_REGULAR         0
+#define HBOOT_TYPE_SELF_HEAL       4
+
+//
+// Hive boot recover types
+//
+#define HBOOT_NO_BOOT_RECOVER                   0
+#define HBOOT_BOOT_RECOVERED_BY_HIVE_LOG        1
+#define HBOOT_BOOT_RECOVERED_BY_ALTERNATE_HIVE  2
 
 /**
  * @name HCELL_INDEX
@@ -110,7 +140,7 @@ typedef enum
 
 typedef struct _HBASE_BLOCK
 {
-    /* Hive identifier "regf" (0x66676572) */
+    /* Hive base block identifier "regf" (0x66676572) */
     ULONG Signature;
 
     /* Update counters */
@@ -161,7 +191,7 @@ C_ASSERT(sizeof(HBASE_BLOCK) == HBLOCK_SIZE);
 
 typedef struct _HBIN
 {
-    /* Bin identifier "hbin" (0x6E696268) */
+    /* Hive bin identifier "hbin" (0x6E696268) */
     ULONG Signature;
 
     /* Block offset of this bin */
@@ -279,7 +309,10 @@ typedef struct _DUAL
 
 typedef struct _HHIVE
 {
+    /* Hive identifier (0xBEE0BEE0) */
     ULONG Signature;
+
+    /* Callbacks */
     PGET_CELL_ROUTINE GetCellRoutine;
     PRELEASE_CELL_ROUTINE ReleaseCellRoutine;
     PALLOCATE_ROUTINE Allocate;
@@ -288,6 +321,7 @@ typedef struct _HHIVE
     PFILE_WRITE_ROUTINE FileWrite;
     PFILE_READ_ROUTINE FileRead;
     PFILE_FLUSH_ROUTINE FileFlush;
+
 #if (NTDDI_VERSION >= NTDDI_WIN7)
     PVOID HiveLoadFailure; // PHIVE_LOAD_FAILURE
 #endif
@@ -301,6 +335,7 @@ typedef struct _HHIVE
     BOOLEAN ReadOnly;
 #if (NTDDI_VERSION < NTDDI_VISTA) // NTDDI_LONGHORN
     BOOLEAN Log;
+    BOOLEAN Alternate;
 #endif
     BOOLEAN DirtyFlag;
 #if (NTDDI_VERSION >= NTDDI_VISTA) // NTDDI_LONGHORN

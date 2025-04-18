@@ -19,8 +19,8 @@ Utf8Convert_(
     _In_ PCSTR File,
     _In_ INT Line)
 {
-    size_t WideLen;
-    size_t Utf8Len;
+    int WideLen;
+    int Utf8Len;
     char Buffer[32];
     int Ret;
     ULONG i;
@@ -28,8 +28,8 @@ Utf8Convert_(
     PCSTR ExpectedUtf8;
 
     ExpectedUtf8 = ntv6(1) ? ExpectedUtf8_Vista : ExpectedUtf8_2003;
-    WideLen = wcslen(WideString);
-    Utf8Len = strlen(ExpectedUtf8);
+    WideLen = lstrlenW(WideString);
+    Utf8Len = lstrlenA(ExpectedUtf8);
 
     /* Get length only */
     Ret = WideCharToMultiByte(CP_UTF8, 0, WideString, WideLen, NULL, 0, NULL, NULL);
@@ -56,7 +56,7 @@ Utf8Convert_(
     {
         ok_(File, Line)(Buffer[i] == ExpectedUtf8[i], "Convert with null: Buffer[%lu] = 0x%x, expected 0x%x\n", i, (unsigned char)Buffer[i], (unsigned char)ExpectedUtf8[i]);
     }
-    
+
     /* Get length, reject invalid */
     SetLastError(0xfeedf00d);
     Ret = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, WideString, WideLen + 1, NULL, 0, NULL, NULL);
@@ -75,7 +75,7 @@ Utf8Convert_(
     {
         ok_(File, Line)(Ret == Utf8Len + 1, "Length check, reject invalid: Ret = %d\n", Ret);
     }
-    
+
     /* Convert, reject invalid */
     FillMemory(Buffer, sizeof(Buffer), 0x55);
     SetLastError(0xfeedf00d);

@@ -1,10 +1,5 @@
 PROJECT(SHELL)
 
-set_cpp(WITH_RUNTIME)
-
-include_directories(
-    ${REACTOS_SOURCE_DIR}/sdk/lib/atl)
-
 spec2def(rshell.dll rshell.spec ADD_IMPORTLIB)
 
 list(APPEND SOURCE
@@ -12,7 +7,7 @@ list(APPEND SOURCE
     misc.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/rshell.def)
 
-add_library(rshell SHARED ${SOURCE})
+add_library(rshell MODULE ${SOURCE})
 
 set_module_type(rshell win32dll UNICODE)
 
@@ -20,9 +15,10 @@ target_link_libraries(rshell
     shellbars
     shellmenu
     shelldesktop
-    atlnew
     uuid
-    wine)
+    wine
+    cpprt
+    atl_classes)
 
 add_importlibs(rshell
     browseui
@@ -38,14 +34,14 @@ add_importlibs(rshell
     kernel32
     ntdll)
 
-add_custom_command(TARGET rshell POST_BUILD 
-  COMMAND "${CMAKE_COMMAND}" -E copy 
+add_custom_command(TARGET rshell POST_BUILD
+  COMMAND "${CMAKE_COMMAND}" -E copy
      "$<TARGET_FILE:rshell>"
-     "$<TARGET_FILE_DIR:explorer>/$<TARGET_FILE_NAME:rshell>" 
+     "$<TARGET_FILE_DIR:explorer>/$<TARGET_FILE_NAME:rshell>"
   COMMENT "Copying to output directory")
 
-add_custom_command(TARGET rshell POST_BUILD 
-  COMMAND "${CMAKE_COMMAND}" -E copy 
+add_custom_command(TARGET rshell POST_BUILD
+  COMMAND "${CMAKE_COMMAND}" -E copy
      "$<TARGET_FILE:rshell>"
-     "$<TARGET_FILE_DIR:filebrowser>/$<TARGET_FILE_NAME:rshell>" 
+     "$<TARGET_FILE_DIR:filebrowser>/$<TARGET_FILE_NAME:rshell>"
   COMMENT "Copying to output directory")

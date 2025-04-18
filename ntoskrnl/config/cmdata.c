@@ -54,18 +54,23 @@ UNICODE_STRING CmSymbolicLinkValueName =
 
 UNICODE_STRING CmpLoadOptions;
 
+/* TRUE if all hives must be loaded in shared mode */
+ULONG CmpVolatileBoot;
+/* TRUE if the system hives must be loaded in shared mode */
 BOOLEAN CmpShareSystemHives;
-BOOLEAN CmSelfHeal = TRUE;
-BOOLEAN CmpSelfHeal = TRUE;
+/* TRUE when the registry is in PE mode */
 BOOLEAN CmpMiniNTBoot;
+
 ULONG CmpBootType;
+ULONG CmSelfHeal = TRUE;
+BOOLEAN CmpSelfHeal = TRUE;
 
 USHORT CmpUnknownBusCount;
 ULONG CmpTypeCount[MaximumType + 1];
 
 HANDLE CmpRegistryRootHandle;
 
-INIT_FUNCTION UNICODE_STRING CmClassName[MaximumClass + 1] =
+DATA_SEG("INITDATA") UNICODE_STRING CmClassName[MaximumClass + 1] =
 {
     RTL_CONSTANT_STRING(L"System"),
     RTL_CONSTANT_STRING(L"Processor"),
@@ -77,7 +82,7 @@ INIT_FUNCTION UNICODE_STRING CmClassName[MaximumClass + 1] =
     RTL_CONSTANT_STRING(L"Undefined")
 };
 
-INIT_FUNCTION UNICODE_STRING CmTypeName[MaximumType + 1] =
+DATA_SEG("INITDATA") UNICODE_STRING CmTypeName[MaximumType + 1] =
 {
     RTL_CONSTANT_STRING(L"System"),
     RTL_CONSTANT_STRING(L"CentralProcessor"),
@@ -123,7 +128,7 @@ INIT_FUNCTION UNICODE_STRING CmTypeName[MaximumType + 1] =
     RTL_CONSTANT_STRING(L"Undefined")
 };
 
-INIT_FUNCTION CMP_MF_TYPE CmpMultifunctionTypes[] =
+DATA_SEG("INITDATA") CMP_MF_TYPE CmpMultifunctionTypes[] =
 {
     {"ISA", Isa, 0},
     {"MCA", MicroChannel, 0},
@@ -136,32 +141,29 @@ INIT_FUNCTION CMP_MF_TYPE CmpMultifunctionTypes[] =
     {NULL, Internal, 0}
 };
 
-INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
+DATA_SEG("INITDATA") CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
 {
     {
         L"Session Manager",
         L"ProtectionMode",
-        &DummyData,
+        &ObpProtectionMode,
         NULL,
         NULL
     },
-
     {
         L"Session Manager",
         L"ObjectSecurityMode",
-        &DummyData,
+        &ObpObjectSecurityMode,
         NULL,
         NULL
     },
-
     {
         L"Session Manager",
         L"LUIDDeviceMapsDisabled",
-        &DummyData,
+        &ObpLUIDDeviceMapsDisabled,
         NULL,
         NULL
     },
-
     {
         L"LSA",
         L"AuditBaseDirectories",
@@ -169,7 +171,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"LSA",
         L"AuditBaseObjects",
@@ -177,7 +178,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"LSA\\audit",
         L"ProcessAccessesToAudit",
@@ -185,7 +185,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"TimeZoneInformation",
         L"ActiveTimeBias",
@@ -193,7 +192,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"TimeZoneInformation",
         L"Bias",
@@ -201,7 +199,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"TimeZoneInformation",
         L"RealTimeIsUniversal",
@@ -209,7 +206,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager",
         L"GlobalFlag",
@@ -217,7 +213,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"PagedPoolQuota",
@@ -225,7 +220,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"NonPagedPoolQuota",
@@ -233,7 +227,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"PagingFileQuota",
@@ -241,7 +234,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"AllocationPreference",
@@ -249,7 +241,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"DynamicMemory",
@@ -257,7 +248,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"Mirroring",
@@ -265,7 +255,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"SystemViewSize",
@@ -273,7 +262,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"SessionImageSize",
@@ -281,7 +269,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"SessionPoolSize",
@@ -289,7 +276,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"PoolUsageMaximum",
@@ -297,7 +283,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"MapAllocationFragment",
@@ -305,7 +290,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"PagedPoolSize",
@@ -313,7 +297,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"NonPagedPoolSize",
@@ -321,7 +304,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"NonPagedPoolMaximumPercent",
@@ -329,7 +311,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"LargeSystemCache",
@@ -337,7 +318,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"LargeStackSize",
@@ -345,7 +325,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"SystemPages",
@@ -353,7 +332,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"LowMemoryThreshold",
@@ -361,7 +339,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"HighMemoryThreshold",
@@ -369,7 +346,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"DisablePagingExecutive",
@@ -377,7 +353,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"ModifiedPageLife",
@@ -385,7 +360,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"SecondLevelDataCache",
@@ -393,7 +367,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"ClearPageFileAtShutdown",
@@ -401,7 +374,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"PoolTagSmallTableSize",
@@ -409,7 +381,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"PoolTagBigTableSize",
@@ -417,7 +388,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"PoolTag",
@@ -425,7 +395,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"PoolTagOverruns",
@@ -433,7 +402,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"SnapUnloads",
@@ -441,7 +409,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"ProtectNonPagedPool",
@@ -449,7 +416,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"TrackLockedPages",
@@ -457,7 +423,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"TrackPtes",
@@ -465,7 +430,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"VerifyDrivers",
@@ -473,7 +437,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         &MmVerifyDriverBufferLength,
         &MmVerifyDriverBufferType
     },
-
     {
         L"Session Manager\\Memory Management",
         L"VerifyDriverLevel",
@@ -481,7 +444,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"VerifyMode",
@@ -489,7 +451,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"LargePageMinimum",
@@ -497,7 +458,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"EnforceWriteProtection",
@@ -505,7 +465,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"MakeLowMemory",
@@ -513,7 +472,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"WriteWatch",
@@ -521,7 +479,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Memory Management",
         L"MinimumStackCommitInBytes",
@@ -529,7 +486,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Executive",
         L"AdditionalCriticalWorkerThreads",
@@ -537,7 +493,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Executive",
         L"AdditionalDelayedWorkerThreads",
@@ -545,7 +500,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Executive",
         L"PriorityQuantumMatrix",
@@ -553,7 +507,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         &DummyData,
         NULL
     },
-
     {
         L"Session Manager\\Kernel",
         L"DpcQueueDepth",
@@ -561,7 +514,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Kernel",
         L"MinimumDpcRate",
@@ -569,7 +521,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Kernel",
         L"AdjustDpcThreshold",
@@ -577,7 +528,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Kernel",
         L"IdealDpcRate",
@@ -585,7 +535,20 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
+    {
+        L"Session Manager\\Kernel",
+        L"ObUnsecureGlobalNames",
+        ObpUnsecureGlobalNamesBuffer,
+        &ObpUnsecureGlobalNamesLength,
+        NULL
+    },
+    {
+        L"Session Manager\\Kernel",
+        L"ObCaseInsensitive",
+        &ObpCaseInsensitive,
+        NULL,
+        NULL
+    },
     {
         L"Session Manager\\I/O System",
         L"CountOperations",
@@ -593,7 +556,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\I/O System",
         L"LargeIrpStackLocations",
@@ -601,7 +563,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\I/O System",
         L"IoVerifierLevel",
@@ -609,15 +570,13 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager",
         L"ResourceTimeoutCount",
-        &DummyData,
+        &ExpResourceTimeoutCount,
         NULL,
         NULL
     },
-
     {
         L"Session Manager",
         L"CriticalSectionTimeout",
@@ -625,7 +584,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager",
         L"HeapSegmentReserve",
@@ -640,7 +598,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager",
         L"HeapDeCommitTotalFreeThreshold",
@@ -648,7 +605,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager",
         L"HeapDeCommitFreeBlockThreshold",
@@ -656,7 +612,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"ProductOptions",
         L"ProductType",
@@ -664,7 +619,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Terminal Server",
         L"TSEnabled",
@@ -672,7 +626,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Terminal Server",
         L"TSAppCompat",
@@ -680,8 +633,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
-
     {
         L"ProductOptions",
         L"ProductSuite",
@@ -689,7 +640,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         &CmSuiteBufferLength,
         &CmSuiteBufferType
     },
-
     {
         L"Windows",
         L"CSDVersion",
@@ -697,7 +647,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Windows",
         L"CSDReleaseType",
@@ -705,7 +654,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Nls\\Language",
         L"Default",
@@ -713,7 +661,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         &CmDefaultLanguageIdLength,
         &CmDefaultLanguageIdType
     },
-
     {
         L"Nls\\Language",
         L"InstallLanguage",
@@ -721,7 +668,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         &CmInstallUILanguageIdLength,
         &CmInstallUILanguageIdType
     },
-
     {
         L"\0\0",
         L"RegistrySizeLimit",
@@ -729,7 +675,41 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         &DummyData,
         &DummyData
     },
-
+    {
+        L"Session Manager\\Configuration Manager",
+        L"SelfHealingEnabled",
+        &CmSelfHeal,
+        NULL,
+        NULL
+    },
+    {
+        L"Session Manager\\Configuration Manager",
+        L"RegistryLazyFlushInterval",
+        &CmpLazyFlushIntervalInSeconds,
+        NULL,
+        NULL
+    },
+    {
+        L"Session Manager\\Configuration Manager",
+        L"RegistryLazyFlushHiveCount",
+        &CmpLazyFlushHiveCount,
+        NULL,
+        NULL
+    },
+    {
+        L"Session Manager\\Configuration Manager",
+        L"DelayCloseSize",
+        &CmpDelayedCloseSize,
+        NULL,
+        NULL
+    },
+    {
+        L"Session Manager\\Configuration Manager",
+        L"VolatileBoot",
+        &CmpVolatileBoot,
+        NULL,
+        NULL
+    },
     {
         L"Session Manager",
         L"ForceNpxEmulation",
@@ -737,7 +717,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager",
         L"PowerPolicySimulate",
@@ -745,7 +724,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager\\Executive",
         L"MaxTimeSeparationBeforeCorrect",
@@ -753,7 +731,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Windows",
         L"ShutdownTime",
@@ -761,7 +738,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         &DummyData,
         NULL
     },
-
     {
         L"PriorityControl",
         L"Win32PrioritySeparation",
@@ -769,7 +745,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager",
         L"EnableTimerWatchdog",
@@ -777,7 +752,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"Session Manager",
         L"Debugger Retries",
@@ -786,15 +760,192 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL
     },
 
-    {
-        L"Session Manager\\Debug Print Filter",
-        L"WIN2000",
-        &Kd_WIN2000_Mask,
-        NULL,
-        NULL
-    },
+//
+// Debug Filter Masks - See kd64/kddata.c
+//
 
-    /* TODO: Add the other masks */
+#define WTEXT(s) L##s
+#define CM_DEBUG_PRINT_FILTER(Name) \
+    { \
+        L"Session Manager\\Debug Print Filter", \
+        WTEXT(#Name), \
+        &Kd_##Name##_Mask, \
+        NULL, \
+        NULL \
+    }
+
+    CM_DEBUG_PRINT_FILTER(WIN2000),
+    CM_DEBUG_PRINT_FILTER(SYSTEM),
+    CM_DEBUG_PRINT_FILTER(SMSS),
+    CM_DEBUG_PRINT_FILTER(SETUP),
+    CM_DEBUG_PRINT_FILTER(NTFS),
+    CM_DEBUG_PRINT_FILTER(FSTUB),
+    CM_DEBUG_PRINT_FILTER(CRASHDUMP),
+    CM_DEBUG_PRINT_FILTER(CDAUDIO),
+    CM_DEBUG_PRINT_FILTER(CDROM),
+    CM_DEBUG_PRINT_FILTER(CLASSPNP),
+    CM_DEBUG_PRINT_FILTER(DISK),
+    CM_DEBUG_PRINT_FILTER(REDBOOK),
+    CM_DEBUG_PRINT_FILTER(STORPROP),
+    CM_DEBUG_PRINT_FILTER(SCSIPORT),
+    CM_DEBUG_PRINT_FILTER(SCSIMINIPORT),
+    CM_DEBUG_PRINT_FILTER(CONFIG),
+    CM_DEBUG_PRINT_FILTER(I8042PRT),
+    CM_DEBUG_PRINT_FILTER(SERMOUSE),
+    CM_DEBUG_PRINT_FILTER(LSERMOUS),
+    CM_DEBUG_PRINT_FILTER(KBDHID),
+    CM_DEBUG_PRINT_FILTER(MOUHID),
+    CM_DEBUG_PRINT_FILTER(KBDCLASS),
+    CM_DEBUG_PRINT_FILTER(MOUCLASS),
+    CM_DEBUG_PRINT_FILTER(TWOTRACK),
+    CM_DEBUG_PRINT_FILTER(WMILIB),
+    CM_DEBUG_PRINT_FILTER(ACPI),
+    CM_DEBUG_PRINT_FILTER(AMLI),
+    CM_DEBUG_PRINT_FILTER(HALIA64),
+    CM_DEBUG_PRINT_FILTER(VIDEO),
+    CM_DEBUG_PRINT_FILTER(SVCHOST),
+    CM_DEBUG_PRINT_FILTER(VIDEOPRT),
+    CM_DEBUG_PRINT_FILTER(TCPIP),
+    CM_DEBUG_PRINT_FILTER(DMSYNTH),
+    CM_DEBUG_PRINT_FILTER(NTOSPNP),
+    CM_DEBUG_PRINT_FILTER(FASTFAT),
+    CM_DEBUG_PRINT_FILTER(SAMSS),
+    CM_DEBUG_PRINT_FILTER(PNPMGR),
+    CM_DEBUG_PRINT_FILTER(NETAPI),
+    CM_DEBUG_PRINT_FILTER(SCSERVER),
+    CM_DEBUG_PRINT_FILTER(SCCLIENT),
+    CM_DEBUG_PRINT_FILTER(SERIAL),
+    CM_DEBUG_PRINT_FILTER(SERENUM),
+    CM_DEBUG_PRINT_FILTER(UHCD),
+    CM_DEBUG_PRINT_FILTER(RPCPROXY),
+    CM_DEBUG_PRINT_FILTER(AUTOCHK),
+    CM_DEBUG_PRINT_FILTER(DCOMSS),
+    CM_DEBUG_PRINT_FILTER(UNIMODEM),
+    CM_DEBUG_PRINT_FILTER(SIS),
+    CM_DEBUG_PRINT_FILTER(FLTMGR),
+    CM_DEBUG_PRINT_FILTER(WMICORE),
+    CM_DEBUG_PRINT_FILTER(BURNENG),
+    CM_DEBUG_PRINT_FILTER(IMAPI),
+    CM_DEBUG_PRINT_FILTER(SXS),
+    CM_DEBUG_PRINT_FILTER(FUSION),
+    CM_DEBUG_PRINT_FILTER(IDLETASK),
+    CM_DEBUG_PRINT_FILTER(SOFTPCI),
+    CM_DEBUG_PRINT_FILTER(TAPE),
+    CM_DEBUG_PRINT_FILTER(MCHGR),
+    CM_DEBUG_PRINT_FILTER(IDEP),
+    CM_DEBUG_PRINT_FILTER(PCIIDE),
+    CM_DEBUG_PRINT_FILTER(FLOPPY),
+    CM_DEBUG_PRINT_FILTER(FDC),
+    CM_DEBUG_PRINT_FILTER(TERMSRV),
+    CM_DEBUG_PRINT_FILTER(W32TIME),
+    CM_DEBUG_PRINT_FILTER(PREFETCHER),
+    CM_DEBUG_PRINT_FILTER(RSFILTER),
+    CM_DEBUG_PRINT_FILTER(FCPORT),
+    CM_DEBUG_PRINT_FILTER(PCI),
+    CM_DEBUG_PRINT_FILTER(DMIO),
+    CM_DEBUG_PRINT_FILTER(DMCONFIG),
+    CM_DEBUG_PRINT_FILTER(DMADMIN),
+    CM_DEBUG_PRINT_FILTER(WSOCKTRANSPORT),
+    CM_DEBUG_PRINT_FILTER(VSS),
+    CM_DEBUG_PRINT_FILTER(PNPMEM),
+    CM_DEBUG_PRINT_FILTER(PROCESSOR),
+    CM_DEBUG_PRINT_FILTER(DMSERVER),
+    CM_DEBUG_PRINT_FILTER(SR),
+    CM_DEBUG_PRINT_FILTER(INFINIBAND),
+    CM_DEBUG_PRINT_FILTER(IHVDRIVER),
+    CM_DEBUG_PRINT_FILTER(IHVVIDEO),
+    CM_DEBUG_PRINT_FILTER(IHVAUDIO),
+    CM_DEBUG_PRINT_FILTER(IHVNETWORK),
+    CM_DEBUG_PRINT_FILTER(IHVSTREAMING),
+    CM_DEBUG_PRINT_FILTER(IHVBUS),
+    CM_DEBUG_PRINT_FILTER(HPS),
+    CM_DEBUG_PRINT_FILTER(RTLTHREADPOOL),
+    CM_DEBUG_PRINT_FILTER(LDR),
+    CM_DEBUG_PRINT_FILTER(TCPIP6),
+    CM_DEBUG_PRINT_FILTER(ISAPNP),
+    CM_DEBUG_PRINT_FILTER(SHPC),
+    CM_DEBUG_PRINT_FILTER(STORPORT),
+    CM_DEBUG_PRINT_FILTER(STORMINIPORT),
+    CM_DEBUG_PRINT_FILTER(PRINTSPOOLER),
+    CM_DEBUG_PRINT_FILTER(VSSDYNDISK),
+    CM_DEBUG_PRINT_FILTER(VERIFIER),
+    CM_DEBUG_PRINT_FILTER(VDS),
+    CM_DEBUG_PRINT_FILTER(VDSBAS),
+    CM_DEBUG_PRINT_FILTER(VDSDYN),  // Specified in Vista+
+    CM_DEBUG_PRINT_FILTER(VDSDYNDR),
+    CM_DEBUG_PRINT_FILTER(VDSLDR),  // Specified in Vista+
+    CM_DEBUG_PRINT_FILTER(VDSUTIL),
+    CM_DEBUG_PRINT_FILTER(DFRGIFC),
+    CM_DEBUG_PRINT_FILTER(DEFAULT),
+    CM_DEBUG_PRINT_FILTER(MM),
+    CM_DEBUG_PRINT_FILTER(DFSC),
+    CM_DEBUG_PRINT_FILTER(WOW64),
+//
+// Components specified in Vista+, some of which we also use in ReactOS
+//
+    CM_DEBUG_PRINT_FILTER(ALPC),
+    CM_DEBUG_PRINT_FILTER(WDI),
+    CM_DEBUG_PRINT_FILTER(PERFLIB),
+    CM_DEBUG_PRINT_FILTER(KTM),
+    CM_DEBUG_PRINT_FILTER(IOSTRESS),
+    CM_DEBUG_PRINT_FILTER(HEAP),
+    CM_DEBUG_PRINT_FILTER(WHEA),
+    CM_DEBUG_PRINT_FILTER(USERGDI),
+    CM_DEBUG_PRINT_FILTER(MMCSS),
+    CM_DEBUG_PRINT_FILTER(TPM),
+    CM_DEBUG_PRINT_FILTER(THREADORDER),
+    CM_DEBUG_PRINT_FILTER(ENVIRON),
+    CM_DEBUG_PRINT_FILTER(EMS),
+    CM_DEBUG_PRINT_FILTER(WDT),
+    CM_DEBUG_PRINT_FILTER(FVEVOL),
+    CM_DEBUG_PRINT_FILTER(NDIS),
+    CM_DEBUG_PRINT_FILTER(NVCTRACE),
+    CM_DEBUG_PRINT_FILTER(LUAFV),
+    CM_DEBUG_PRINT_FILTER(APPCOMPAT),
+    CM_DEBUG_PRINT_FILTER(USBSTOR),
+    CM_DEBUG_PRINT_FILTER(SBP2PORT),
+    CM_DEBUG_PRINT_FILTER(COVERAGE),
+    CM_DEBUG_PRINT_FILTER(CACHEMGR),
+    CM_DEBUG_PRINT_FILTER(MOUNTMGR),
+    CM_DEBUG_PRINT_FILTER(CFR),
+    CM_DEBUG_PRINT_FILTER(TXF),
+    CM_DEBUG_PRINT_FILTER(KSECDD),
+    CM_DEBUG_PRINT_FILTER(FLTREGRESS),
+    CM_DEBUG_PRINT_FILTER(MPIO),
+    CM_DEBUG_PRINT_FILTER(MSDSM),
+    CM_DEBUG_PRINT_FILTER(UDFS),
+    CM_DEBUG_PRINT_FILTER(PSHED),
+    CM_DEBUG_PRINT_FILTER(STORVSP),
+    CM_DEBUG_PRINT_FILTER(LSASS),
+    CM_DEBUG_PRINT_FILTER(SSPICLI),
+    CM_DEBUG_PRINT_FILTER(CNG),
+    CM_DEBUG_PRINT_FILTER(EXFAT),
+    CM_DEBUG_PRINT_FILTER(FILETRACE),
+    CM_DEBUG_PRINT_FILTER(XSAVE),
+    CM_DEBUG_PRINT_FILTER(SE),
+    CM_DEBUG_PRINT_FILTER(DRIVEEXTENDER),
+//
+// Components specified in Windows 8
+//
+    CM_DEBUG_PRINT_FILTER(POWER),
+    CM_DEBUG_PRINT_FILTER(CRASHDUMPXHCI),
+    CM_DEBUG_PRINT_FILTER(GPIO),
+    CM_DEBUG_PRINT_FILTER(REFS),
+    CM_DEBUG_PRINT_FILTER(WER),
+//
+// Components specified in Windows 10
+//
+    CM_DEBUG_PRINT_FILTER(CAPIMG),
+    CM_DEBUG_PRINT_FILTER(VPCI),
+    CM_DEBUG_PRINT_FILTER(STORAGECLASSMEMORY),
+    CM_DEBUG_PRINT_FILTER(FSLIB),
+
+#undef WTEXT
+#undef CM_DEBUG_PRINT_FILTER
+
+//
+// END OF Debug Filter Masks
+//
 
     {
         L"WMI",
@@ -803,7 +954,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"WMI\\Trace",
         L"UsePerformanceClock",
@@ -811,7 +961,6 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
     {
         L"WMI\\Trace",
         L"TraceAlignment",
@@ -819,7 +968,13 @@ INIT_FUNCTION CM_SYSTEM_CONTROL_VECTOR CmControlVector[] =
         NULL,
         NULL
     },
-
+    {
+        L"CrashControl",
+        L"AutoReboot",
+        &IopAutoReboot,
+        NULL,
+        NULL
+    },
     {
         NULL,
         NULL,

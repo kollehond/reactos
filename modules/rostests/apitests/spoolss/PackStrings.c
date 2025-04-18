@@ -21,8 +21,8 @@ EXAMPLE_STRUCT, *PEXAMPLE_STRUCT;
 
 START_TEST(PackStrings)
 {
-    PWSTR Source1[] = { L"Test", L"String" };
-    PWSTR Source2[] = { L"Test", NULL };
+    PCWSTR Source1[] = { L"Test", L"String" };
+    PCWSTR Source2[] = { L"Test", NULL };
 
     BYTE Buffer[50];
     PBYTE pEnd;
@@ -32,7 +32,7 @@ START_TEST(PackStrings)
         FIELD_OFFSET(EXAMPLE_STRUCT, String2),
         MAXDWORD
     };
-    
+
     // Try a usual case with two strings. Verify that they are copied in reverse order.
     pEnd = PackStrings(Source1, Buffer, Offsets, &Buffer[sizeof(Buffer)]);
     ok(wcscmp(pStruct->String1, Source1[0]) == 0, "String1 and Source1[0] don't match!\n");

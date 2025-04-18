@@ -20,8 +20,6 @@
 PMMPTE MmFirstReservedMappingPte, MmLastReservedMappingPte;
 PMMPTE MiFirstReservedZeroingPte;
 MMPTE HyperTemplatePte;
-PEPROCESS HyperProcess;
-KIRQL HyperIrql;
 
 /* PRIVATE FUNCTIONS **********************************************************/
 
@@ -122,7 +120,7 @@ MiMapPagesInZeroSpace(IN PMMPFN Pfn1,
     //
     ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
     ASSERT(NumberOfPages != 0);
-    ASSERT(NumberOfPages <= (MI_ZERO_PTES - 1));
+    ASSERT(NumberOfPages <= MI_ZERO_PTES);
 
     //
     // Pick the first zeroing PTE
@@ -138,7 +136,7 @@ MiMapPagesInZeroSpace(IN PMMPFN Pfn1,
         //
         // Reset the PTEs
         //
-        Offset = MI_ZERO_PTES - 1;
+        Offset = MI_ZERO_PTES;
         PointerPte->u.Hard.PageFrameNumber = Offset;
         KeFlushProcessTb();
     }
@@ -151,6 +149,10 @@ MiMapPagesInZeroSpace(IN PMMPFN Pfn1,
     /* Choose the correct PTE to use, and which template */
     PointerPte += (Offset + 1);
     TempPte = ValidKernelPte;
+
+    /* Disable cache. Write through */
+    MI_PAGE_DISABLE_CACHE(&TempPte);
+    MI_PAGE_WRITE_THROUGH(&TempPte);
 
     /* Make sure the list isn't empty and loop it */
     ASSERT(Pfn1 != (PVOID)LIST_HEAD);
@@ -192,7 +194,7 @@ MiUnmapPagesInZeroSpace(IN PVOID VirtualAddress,
     //
     ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
     ASSERT (NumberOfPages != 0);
-    ASSERT (NumberOfPages <= (MI_ZERO_PTES - 1));
+    ASSERT(NumberOfPages <= MI_ZERO_PTES);
 
     //
     // Get the first PTE for the mapped zero VA

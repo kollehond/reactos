@@ -11,6 +11,7 @@
 #include <winbase.h>
 #include <wincon.h>
 #include <wingdi.h>
+#include <winnetwk.h>
 #include <shlobj.h>
 #include <tlogstg.h>
 #include <shellapi.h>
@@ -35,8 +36,10 @@
 #include <wine/debug.h>
 
 #include "resource.h"
+#include "settings.h"
 
 #include "ACLCustomMRU.h"
+#include "aclhistory.h"
 #include "aclistisf.h"
 #include "aclmulti.h"
 #include "addressband.h"
@@ -46,13 +49,17 @@
 #include "shellbars/CBandSite.h"
 #include "shellbars/CBandSiteMenu.h"
 #include "shellbars/CISFBand.h"
+#include "shellfind/CFindFolder.h"
+#include "shellfind/CSearchBar.h"
 #include "brandband.h"
 #include "internettoolbar.h"
 #include "commonbrowser.h"
 #include "globalfoldersettings.h"
 #include "regtreeoptions.h"
-#include "explorerband.h"
+#include "CShellTaskScheduler.h"
+#include "CTaskbarList.h"
 #include "CProgressDialog.h"
+#include "CUserAssist.h"
 #include "browseui.h"
 #include <stdio.h>
 

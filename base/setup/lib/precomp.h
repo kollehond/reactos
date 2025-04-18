@@ -14,7 +14,6 @@
 #include <windef.h>
 #include <winbase.h>
 #include <winreg.h>
-#include <winuser.h>
 
 #define NTOS_MODE_USER
 #include <ndk/cmfuncs.h>
@@ -29,9 +28,13 @@
 
 #include <ntstrsafe.h>
 
-
 /* Filesystem headers */
 #include <reactos/rosioctl.h>   // For extra partition IDs
+
+
+#ifndef SPLIBAPI
+#define SPLIBAPI
+#endif
 
 //
 ///* Internal Headers */
@@ -51,8 +54,7 @@
 //#include "filesup.h"
 //#include "genlist.h"
 
-
 extern HANDLE ProcessHeap;
 
 #include "errorcode.h"
-#include "linklist.h"
+#include "utils/linklist.h"

@@ -125,6 +125,27 @@ CDeviceView::OnSize(
 }
 
 LRESULT
+CDeviceView::OnDoubleClick(
+    _In_ LPNMHDR NmHdr
+    )
+{
+    TVHITTESTINFO hitInfo;
+    HTREEITEM hItem;
+
+    GetCursorPos(&hitInfo.pt);
+    ScreenToClient(m_hTreeView, &hitInfo.pt);
+
+    // Check if we are trying to double-click an item
+    hItem = TreeView_HitTest(m_hTreeView, &hitInfo);
+    if (hItem != NULL && (hitInfo.flags & (TVHT_ONITEM | TVHT_ONITEMICON)))
+    {
+        DisplayPropertySheet();
+    }
+
+    return 0;
+}
+
+LRESULT
 CDeviceView::OnRightClick(
     _In_ LPNMHDR NmHdr
     )
@@ -225,13 +246,13 @@ CDeviceView::OnAction(
 {
     switch (Action)
     {
-        case IDC_PROPERTIES:
+        case IDM_PROPERTIES:
         {
             DisplayPropertySheet();
             break;
         }
 
-        case IDC_SCAN_HARDWARE:
+        case IDM_SCAN_HARDWARE:
         {
             Refresh(GetCurrentView(),
                     true,
@@ -239,7 +260,7 @@ CDeviceView::OnAction(
             break;
         }
 
-        case IDC_ENABLE_DRV:
+        case IDM_ENABLE_DRV:
         {
             bool NeedsReboot;
             if (EnableSelectedDevice(true, NeedsReboot) &&
@@ -250,27 +271,27 @@ CDeviceView::OnAction(
             break;
         }
 
-        case IDC_DISABLE_DRV:
+        case IDM_DISABLE_DRV:
         {
             bool NeedsReboot;
             EnableSelectedDevice(false, NeedsReboot);
             break;
         }
 
-        case IDC_UPDATE_DRV:
+        case IDM_UPDATE_DRV:
         {
             bool NeedsReboot;
             UpdateSelectedDevice(NeedsReboot);
             break;
         }
 
-        case IDC_UNINSTALL_DRV:
+        case IDM_UNINSTALL_DRV:
         {
             UninstallSelectedDevice();
             break;
         }
 
-        case IDC_ADD_HARDWARE:
+        case IDM_ADD_HARDWARE:
         {
             RunAddHardwareWizard();
             break;
@@ -351,23 +372,11 @@ CDeviceView::GetNextClass(
     if (cr != CR_SUCCESS)
         return false;
 
-    // Check if this is the unknown class
-    if (IsEqualGUID(*ClassGuid, GUID_DEVCLASS_UNKNOWN))
-    {
-        // Get device info for all devices
-        *hDevInfo = SetupDiGetClassDevsW(NULL,
-                                         NULL,
-                                         NULL,
-                                         DIGCF_ALLCLASSES);
-    }
-    else
-    {
-        // We only want the devices for this class
-        *hDevInfo = SetupDiGetClassDevsW(ClassGuid,
-                                         NULL,
-                                         NULL,
-                                         DIGCF_PRESENT);
-    }
+    // We only want the devices for this class
+    *hDevInfo = SetupDiGetClassDevsW(ClassGuid,
+                                     NULL,
+                                     NULL,
+                                     DIGCF_PRESENT);
 
     return (hDevInfo != INVALID_HANDLE_VALUE);
 }
@@ -449,7 +458,6 @@ CDeviceView::ListDevicesByType()
         bClassSuccess = GetNextClass(ClassIndex, &ClassGuid, &hDevInfo);
         if (bClassSuccess)
         {
-            bool bClassUnknown = false;
             bool AddedParent = false;
             INT DeviceIndex = 0;
             bool MoreItems = false;
@@ -458,14 +466,9 @@ CDeviceView::ListDevicesByType()
             ClassNode = GetClassNode(&ClassGuid);
             if (ClassNode == nullptr)
             {
-                ATLASSERT(FALSE);
                 ClassIndex++;
                 continue;
             }
-
-            // Set a flag is this is the (special case) unknown class
-            if (IsEqualGUID(ClassGuid, GUID_DEVCLASS_UNKNOWN))
-                bClassUnknown = true;
 
             // Check if this is a hidden class
             if (IsEqualGUID(ClassGuid, GUID_DEVCLASS_LEGACYDRIVER) ||
@@ -495,23 +498,10 @@ CDeviceView::ListDevicesByType()
                 {
                     MoreItems = true;
 
-                    // The unknown class handle contains all devices on the system,
-                    // and we're just looking for the ones with a null GUID
-                    if (bClassUnknown)
-                    {
-                        if (IsEqualGUID(DeviceInfoData.ClassGuid, GUID_NULL) == FALSE)
-                        {
-                            // This is a known device, we aren't interested in it
-                            DeviceIndex++;
-                            continue;
-                        }
-                    }
-
                     // Get the cached device node
                     DeviceNode = GetDeviceNode(DeviceInfoData.DevInst);
                     if (DeviceNode == nullptr)
                     {
-                        ATLASSERT(bClassUnknown == true);
                         DeviceIndex++;
                         continue;
                     }
@@ -585,10 +575,10 @@ CDeviceView::ListDevicesByType()
 bool
 CDeviceView::ListDevicesByConnection()
 {
-    // Walk the device tree and add all the devices 
+    // Walk the device tree and add all the devices
     (void)RecurseChildDevices(m_RootNode->GetDeviceInst(), m_hTreeRoot);
 
-    // Expand the root item 
+    // Expand the root item
     (void)TreeView_Expand(m_hTreeView,
                           m_hTreeRoot,
                           TVE_EXPAND);
@@ -607,7 +597,7 @@ CDeviceView::RecurseChildDevices(
     bool HasProblem = false;
     bool bSuccess;
 
-    // Check if the parent has any child devices 
+    // Check if the parent has any child devices
     if (GetChildDevice(ParentDevice, &Device) == FALSE)
         return true;
 
@@ -616,19 +606,18 @@ CDeviceView::RecurseChildDevices(
     DeviceNode = dynamic_cast<CDeviceNode *>(GetDeviceNode(Device));
     if (DeviceNode == nullptr)
     {
-        ATLASSERT(FALSE);
         return false;
     }
 
     // Don't show hidden devices if not requested
     if ((m_ShowHidden == TRUE) || (!(DeviceNode->IsHidden())))
     {
-        // Add this device to the tree under its parent 
+        // Add this device to the tree under its parent
         hDevItem = InsertIntoTreeView(hParentTreeItem,
                                       DeviceNode);
         if (hDevItem)
         {
-            // Check if this child has any children itself 
+            // Check if this child has any children itself
             if (!RecurseChildDevices(Device, hDevItem))
                 HasProblem = true;
         }
@@ -643,7 +632,7 @@ CDeviceView::RecurseChildDevices(
     // Check for siblings
     for (;;)
     {
-        // Check if the parent device has anything at the same level 
+        // Check if the parent device has anything at the same level
         bSuccess = GetSiblingDevice(Device, &Device);
         if (bSuccess == FALSE)
             break;
@@ -651,7 +640,7 @@ CDeviceView::RecurseChildDevices(
         DeviceNode = dynamic_cast<CDeviceNode *>(GetDeviceNode(Device));
         if (DeviceNode == nullptr)
         {
-            ATLASSERT(FALSE);
+            continue;
         }
 
         // Don't show hidden devices if not requested
@@ -662,12 +651,12 @@ CDeviceView::RecurseChildDevices(
                 HasProblem = true;
             }
 
-            // Add this device to the tree under its parent 
+            // Add this device to the tree under its parent
             hDevItem = InsertIntoTreeView(hParentTreeItem,
                                           DeviceNode);
             if (hDevItem)
             {
-                // Check if this child has any children itself 
+                // Check if this child has any children itself
                 if (!RecurseChildDevices(Device, hDevItem))
                     HasProblem = true;
             }
@@ -856,12 +845,12 @@ CDeviceView::BuildActionMenuForNode(
     _In_ bool MainMenu
     )
 {
-    // Create a separator structure 
+    // Create a separator structure
     MENUITEMINFOW MenuSeparator = { 0 };
     MenuSeparator.cbSize = sizeof(MENUITEMINFOW);
     MenuSeparator.fType = MFT_SEPARATOR;
 
-    // Setup the 
+    // Setup the
     MENUITEMINFOW MenuItemInfo = { 0 };
     MenuItemInfo.cbSize = sizeof(MENUITEMINFOW);
     MenuItemInfo.fMask = MIIM_ID | MIIM_STRING | MIIM_DATA | MIIM_SUBMENU;
@@ -878,7 +867,7 @@ CDeviceView::BuildActionMenuForNode(
         if (DeviceNode->CanUpdate())
         {
             String.LoadStringW(g_hThisInstance, IDS_MENU_UPDATE);
-            MenuItemInfo.wID = IDC_UPDATE_DRV;
+            MenuItemInfo.wID = IDM_UPDATE_DRV;
             MenuItemInfo.dwTypeData = String.GetBuffer();
             InsertMenuItemW(OwnerMenu, i, TRUE, &MenuItemInfo);
             i++;
@@ -887,7 +876,7 @@ CDeviceView::BuildActionMenuForNode(
         if (DeviceNode->IsDisabled())
         {
             String.LoadStringW(g_hThisInstance, IDS_MENU_ENABLE);
-            MenuItemInfo.wID = IDC_ENABLE_DRV;
+            MenuItemInfo.wID = IDM_ENABLE_DRV;
             MenuItemInfo.dwTypeData = String.GetBuffer();
             InsertMenuItemW(OwnerMenu, i, TRUE, &MenuItemInfo);
             i++;
@@ -896,7 +885,7 @@ CDeviceView::BuildActionMenuForNode(
         if (DeviceNode->CanDisable() && !DeviceNode->IsDisabled())
         {
             String.LoadStringW(g_hThisInstance, IDS_MENU_DISABLE);
-            MenuItemInfo.wID = IDC_DISABLE_DRV;
+            MenuItemInfo.wID = IDM_DISABLE_DRV;
             MenuItemInfo.dwTypeData = String.GetBuffer();
             InsertMenuItemW(OwnerMenu, i, TRUE, &MenuItemInfo);
             i++;
@@ -905,7 +894,7 @@ CDeviceView::BuildActionMenuForNode(
         if (DeviceNode->CanUninstall())
         {
             String.LoadStringW(g_hThisInstance, IDS_MENU_UNINSTALL);
-            MenuItemInfo.wID = IDC_UNINSTALL_DRV;
+            MenuItemInfo.wID = IDM_UNINSTALL_DRV;
             MenuItemInfo.dwTypeData = String.GetBuffer();
             InsertMenuItemW(OwnerMenu, i, TRUE, &MenuItemInfo);
             i++;
@@ -917,7 +906,7 @@ CDeviceView::BuildActionMenuForNode(
 
     // All nodes have the scan option
     String.LoadStringW(g_hThisInstance, IDS_MENU_SCAN);
-    MenuItemInfo.wID = IDC_SCAN_HARDWARE;
+    MenuItemInfo.wID = IDM_SCAN_HARDWARE;
     MenuItemInfo.dwTypeData = String.GetBuffer();
     InsertMenuItemW(OwnerMenu, i, TRUE, &MenuItemInfo);
     i++;
@@ -925,7 +914,7 @@ CDeviceView::BuildActionMenuForNode(
     if ((Node->GetNodeType() == RootNode) || (MainMenu == true))
     {
         String.LoadStringW(g_hThisInstance, IDS_MENU_ADD);
-        MenuItemInfo.wID = IDC_ADD_HARDWARE;
+        MenuItemInfo.wID = IDM_ADD_HARDWARE;
         MenuItemInfo.dwTypeData = String.GetBuffer();
         InsertMenuItemW(OwnerMenu, i, TRUE, &MenuItemInfo);
         i++;
@@ -937,7 +926,7 @@ CDeviceView::BuildActionMenuForNode(
         i++;
 
         String.LoadStringW(g_hThisInstance, IDS_MENU_PROPERTIES);
-        MenuItemInfo.wID = IDC_PROPERTIES;
+        MenuItemInfo.wID = IDM_PROPERTIES;
         MenuItemInfo.dwTypeData = String.GetBuffer();
         InsertMenuItemW(OwnerMenu, i, TRUE, &MenuItemInfo);
         i++;
@@ -1014,7 +1003,7 @@ CDeviceView::RecurseFindDevice(
             }
         }
 
-        // This node may have its own children 
+        // This node may have its own children
         FoundItem = RecurseFindDevice(hItem, Node);
         if (FoundItem)
             return FoundItem;

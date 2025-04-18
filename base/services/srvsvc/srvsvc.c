@@ -45,7 +45,7 @@ DWORD dwServiceBits = 0;
 static VOID
 UpdateServiceStatus(DWORD dwState)
 {
-    ServiceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+    ServiceStatus.dwServiceType = SERVICE_WIN32_SHARE_PROCESS;
     ServiceStatus.dwCurrentState = dwState;
     ServiceStatus.dwControlsAccepted = 0;
     ServiceStatus.dwWin32ExitCode = 0;
@@ -59,6 +59,9 @@ UpdateServiceStatus(DWORD dwState)
         ServiceStatus.dwWaitHint = 10000;
     else
         ServiceStatus.dwWaitHint = 0;
+
+    if (dwState == SERVICE_RUNNING)
+        ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
 
     SetServiceStatus(ServiceStatusHandle,
                      &ServiceStatus);
@@ -76,6 +79,7 @@ ServiceControlHandler(DWORD dwControl,
     {
         case SERVICE_CONTROL_STOP:
             TRACE("  SERVICE_CONTROL_STOP received\n");
+            UpdateServiceStatus(SERVICE_STOP_PENDING);
             /* Stop listening to incoming RPC messages */
             RpcMgmtStopServerListening(NULL);
             UpdateServiceStatus(SERVICE_STOPPED);
@@ -99,6 +103,9 @@ ServiceControlHandler(DWORD dwControl,
 
         case SERVICE_CONTROL_SHUTDOWN:
             TRACE("  SERVICE_CONTROL_SHUTDOWN received\n");
+            UpdateServiceStatus(SERVICE_STOP_PENDING);
+            /* Stop listening to incoming RPC messages */
+            RpcMgmtStopServerListening(NULL);
             UpdateServiceStatus(SERVICE_STOPPED);
             return ERROR_SUCCESS;
 

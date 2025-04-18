@@ -227,8 +227,13 @@ SplInitializeWinSpoolDrv(PVOID* pTable)
 
     // Verify that all calls succeeded.
     for (i = 0; i < 9; i++)
+    {
         if (!pTable[i])
+        {
+            FreeLibrary(hWinspool);
             return FALSE;
+        }
+    }
 
     return TRUE;
 }
@@ -248,12 +253,12 @@ SpoolerInit(VOID)
 }
 
 BOOL WINAPI
-BuildOtherNamesFromMachineName(LPVOID * ptr1, LPVOID * ptr2)
+BuildOtherNamesFromMachineName(LPVOID * ptr1, ULONG * ptr2)
 {
     FIXME("(%p, %p) stub\n", ptr1, ptr2);
 
     *ptr1 = NULL;
-    *ptr2 = NULL;
+    *ptr2 = 0;
     return FALSE;
 }
 

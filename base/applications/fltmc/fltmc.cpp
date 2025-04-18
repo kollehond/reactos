@@ -18,6 +18,7 @@
 #endif
 #include <fltuser.h>
 #include <atlstr.h>
+#include <strsafe.h>
 #include "resource.h"
 
 EXTERN_C int wmain(int argc, WCHAR *argv[]);
@@ -60,7 +61,7 @@ SetDriverLoadPrivilege()
     LUID luid;
     BOOL bSuccess;
     DWORD dwError = ERROR_SUCCESS;
- 
+
     bSuccess = OpenProcessToken(GetCurrentProcess(),
                                 TOKEN_ADJUST_PRIVILEGES,
                                 &hToken);
@@ -131,34 +132,55 @@ PrintFilterInfo(_In_ PVOID Buffer,
                 _In_ BOOL IsNewStyle)
 {
     WCHAR FilterName[128] = { 0 };
+    WCHAR NumOfInstances[16] = { 0 };
     WCHAR Altitude[64] = { 0 };
+    WCHAR Frame[16] = { 0 };
 
     if (IsNewStyle)
     {
         PFILTER_AGGREGATE_STANDARD_INFORMATION FilterAggInfo;
         FilterAggInfo = (PFILTER_AGGREGATE_STANDARD_INFORMATION)Buffer;
 
-        if (FilterAggInfo->Type.MiniFilter.FilterNameLength < 128)
+        if (FilterAggInfo->Flags & FLTFL_ASI_IS_MINIFILTER)
         {
-            CopyMemory(FilterName,
-                (PCHAR)FilterAggInfo + FilterAggInfo->Type.MiniFilter.FilterNameBufferOffset,
-                       FilterAggInfo->Type.MiniFilter.FilterNameLength);
-            FilterName[FilterAggInfo->Type.MiniFilter.FilterNameLength] = UNICODE_NULL;
+            if (FilterAggInfo->Type.MiniFilter.FilterNameLength < 128)
+            {
+                CopyMemory(FilterName,
+                           (PCHAR)FilterAggInfo + FilterAggInfo->Type.MiniFilter.FilterNameBufferOffset,
+                           FilterAggInfo->Type.MiniFilter.FilterNameLength);
+                FilterName[FilterAggInfo->Type.MiniFilter.FilterNameLength] = UNICODE_NULL;
+            }
+
+            StringCchPrintfW(NumOfInstances, 16, L"%lu", FilterAggInfo->Type.MiniFilter.NumberOfInstances);
+
+            if (FilterAggInfo->Type.MiniFilter.FilterAltitudeLength < 64)
+            {
+                CopyMemory(Altitude,
+                           (PCHAR)FilterAggInfo + FilterAggInfo->Type.MiniFilter.FilterAltitudeBufferOffset,
+                           FilterAggInfo->Type.MiniFilter.FilterAltitudeLength);
+                FilterName[FilterAggInfo->Type.MiniFilter.FilterAltitudeLength] = UNICODE_NULL;
+            }
+
+            StringCchPrintfW(Frame, 16, L"%lu", FilterAggInfo->Type.MiniFilter.FrameID);
+        }
+        else if (FilterAggInfo->Flags & FLTFL_ASI_IS_LEGACYFILTER)
+        {
+            if (FilterAggInfo->Type.LegacyFilter.FilterNameLength < 128)
+            {
+                CopyMemory(FilterName,
+                           (PCHAR)FilterAggInfo + FilterAggInfo->Type.LegacyFilter.FilterNameBufferOffset,
+                           FilterAggInfo->Type.LegacyFilter.FilterNameLength);
+                FilterName[FilterAggInfo->Type.LegacyFilter.FilterNameLength] = UNICODE_NULL;
+            }
+
+            StringCchCopyW(Frame, 16, L"<Legacy>"); //Fixme: is this localized?
         }
 
-        if (FilterAggInfo->Type.MiniFilter.FilterNameLength < 64)
-        {
-            CopyMemory(Altitude,
-                (PCHAR)FilterAggInfo + FilterAggInfo->Type.MiniFilter.FilterAltitudeBufferOffset,
-                       FilterAggInfo->Type.MiniFilter.FilterAltitudeLength);
-            FilterName[FilterAggInfo->Type.MiniFilter.FilterAltitudeLength] = UNICODE_NULL;
-        }
-
-        wprintf(L"%-38s %-10lu %-10s %-10lu\n",
+        wprintf(L"%-38s %-10s %-10s %3s\n",
                 FilterName,
-                FilterAggInfo->Type.MiniFilter.NumberOfInstances,
+                NumOfInstances,
                 Altitude,
-                FilterAggInfo->Type.MiniFilter.FrameID);
+                Frame);
     }
     else
     {
@@ -181,6 +203,65 @@ PrintFilterInfo(_In_ PVOID Buffer,
 }
 
 void
+PrintVolumeInfo(_In_ PVOID Buffer)
+{
+    PFILTER_VOLUME_STANDARD_INFORMATION FilterVolInfo;
+    WCHAR DosName[16] = { 0 };
+    WCHAR VolName[128] = { 0 };
+    WCHAR FileSystem[32] = { 0 };
+
+    FilterVolInfo = (PFILTER_VOLUME_STANDARD_INFORMATION)Buffer;
+
+    if (FilterVolInfo->FilterVolumeNameLength < 128)
+    {
+        CopyMemory(VolName,
+                   (PCHAR)FilterVolInfo->FilterVolumeName,
+                   FilterVolInfo->FilterVolumeNameLength);
+        VolName[FilterVolInfo->FilterVolumeNameLength] = UNICODE_NULL;
+    }
+
+    if (!SUCCEEDED(FilterGetDosName(VolName, DosName, _countof(DosName))))
+        DosName[0] = L'\0';
+
+    switch (FilterVolInfo->FileSystemType)
+    {
+    case FLT_FSTYPE_MUP:
+        StringCchCopyW(FileSystem, 32, L"Remote");
+        break;
+
+    case FLT_FSTYPE_NTFS:
+        StringCchCopyW(FileSystem, 32, L"NTFS");
+        break;
+
+    case FLT_FSTYPE_FAT:
+        StringCchCopyW(FileSystem, 32, L"FAT");
+        break;
+
+    case FLT_FSTYPE_EXFAT:
+        StringCchCopyW(FileSystem, 32, L"exFAT");
+        break;
+
+    case FLT_FSTYPE_NPFS:
+        StringCchCopyW(FileSystem, 32, L"NamedPipe");
+        break;
+
+    case FLT_FSTYPE_MSFS:
+        StringCchCopyW(FileSystem, 32, L"Mailslot");
+        break;
+
+    case FLT_FSTYPE_UNKNOWN:
+    default:
+        StringCchCopyW(FileSystem, 32, L"<Unknown>");
+        break;
+    }
+
+    wprintf(L"%-31s %-40s %-10s\n",
+            DosName,
+            VolName,
+            FileSystem);
+}
+
+void
 ListFilters()
 {
     HANDLE FindHandle;
@@ -191,7 +272,7 @@ ListFilters()
 
     hr = FilterFindFirst(FilterAggregateStandardInformation,
                          Buffer,
-                         1024,
+                         sizeof(Buffer),
                          &BytesReturned,
                          &FindHandle);
     if (!SUCCEEDED(hr))
@@ -199,61 +280,118 @@ ListFilters()
         IsNewStyle = FALSE;
         hr = FilterFindFirst(FilterFullInformation,
                              Buffer,
-                             1024,
+                             sizeof(Buffer),
                              &BytesReturned,
                              &FindHandle);
     }
 
+    if (!SUCCEEDED(hr))
+    {
+        LoadAndPrintString(IDS_ERROR_FILTERS, hr);
+        PrintErrorText(hr);
+        return;
+    }
+
+    if (IsNewStyle)
+    {
+        LoadAndPrintString(IDS_DISPLAY_FILTERS1);
+        wprintf(L"------------------------------  -------------  ------------  -----\n");
+    }
+    else
+    {
+        LoadAndPrintString(IDS_DISPLAY_FILTERS2);
+        wprintf(L"------------------------------  -------------  -----\n");
+    }
+
+    PrintFilterInfo(Buffer, IsNewStyle);
+
+    do
+    {
+        hr = FilterFindNext(FindHandle,
+                            IsNewStyle ? FilterAggregateStandardInformation : FilterFullInformation,
+                            Buffer,
+                            sizeof(Buffer),
+                            &BytesReturned);
+        if (SUCCEEDED(hr))
+        {
+            PrintFilterInfo(Buffer, IsNewStyle);
+        }
+        else if (hr != HRESULT_FROM_WIN32(ERROR_NO_MORE_ITEMS))
+        {
+            LoadAndPrintString(IDS_ERROR_FILTERS, hr);
+            PrintErrorText(hr);
+        }
+    } while (SUCCEEDED(hr));
+
+    hr = FilterFindClose(FindHandle);
+    if (!SUCCEEDED(hr))
+    {
+        LoadAndPrintString(IDS_ERROR_FILTERS, hr);
+        PrintErrorText(hr);
+    }
+}
+
+void
+ListVolumes()
+{
+    HANDLE FindHandle;
+    BYTE Buffer[1024];
+    ULONG BytesReturned;
+    HRESULT hr;
+
+    hr = FilterVolumeFindFirst(FilterVolumeStandardInformation,
+                               Buffer,
+                               1024,
+                               &BytesReturned,
+                               &FindHandle);
     if (SUCCEEDED(hr))
     {
-        if (IsNewStyle)
-        {
-            LoadAndPrintString(IDS_DISPLAY_FILTERS1);
-            wprintf(L"------------------------------  -------------  ------------  -----\n");
-        }
-        else
-        {
-            LoadAndPrintString(IDS_DISPLAY_FILTERS2);
-            wprintf(L"------------------------------  -------------  -----\n");
-        }
+        LoadAndPrintString(IDS_DISPLAY_VOLUMES);
+        wprintf(L"------------------------------  ---------------------------------------  ----------  --------\n");
 
-        PrintFilterInfo(Buffer, IsNewStyle);
+        PrintVolumeInfo(Buffer);
 
         do
         {
-            hr = FilterFindNext(FindHandle,
-                                IsNewStyle ? FilterAggregateStandardInformation : FilterFullInformation,
-                                Buffer,
-                                1024,
-                                &BytesReturned);
+            hr = FilterVolumeFindNext(FindHandle,
+                                      FilterVolumeStandardInformation,
+                                      Buffer,
+                                      1024,
+                                      &BytesReturned);
             if (SUCCEEDED(hr))
             {
-                PrintFilterInfo(Buffer, IsNewStyle);
+                PrintVolumeInfo(Buffer);
             }
 
         } while (SUCCEEDED(hr));
 
-        FilterFindClose(FindHandle);
+        FilterVolumeFindClose(FindHandle);
     }
 
     if (!SUCCEEDED(hr) && hr != HRESULT_FROM_WIN32(ERROR_NO_MORE_ITEMS))
     {
-        LoadAndPrintString(IDS_ERROR_PRIV, hr);
+        LoadAndPrintString(IDS_ERROR_VOLUMES, hr);
         PrintErrorText(hr);
     }
 }
 
 int wmain(int argc, WCHAR *argv[])
 {
-    if (argc < 2)
-    {
-        LoadAndPrintString(IDS_USAGE);
-        return 0;
-    }
-
     wprintf(L"\n");
 
-    if (!_wcsicmp(argv[1], L"help"))
+    if ((argc < 2) || (!_wcsicmp(argv[1], L"filters")))
+    {
+        if (argc < 3)
+        {
+            ListFilters();
+        }
+        else
+        {
+            LoadAndPrintString(IDS_USAGE_FILTERS);
+            wprintf(L"fltmc.exe filters\n\n");
+        }
+    }
+    else if (!_wcsicmp(argv[1], L"help"))
     {
         LoadAndPrintString(IDS_USAGE);
     }
@@ -281,16 +419,16 @@ int wmain(int argc, WCHAR *argv[])
             wprintf(L"fltmc.exe unload [name]\n\n");
         }
     }
-    else if (!_wcsicmp(argv[1], L"filters"))
+    else if (!_wcsicmp(argv[1], L"volumes"))
     {
         if (argc == 2)
         {
-            ListFilters();
+            ListVolumes();
         }
         else
         {
-            LoadAndPrintString(IDS_USAGE_FILTERS);
-            wprintf(L"fltmc.exe filters\n\n");
+            LoadAndPrintString(IDS_USAGE_VOLUMES);
+            wprintf(L"fltmc.exe volumes\n\n");
         }
     }
 

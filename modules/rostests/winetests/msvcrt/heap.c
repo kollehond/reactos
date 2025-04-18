@@ -23,11 +23,13 @@
 #include <errno.h>
 #include "wine/test.h"
 
-static void (__cdecl *p_aligned_free)(void*) = NULL;
-static void * (__cdecl *p_aligned_malloc)(size_t,size_t) = NULL;
-static void * (__cdecl *p_aligned_offset_malloc)(size_t,size_t,size_t) = NULL;
-static void * (__cdecl *p_aligned_realloc)(void*,size_t,size_t) = NULL;
-static void * (__cdecl *p_aligned_offset_realloc)(void*,size_t,size_t,size_t) = NULL;
+static void (__cdecl *p_aligned_free)(void*);
+static void * (__cdecl *p_aligned_malloc)(size_t,size_t);
+static void * (__cdecl *p_aligned_offset_malloc)(size_t,size_t,size_t);
+static void * (__cdecl *p_aligned_realloc)(void*,size_t,size_t);
+static void * (__cdecl *p_aligned_offset_realloc)(void*,size_t,size_t,size_t);
+static int (__cdecl *p__set_sbh_threshold)(size_t);
+static size_t (__cdecl *p__get_sbh_threshold)(void);
 
 static void test_aligned_malloc(unsigned int size, unsigned int alignment)
 {
@@ -415,28 +417,37 @@ static void test_aligned(void)
 
 static void test_sbheap(void)
 {
+    HMODULE msvcrt = GetModuleHandleA("msvcrt.dll");
     void *mem;
     int threshold;
 
+    p__set_sbh_threshold = (void*)GetProcAddress(msvcrt, "_set_sbh_threshold");
+    p__get_sbh_threshold = (void*)GetProcAddress(msvcrt, "_get_sbh_threshold");
+    if (!p__set_sbh_threshold || !p__get_sbh_threshold)
+    {
+        win_skip("_set_sbh_threshold not available\n");
+        return;
+    }
+
     if(sizeof(void*) == 8) {
-        ok(!_set_sbh_threshold(0), "_set_sbh_threshold succeeded\n");
-        ok(!_set_sbh_threshold(1000), "_set_sbh_threshold succeeded\n");
+        ok(!p__set_sbh_threshold(0), "_set_sbh_threshold succeeded\n");
+        ok(!p__set_sbh_threshold(1000), "_set_sbh_threshold succeeded\n");
         return;
     }
 
     mem = malloc(1);
     ok(mem != NULL, "malloc failed\n");
 
-    ok(_set_sbh_threshold(1), "_set_sbh_threshold failed\n");
-    threshold = _get_sbh_threshold();
+    ok(p__set_sbh_threshold(1), "_set_sbh_threshold failed\n");
+    threshold = p__get_sbh_threshold();
     ok(threshold == 16, "threshold = %d\n", threshold);
 
-    ok(_set_sbh_threshold(8), "_set_sbh_threshold failed\n");
-    threshold = _get_sbh_threshold();
+    ok(p__set_sbh_threshold(8), "_set_sbh_threshold failed\n");
+    threshold = p__get_sbh_threshold();
     ok(threshold == 16, "threshold = %d\n", threshold);
 
-    ok(_set_sbh_threshold(1000), "_set_sbh_threshold failed\n");
-    threshold = _get_sbh_threshold();
+    ok(p__set_sbh_threshold(1000), "_set_sbh_threshold failed\n");
+    threshold = p__get_sbh_threshold();
     ok(threshold == 1008, "threshold = %d\n", threshold);
 
     free(mem);
@@ -449,59 +460,79 @@ static void test_sbheap(void)
     ok(mem != NULL, "realloc failed\n");
     ok(!((UINT_PTR)mem & 0xf), "incorrect alignment (%p)\n", mem);
 
-    ok(_set_sbh_threshold(0), "_set_sbh_threshold failed\n");
-    threshold = _get_sbh_threshold();
+    ok(p__set_sbh_threshold(0), "_set_sbh_threshold failed\n");
+    threshold = p__get_sbh_threshold();
     ok(threshold == 0, "threshold = %d\n", threshold);
+
+    free(mem);
+}
+
+static void test_malloc(void)
+{
+    /* use function pointers to bypass gcc builtins */
+    void *(__cdecl *p_malloc)(size_t);
+    void *(__cdecl *p_realloc)(void *,size_t);
+    void *mem;
+
+    p_malloc = (void *)GetProcAddress( GetModuleHandleA("msvcrt.dll"), "malloc");
+    p_realloc = (void *)GetProcAddress( GetModuleHandleA("msvcrt.dll"), "realloc");
+
+    mem = p_malloc(0);
+    ok(mem != NULL, "memory not allocated for size 0\n");
+    free(mem);
+
+    mem = p_realloc(NULL, 10);
+    ok(mem != NULL, "memory not allocated\n");
+
+    mem = p_realloc(mem, 20);
+    ok(mem != NULL, "memory not reallocated\n");
+
+    mem = p_realloc(mem, 0);
+    ok(mem == NULL, "memory not freed\n");
+
+    mem = p_realloc(NULL, 0);
+    ok(mem != NULL, "memory not (re)allocated for size 0\n");
 
     free(mem);
 }
 
 static void test_calloc(void)
 {
+    /* use function pointer to bypass gcc builtin */
+    void *(__cdecl *p_calloc)(size_t, size_t);
     void *ptr;
 
-    ptr = calloc(1, 0);
+    p_calloc = (void *)GetProcAddress( GetModuleHandleA("msvcrt.dll"), "calloc");
+
+    ptr = p_calloc(1, 0);
     ok(ptr != NULL, "got %p\n", ptr);
     free(ptr);
 
-    ptr = calloc(0, 0);
+    ptr = p_calloc(0, 0);
     ok(ptr != NULL, "got %p\n", ptr);
     free(ptr);
 
-    ptr = calloc(0, 1);
+    ptr = p_calloc(0, 1);
     ok(ptr != NULL, "got %p\n", ptr);
     free(ptr);
 
     errno = 0;
-    ptr = calloc(~(size_t)0 / 2, ~(size_t)0 / 2);
+    ptr = p_calloc(~(size_t)0 / 2, ~(size_t)0 / 2);
     ok(ptr == NULL || broken(ptr != NULL) /* winxp sp0 */, "got %p\n", ptr);
     ok(errno == ENOMEM || broken(errno == 0) /* winxp, win2k3 */, "got errno %d\n", errno);
     free(ptr);
 }
 
+static void test__get_heap_handle(void)
+{
+    ok((HANDLE)_get_heap_handle() != GetProcessHeap(), "Expected _get_heap_handle() not to return GetProcessHeap()\n");
+}
+
 START_TEST(heap)
 {
-    void *mem;
-
-    mem = malloc(0);
-    ok(mem != NULL, "memory not allocated for size 0\n");
-    free(mem);
-
-    mem = realloc(NULL, 10);
-    ok(mem != NULL, "memory not allocated\n");
-    
-    mem = realloc(mem, 20);
-    ok(mem != NULL, "memory not reallocated\n");
- 
-    mem = realloc(mem, 0);
-    ok(mem == NULL, "memory not freed\n");
-    
-    mem = realloc(NULL, 0);
-    ok(mem != NULL, "memory not (re)allocated for size 0\n");
-
-    free(mem);
-
     test_aligned();
     test_sbheap();
+    test_malloc();
     test_calloc();
+    test__get_heap_handle();
 }

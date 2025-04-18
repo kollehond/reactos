@@ -1,4 +1,4 @@
-/* TRANSLATOR : Ardit Dani (Ard1t) (ardit.dani@gmail.com) 
+/* TRANSLATOR : Ardit Dani (Ard1t) (ardit.dani@gmail.com)
  * DATE OF TR:  29-11-2013
 */
 
@@ -9,7 +9,7 @@ FONT 8, "MS Shell Dlg", 0, 0
 STYLE DS_SHELLFONT | WS_CHILD | WS_VISIBLE
 BEGIN
     LTEXT "Font:", IDC_STATIC, 6, 7, 24, 9
-    COMBOBOX IDC_FONTCOMBO, 36, 5, 210, 210, WS_CHILD | WS_VISIBLE |
+    COMBOBOX IDC_FONTCOMBO, 36, 5, 210, 210, WS_CHILD | WS_VISIBLE | WS_TABSTOP |
              WS_VSCROLL | CBS_DROPDOWNLIST | CBS_SORT | CBS_HASSTRINGS
     PUSHBUTTON "Ndihmë", IDC_CMHELP, 249, 5, 35, 13
     CONTROL "", IDC_FONTMAP, "FontMapWnd", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
@@ -55,4 +55,6 @@ BEGIN
     IDS_LICENSE "Ky program eshte falas; ju mund ta shperndani ose modifikoni nen termat e liçenses publike te GNU nga Free Software Foundation; ose versionin 2 te Liçenses, ose (opsionet tend) versionet me te reja.\r\n\r\nKy program shperndahet me shpresen qe do te jete i nevojshem, POR PA ASNJE GARANCI; madje dhe pa nënkuptimin e garancisë së tregtimit apo përshtatshmerise për qëllim të veçantë. Shiko liçensen publike te GNU per me shume detaje.\r\n\r\nJu duhet te jeni paisur me nje kopje te liçenses GNU perkrah ketij programi; nese jo, shkruani Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA."
     IDS_ABOUT "R&reth..."
     IDS_TITLE "Karakter Map"
+    IDS_UNICODE "Unicode"
+    IDS_ALL "All"
 END

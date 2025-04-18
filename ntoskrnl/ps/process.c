@@ -358,7 +358,7 @@ PspCreateProcess(OUT PHANDLE ProcessHandle,
     PEPROCESS Process, Parent;
     PVOID ExceptionPortObject;
     PDEBUG_OBJECT DebugObject;
-    PSECTION_OBJECT SectionObject;
+    PSECTION SectionObject;
     NTSTATUS Status, AccessStatus;
     ULONG_PTR DirectoryTableBase[2] = {0,0};
     KAFFINITY Affinity;
@@ -1614,4 +1614,5 @@ NtOpenProcess(OUT PHANDLE ProcessHandle,
     /* Return status */
     return Status;
 }
+
 /* EOF */

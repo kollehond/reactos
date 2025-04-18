@@ -18,10 +18,12 @@
  */
 
 /* make sure the structures work with a comctl32 v5.x */
-#ifndef __REACTOS__
+#ifdef __REACTOS__
+#undef _WIN32_WINNT
+#undef _WIN32_IE
+#endif
 #define _WIN32_WINNT 0x500
 #define _WIN32_IE 0x500
-#endif
 
 #include <assert.h>
 #include <stdarg.h>
@@ -501,6 +503,7 @@ static void test_layout(void)
     REBARBANDINFOA rbi;
     HIMAGELIST himl;
     REBARINFO ri;
+    int count;
 
     rbsize_results_init();
 
@@ -662,9 +665,27 @@ static void test_layout(void)
     SendMessageA(hRebar, RB_INSERTBANDA, -1, (LPARAM)&rbi);
     check_sizes();
 
-    rbsize_results_free();
     DestroyWindow(hRebar);
     pImageList_Destroy(himl);
+
+    /* One hidden band. */
+    hRebar = create_rebar_control();
+
+    rbi.cbSize = REBARBANDINFOA_V6_SIZE;
+    rbi.fMask = RBBIM_STYLE | RBBIM_SIZE | RBBIM_CHILDSIZE | RBBIM_CHILD;
+    rbi.fStyle = RBBS_HIDDEN;
+    rbi.cx = 200;
+    rbi.cxMinChild = 100;
+    rbi.cyMinChild = 30;
+    rbi.hwndChild = NULL;
+
+    SendMessageA(hRebar, RB_INSERTBANDA, -1, (LPARAM)&rbi);
+    count = SendMessageA(hRebar, RB_GETROWCOUNT, 0, 0);
+    ok(!count, "Unexpected row count %d.\n", count);
+
+    DestroyWindow(hRebar);
+
+    rbsize_results_free();
 }
 
 #if 0       /* use this to generate more tests */
@@ -828,7 +849,7 @@ static DWORD resize_numtests = 0;
         RECT r; \
         int value; \
         const rbresize_test_result_t *res = &resize_results[resize_numtests++]; \
-        assert(resize_numtests <= sizeof(resize_results)/sizeof(resize_results[0])); \
+        assert(resize_numtests <= ARRAY_SIZE(resize_results)); \
         GetWindowRect(hRebar, &r); \
         MapWindowPoints(HWND_DESKTOP, hMainWnd, (LPPOINT)&r, 2); \
         if ((dwStyles[i] & (CCS_NOPARENTALIGN|CCS_NODIVIDER)) == CCS_NOPARENTALIGN) {\
@@ -855,7 +876,7 @@ static void test_resize(void)
         CCS_TOP | WS_BORDER, CCS_NOPARENTALIGN | CCS_NODIVIDER | WS_BORDER, CCS_NORESIZE | WS_BORDER,
         CCS_NOMOVEY | WS_BORDER};
 
-    const int styles_count = sizeof(dwStyles) / sizeof(dwStyles[0]);
+    const int styles_count = ARRAY_SIZE(dwStyles);
     int i;
 
     for (i = 0; i < styles_count; i++)

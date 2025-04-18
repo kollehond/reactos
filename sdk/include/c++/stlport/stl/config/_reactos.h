@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2010
- * Jérôme Gardou
+ * JÃ©rÃ´me Gardou
  *
  *
  * This material is provided "as is", with absolutely no warranty expressed
@@ -302,6 +302,11 @@
 // Calling convention
 #define _STLP_CALL __cdecl
 
+// Always build multithreaded code
+#define _STLP_THREADS
+
+#if 0
+
 #ifdef _M_AMD64
 #ifdef __cplusplus
 extern "C" {
@@ -322,6 +327,8 @@ extern "C" {
 #undef __cdecl__
 #define __cdecl__
 #endif /* _M_AMD64 */
+
+#endif
 
 // Include stlport windows specifics
 #include "_windows.h"

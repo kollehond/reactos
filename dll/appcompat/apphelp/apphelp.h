@@ -1,9 +1,9 @@
 /*
  * PROJECT:     ReactOS Application compatibility module
- * LICENSE:     GPL-2.0+ (https://spdx.org/licenses/GPL-2.0+)
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
  * PURPOSE:     common structures / functions
  * COPYRIGHT:   Copyright 2013 Mislav Blažević
- *              Copyright 2017 Mark Jansen (mark.jansen@reactos.org)
+ *              Copyright 2017-2019 Mark Jansen (mark.jansen@reactos.org)
  */
 
 #ifndef APPHELP_H
@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#include "sdbtypes.h"
+#include <appcompat/sdbtypes.h>
 
 /* Flags for SdbInitDatabase */
 #define HID_DOS_PATHS 0x1
@@ -23,6 +23,9 @@ extern "C" {
 #define SDB_DATABASE_MAIN_MSI 0x80020000
 #define SDB_DATABASE_MAIN_SHIM 0x80030000
 #define SDB_DATABASE_MAIN_DRIVERS 0x80040000
+
+// Shim database types
+#define SDB_DATABASE_SHIM 0x00010000
 
 typedef struct _SDB {
     PDB pdb;
@@ -72,6 +75,20 @@ typedef struct tagSDBQUERYRESULT {
     GUID   rgGuidDB[SDB_MAX_SDBS];
 } SDBQUERYRESULT, *PSDBQUERYRESULT;
 
+
+#define DB_INFO_FLAGS_VALID_GUID    1
+
+typedef struct _DB_INFORMATION
+{
+    DWORD dwFlags;
+    DWORD dwMajor;
+    DWORD dwMinor;
+    LPCWSTR Description;
+    GUID Id;
+    /* Win10+ has an extra field here */
+} DB_INFORMATION, *PDB_INFORMATION;
+
+
 #ifndef APPHELP_NOSDBPAPI
 #include "sdbpapi.h"
 #endif
@@ -91,7 +108,10 @@ HRESULT WINAPI SdbGetAppPatchDir(HSDB db, LPWSTR path, DWORD size);
 LPWSTR WINAPI SdbGetStringTagPtr(PDB pdb, TAGID tagid);
 TAGID WINAPI SdbFindFirstNamedTag(PDB pdb, TAGID root, TAGID find, TAGID nametag, LPCWSTR find_name);
 DWORD WINAPI SdbQueryDataExTagID(PDB pdb, TAGID tiExe, LPCWSTR lpszDataName, LPDWORD lpdwDataType, LPVOID lpBuffer, LPDWORD lpcbBufferSize, TAGID *ptiData);
-
+BOOL WINAPI SdbGetDatabaseInformation(PDB pdb, PDB_INFORMATION information);
+VOID WINAPI SdbFreeDatabaseInformation(PDB_INFORMATION information);
+BOOL WINAPI SdbRegisterDatabaseEx(_In_ LPCWSTR pszDatabasePath, _In_ DWORD dwDatabaseType, _In_opt_ const PULONGLONG pTimeStamp);
+BOOL WINAPI SdbUnregisterDatabase(_In_ const GUID *pguidDB);
 
 /* sdbread.c */
 BOOL WINAPI SdbpReadData(PDB pdb, PVOID dest, DWORD offset, DWORD num);
@@ -105,7 +125,7 @@ TAGID WINAPI SdbGetFirstChild(PDB pdb, TAGID parent);
 TAGID WINAPI SdbGetNextChild(PDB pdb, TAGID parent, TAGID prev_child);
 DWORD WINAPI SdbGetTagDataSize(PDB pdb, TAGID tagid);
 LPWSTR WINAPI SdbpGetString(PDB pdb, TAGID tagid, PDWORD size);
-
+BOOL WINAPI SdbReadBinaryTag(PDB pdb, TAGID tagid, PBYTE buffer, DWORD size);
 
 /* sdbfileattr.c*/
 BOOL WINAPI SdbGetFileAttributes(LPCWSTR path, PATTRINFO *attr_info_ret, LPDWORD attr_count);
@@ -126,7 +146,7 @@ DWORD WINAPI SdbQueryData(HSDB hsdb, TAGREF trWhich, LPCWSTR lpszDataName, LPDWO
 #define ATTRIBUTE_AVAILABLE 0x1
 #define ATTRIBUTE_FAILED 0x2
 
-#include "sdbtagid.h"
+#include <appcompat/sdbtagid.h>
 
 #ifdef __cplusplus
 } // extern "C"

@@ -779,13 +779,14 @@ HaliAcpiTimerInit(IN ULONG TimerPort,
         /* Get the data from the FADT */
         TimerPort = HalpFixedAcpiDescTable.pm_tmr_blk_io_port;
         TimerValExt = HalpFixedAcpiDescTable.flags & ACPI_TMR_VAL_EXT;
-        DPRINT1("ACPI Timer at: %Xh (EXT: %d)\n", TimerPort, TimerValExt);
+        DPRINT1("ACPI Timer at: %lXh (EXT: %lu)\n", TimerPort, TimerValExt);
     }
 
     /* FIXME: Now proceed to the timer initialization */
     //HalaAcpiTimerInit(TimerPort, TimerValExt);
 }
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
 HalpSetupAcpiPhase0(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
@@ -850,12 +851,12 @@ HalpSetupAcpiPhase0(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
         /* Allocate it */
         HalpLowStubPhysicalAddress.QuadPart = HalpAllocPhysicalMemory(LoaderBlock,
                                                                       0x100000,
-                                                                      1,
+                                                                      HALP_LOW_STUB_SIZE_IN_PAGES,
                                                                       FALSE);
         if (HalpLowStubPhysicalAddress.QuadPart)
         {
             /* Map it */
-            HalpLowStub = HalpMapPhysicalMemory64(HalpLowStubPhysicalAddress, 1);
+            HalpLowStub = HalpMapPhysicalMemory64(HalpLowStubPhysicalAddress, HALP_LOW_STUB_SIZE_IN_PAGES);
         }
     }
 
@@ -887,14 +888,14 @@ HalpSetupAcpiPhase0(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
             if ((CachedTable->Header.Signature == RSDT_SIGNATURE) ||
                 (CachedTable->Header.Signature == XSDT_SIGNATURE))
             {
-                DPRINT1("ACPI %d.0 Detected. Tables: ", (CachedTable->Header.Revision + 1));
+                DPRINT1("ACPI %u.0 Detected. Tables:", CachedTable->Header.Revision + 1);
             }
 
-            DbgPrint("[%c%c%c%c] ",
-                    (CachedTable->Header.Signature & 0xFF),
-                    (CachedTable->Header.Signature & 0xFF00) >> 8,
-                    (CachedTable->Header.Signature & 0xFF0000) >> 16,
-                    (CachedTable->Header.Signature & 0xFF000000) >> 24);
+            DbgPrint(" [%c%c%c%c]",
+                      CachedTable->Header.Signature & 0x000000FF,
+                     (CachedTable->Header.Signature & 0x0000FF00) >>  8,
+                     (CachedTable->Header.Signature & 0x00FF0000) >> 16,
+                     (CachedTable->Header.Signature & 0xFF000000) >> 24);
 
             /* Keep going */
             NextEntry = NextEntry->Flink;
@@ -906,6 +907,7 @@ HalpSetupAcpiPhase0(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     return STATUS_SUCCESS;
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 HalpInitializePciBus(VOID)
@@ -927,6 +929,7 @@ HalpInitNonBusHandler(VOID)
     HalFindBusAddressTranslation = HalpFindBusAddressTranslation;
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 HalpInitBusHandlers(VOID)
@@ -935,6 +938,7 @@ HalpInitBusHandlers(VOID)
     HalpInitNonBusHandler();
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 HalpBuildAddressMap(VOID)
@@ -942,6 +946,7 @@ HalpBuildAddressMap(VOID)
     /* ACPI is magic baby */
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
 HalpGetDebugPortTable(VOID)
@@ -950,6 +955,7 @@ HalpGetDebugPortTable(VOID)
             (HalpDebugPortTable->BaseAddress.AddressSpaceID == 1));
 }
 
+CODE_SEG("INIT")
 ULONG
 NTAPI
 HalpIs16BitPortDecodeSupported(VOID)
@@ -1010,18 +1016,19 @@ NTAPI
 HalpQueryAcpiResourceRequirements(OUT PIO_RESOURCE_REQUIREMENTS_LIST *Requirements)
 {
     PIO_RESOURCE_REQUIREMENTS_LIST RequirementsList;
-    ULONG Count = 0, ListSize;
+    ULONG Count, ListSize;
     NTSTATUS Status;
+
     PAGED_CODE();
 
     /* Get ACPI resources */
     HalpAcpiDetectResourceListSize(&Count);
-    DPRINT("Resource count: %d\n", Count);
+    DPRINT("Resource count: %lu\n", Count);
 
     /* Compute size of the list and allocate it */
     ListSize = FIELD_OFFSET(IO_RESOURCE_REQUIREMENTS_LIST, List[0].Descriptors) +
                (Count * sizeof(IO_RESOURCE_DESCRIPTOR));
-    DPRINT("Resource list size: %d\n", ListSize);
+    DPRINT("Resource list size: %lu\n", ListSize);
     RequirementsList = ExAllocatePoolWithTag(PagedPool, ListSize, TAG_HAL);
     if (RequirementsList)
     {
@@ -1059,6 +1066,7 @@ HalpQueryAcpiResourceRequirements(OUT PIO_RESOURCE_REQUIREMENTS_LIST *Requiremen
 /*
  * @implemented
  */
+CODE_SEG("INIT")
 VOID
 NTAPI
 HalReportResourceUsage(VOID)

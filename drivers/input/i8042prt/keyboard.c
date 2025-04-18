@@ -202,7 +202,7 @@ i8042PowerWorkItem(
 	__analysis_assume(Context != NULL);
 	DeviceExtension = Context;
 
-	/* See http://blogs.msdn.com/doronh/archive/2006/09/08/746961.aspx */
+	/* See https://learn.microsoft.com/en-us/archive/blogs/doronh/how-ps2-and-hid-keyboads-report-power-button-events */
 
 	/* Register GUID_DEVICE_SYS_BUTTON interface and report capability */
 	if (DeviceExtension->NewCaps != DeviceExtension->ReportedCaps)
@@ -465,7 +465,6 @@ i8042KbdDeviceControl(
 		{
 			ERR_(I8042PRT, "IRP_MJ_DEVICE_CONTROL / unknown ioctl code 0x%lx\n",
 				Stack->Parameters.DeviceIoControl.IoControlCode);
-			ASSERT(FALSE);
 			return ForwardIrpAndForget(DeviceObject, Irp);
 		}
 	}
@@ -867,7 +866,6 @@ i8042KbdInterruptService(
                 /* b - Bugcheck */
                 KeBugCheck(MANUALLY_INITIATED_CRASH);
             }
-#if defined(KDBG)
             else
             {
 			    /* Send request to the kernel debugger.
@@ -880,7 +878,6 @@ i8042KbdInterruptService(
 			                         NULL,
 			                         KernelMode);
             }
-#endif
 		}
 	}
 

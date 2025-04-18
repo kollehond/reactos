@@ -18,9 +18,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-/* UTF-8 */
-#pragma code_page(65001)
-
 LANGUAGE LANG_HUNGARIAN, SUBLANG_DEFAULT
 
 STRINGTABLE
@@ -30,7 +27,7 @@ STRINGTABLE
     IDS_INCORRECTPASSWORDTITLE  "Bejelentkezés sikertelen"
     IDS_INCORRECTPASSWORD       "Kérem ellenőrizze a felhasználóneve\nés a jelszava helyességét."
     IDS_CAPSLOCKONTITLE "A Caps Lock be van kapcsolva"
-    IDS_CAPSLOCKON      "Ha Caps Lock be van kapcsolva, elképzelhető hogy hibásan írja be a jelszavát.\n\nNyomja meg a Caps Lock gombot a billentyűzetén a Caps Lock kikapcsolásához\nmielőtt megadja a jelszavát."
+    IDS_CAPSLOCKON      "Ha a Caps Lock be van kapcsolva, elképzelhető hogy hibásan írja be a jelszavát.\n\nNyomja meg a Caps Lock gombot a billentyűzetén a Caps Lock kikapcsolásához\nmielőtt megadja a jelszavát."
 }
 
 IDD_CREDDIALOG DIALOGEX  0, 0, 213, 149

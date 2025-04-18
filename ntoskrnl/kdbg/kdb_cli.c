@@ -21,7 +21,7 @@
  * FILE:            ntoskrnl/kdbg/kdb_cli.c
  * PURPOSE:         Kernel debugger command line interface
  * PROGRAMMER:      Gregor Anich (blight@blight.eu.org)
- *                  Hervé Poussineau
+ *                  HervÃ© Poussineau
  * UPDATE HISTORY:
  *                  Created 16/01/2005
  */
@@ -30,24 +30,13 @@
 
 #include <ntoskrnl.h>
 
+#include "kdb.h"
+#include "../kd/kdterminal.h"
+
 #define NDEBUG
-#include <debug.h>
+#include "debug.h"
 
 /* DEFINES *******************************************************************/
-
-#define KEY_BS          8
-#define KEY_ESC         27
-#define KEY_DEL         127
-
-#define KEY_SCAN_UP     72
-#define KEY_SCAN_DOWN   80
-
-/* Scan codes of keyboard keys: */
-#define KEYSC_END       0x004f
-#define KEYSC_PAGEUP    0x0049
-#define KEYSC_PAGEDOWN  0x0051
-#define KEYSC_HOME      0x0047
-#define KEYSC_ARROWUP   0x0048
 
 #define KDB_ENTER_CONDITION_TO_STRING(cond)                               \
                    ((cond) == KdbDoNotEnter ? "never" :                   \
@@ -82,7 +71,9 @@ static BOOLEAN KdbpCmdProc(ULONG Argc, PCHAR Argv[]);
 static BOOLEAN KdbpCmdMod(ULONG Argc, PCHAR Argv[]);
 static BOOLEAN KdbpCmdGdtLdtIdt(ULONG Argc, PCHAR Argv[]);
 static BOOLEAN KdbpCmdPcr(ULONG Argc, PCHAR Argv[]);
+#ifdef _M_IX86
 static BOOLEAN KdbpCmdTss(ULONG Argc, PCHAR Argv[]);
+#endif
 
 static BOOLEAN KdbpCmdBugCheck(ULONG Argc, PCHAR Argv[]);
 static BOOLEAN KdbpCmdReboot(ULONG Argc, PCHAR Argv[]);
@@ -93,43 +84,260 @@ static BOOLEAN KdbpCmdDmesg(ULONG Argc, PCHAR Argv[]);
 
 BOOLEAN ExpKdbgExtPool(ULONG Argc, PCHAR Argv[]);
 BOOLEAN ExpKdbgExtPoolUsed(ULONG Argc, PCHAR Argv[]);
+BOOLEAN ExpKdbgExtPoolFind(ULONG Argc, PCHAR Argv[]);
 BOOLEAN ExpKdbgExtFileCache(ULONG Argc, PCHAR Argv[]);
 BOOLEAN ExpKdbgExtDefWrites(ULONG Argc, PCHAR Argv[]);
+BOOLEAN ExpKdbgExtIrpFind(ULONG Argc, PCHAR Argv[]);
+BOOLEAN ExpKdbgExtHandle(ULONG Argc, PCHAR Argv[]);
+
+extern char __ImageBase;
 
 #ifdef __ROS_DWARF__
 static BOOLEAN KdbpCmdPrintStruct(ULONG Argc, PCHAR Argv[]);
 #endif
 
+/* Be more descriptive than intrinsics */
+#ifndef Ke386GetGlobalDescriptorTable
+# define Ke386GetGlobalDescriptorTable __sgdt
+#endif
+#ifndef Ke386GetLocalDescriptorTable
+# define Ke386GetLocalDescriptorTable __sldt
+#endif
+
+/* Portability */
+FORCEINLINE
+ULONG_PTR
+strtoulptr(const char* nptr, char** endptr, int base)
+{
+#ifdef _M_IX86
+    return strtoul(nptr, endptr, base);
+#else
+    return strtoull(nptr, endptr, base);
+#endif
+}
+
 /* GLOBALS *******************************************************************/
+
+typedef
+BOOLEAN
+(NTAPI *PKDBG_CLI_ROUTINE)(
+    IN PCHAR Command,
+    IN ULONG Argc,
+    IN PCH Argv[]);
 
 static PKDBG_CLI_ROUTINE KdbCliCallbacks[10];
 static BOOLEAN KdbUseIntelSyntax = FALSE; /* Set to TRUE for intel syntax */
 static BOOLEAN KdbBreakOnModuleLoad = FALSE; /* Set to TRUE to break into KDB when a module is loaded */
 
-static CHAR KdbCommandHistoryBuffer[2048]; /* Command history string ringbuffer */
-static PCHAR KdbCommandHistory[sizeof(KdbCommandHistoryBuffer) / 8] = { NULL }; /* Command history ringbuffer */
-static LONG KdbCommandHistoryBufferIndex = 0;
-static LONG KdbCommandHistoryIndex = 0;
-
 static ULONG KdbNumberOfRowsPrinted = 0;
 static ULONG KdbNumberOfColsPrinted = 0;
 static BOOLEAN KdbOutputAborted = FALSE;
 static BOOLEAN KdbRepeatLastCommand = FALSE;
-static LONG KdbNumberOfRowsTerminal = -1;
-static LONG KdbNumberOfColsTerminal = -1;
 
-PCHAR KdbInitFileBuffer = NULL; /* Buffer where KDBinit file is loaded into during initialization */
+volatile PCHAR KdbInitFileBuffer = NULL; /* Buffer where KDBinit file is loaded into during initialization */
 BOOLEAN KdbpBugCheckRequested = FALSE;
 
-/* Vars for dmesg */
-/* defined in ../kd/kdio.c, declare here: */
-extern volatile BOOLEAN KdbpIsInDmesgMode;
-extern const ULONG KdpDmesgBufferSize;
-extern PCHAR KdpDmesgBuffer;
-extern volatile ULONG KdpDmesgCurrentPosition;
-extern volatile ULONG KdpDmesgFreeBytes;
-extern volatile ULONG KdbDmesgTotalWritten;
+/* Variables for Dmesg */
+static const ULONG KdpDmesgBufferSize = 128 * 1024; // 512*1024;
+static PCHAR KdpDmesgBuffer = NULL;
+static volatile ULONG KdpDmesgCurrentPosition = 0;
+static volatile ULONG KdpDmesgFreeBytes = 0;
+static volatile ULONG KdbDmesgTotalWritten = 0;
+static volatile BOOLEAN KdbpIsInDmesgMode = FALSE;
+static KSPIN_LOCK KdpDmesgLogSpinLock;
 
+const CSTRING KdbPromptStr = RTL_CONSTANT_STRING("kdb:> ");
+
+//
+// Debug Filter Component Table
+//
+#define KD_DEBUG_PRINT_FILTER(Name) \
+    { #Name, DPFLTR_##Name##_ID }
+
+static struct
+{
+    PCSTR Name;
+    ULONG Id;
+}
+ComponentTable[] =
+{
+//
+// Default components
+//
+    { "WIN2000", MAXULONG },
+    KD_DEBUG_PRINT_FILTER(DEFAULT),
+//
+// Standard components
+//
+    KD_DEBUG_PRINT_FILTER(SYSTEM),
+    KD_DEBUG_PRINT_FILTER(SMSS),
+    KD_DEBUG_PRINT_FILTER(SETUP),
+    KD_DEBUG_PRINT_FILTER(NTFS),
+    KD_DEBUG_PRINT_FILTER(FSTUB),
+    KD_DEBUG_PRINT_FILTER(CRASHDUMP),
+    KD_DEBUG_PRINT_FILTER(CDAUDIO),
+    KD_DEBUG_PRINT_FILTER(CDROM),
+    KD_DEBUG_PRINT_FILTER(CLASSPNP),
+    KD_DEBUG_PRINT_FILTER(DISK),
+    KD_DEBUG_PRINT_FILTER(REDBOOK),
+    KD_DEBUG_PRINT_FILTER(STORPROP),
+    KD_DEBUG_PRINT_FILTER(SCSIPORT),
+    KD_DEBUG_PRINT_FILTER(SCSIMINIPORT),
+    KD_DEBUG_PRINT_FILTER(CONFIG),
+    KD_DEBUG_PRINT_FILTER(I8042PRT),
+    KD_DEBUG_PRINT_FILTER(SERMOUSE),
+    KD_DEBUG_PRINT_FILTER(LSERMOUS),
+    KD_DEBUG_PRINT_FILTER(KBDHID),
+    KD_DEBUG_PRINT_FILTER(MOUHID),
+    KD_DEBUG_PRINT_FILTER(KBDCLASS),
+    KD_DEBUG_PRINT_FILTER(MOUCLASS),
+    KD_DEBUG_PRINT_FILTER(TWOTRACK),
+    KD_DEBUG_PRINT_FILTER(WMILIB),
+    KD_DEBUG_PRINT_FILTER(ACPI),
+    KD_DEBUG_PRINT_FILTER(AMLI),
+    KD_DEBUG_PRINT_FILTER(HALIA64),
+    KD_DEBUG_PRINT_FILTER(VIDEO),
+    KD_DEBUG_PRINT_FILTER(SVCHOST),
+    KD_DEBUG_PRINT_FILTER(VIDEOPRT),
+    KD_DEBUG_PRINT_FILTER(TCPIP),
+    KD_DEBUG_PRINT_FILTER(DMSYNTH),
+    KD_DEBUG_PRINT_FILTER(NTOSPNP),
+    KD_DEBUG_PRINT_FILTER(FASTFAT),
+    KD_DEBUG_PRINT_FILTER(SAMSS),
+    KD_DEBUG_PRINT_FILTER(PNPMGR),
+    KD_DEBUG_PRINT_FILTER(NETAPI),
+    KD_DEBUG_PRINT_FILTER(SCSERVER),
+    KD_DEBUG_PRINT_FILTER(SCCLIENT),
+    KD_DEBUG_PRINT_FILTER(SERIAL),
+    KD_DEBUG_PRINT_FILTER(SERENUM),
+    KD_DEBUG_PRINT_FILTER(UHCD),
+    KD_DEBUG_PRINT_FILTER(RPCPROXY),
+    KD_DEBUG_PRINT_FILTER(AUTOCHK),
+    KD_DEBUG_PRINT_FILTER(DCOMSS),
+    KD_DEBUG_PRINT_FILTER(UNIMODEM),
+    KD_DEBUG_PRINT_FILTER(SIS),
+    KD_DEBUG_PRINT_FILTER(FLTMGR),
+    KD_DEBUG_PRINT_FILTER(WMICORE),
+    KD_DEBUG_PRINT_FILTER(BURNENG),
+    KD_DEBUG_PRINT_FILTER(IMAPI),
+    KD_DEBUG_PRINT_FILTER(SXS),
+    KD_DEBUG_PRINT_FILTER(FUSION),
+    KD_DEBUG_PRINT_FILTER(IDLETASK),
+    KD_DEBUG_PRINT_FILTER(SOFTPCI),
+    KD_DEBUG_PRINT_FILTER(TAPE),
+    KD_DEBUG_PRINT_FILTER(MCHGR),
+    KD_DEBUG_PRINT_FILTER(IDEP),
+    KD_DEBUG_PRINT_FILTER(PCIIDE),
+    KD_DEBUG_PRINT_FILTER(FLOPPY),
+    KD_DEBUG_PRINT_FILTER(FDC),
+    KD_DEBUG_PRINT_FILTER(TERMSRV),
+    KD_DEBUG_PRINT_FILTER(W32TIME),
+    KD_DEBUG_PRINT_FILTER(PREFETCHER),
+    KD_DEBUG_PRINT_FILTER(RSFILTER),
+    KD_DEBUG_PRINT_FILTER(FCPORT),
+    KD_DEBUG_PRINT_FILTER(PCI),
+    KD_DEBUG_PRINT_FILTER(DMIO),
+    KD_DEBUG_PRINT_FILTER(DMCONFIG),
+    KD_DEBUG_PRINT_FILTER(DMADMIN),
+    KD_DEBUG_PRINT_FILTER(WSOCKTRANSPORT),
+    KD_DEBUG_PRINT_FILTER(VSS),
+    KD_DEBUG_PRINT_FILTER(PNPMEM),
+    KD_DEBUG_PRINT_FILTER(PROCESSOR),
+    KD_DEBUG_PRINT_FILTER(DMSERVER),
+    KD_DEBUG_PRINT_FILTER(SR),
+    KD_DEBUG_PRINT_FILTER(INFINIBAND),
+    KD_DEBUG_PRINT_FILTER(IHVDRIVER),
+    KD_DEBUG_PRINT_FILTER(IHVVIDEO),
+    KD_DEBUG_PRINT_FILTER(IHVAUDIO),
+    KD_DEBUG_PRINT_FILTER(IHVNETWORK),
+    KD_DEBUG_PRINT_FILTER(IHVSTREAMING),
+    KD_DEBUG_PRINT_FILTER(IHVBUS),
+    KD_DEBUG_PRINT_FILTER(HPS),
+    KD_DEBUG_PRINT_FILTER(RTLTHREADPOOL),
+    KD_DEBUG_PRINT_FILTER(LDR),
+    KD_DEBUG_PRINT_FILTER(TCPIP6),
+    KD_DEBUG_PRINT_FILTER(ISAPNP),
+    KD_DEBUG_PRINT_FILTER(SHPC),
+    KD_DEBUG_PRINT_FILTER(STORPORT),
+    KD_DEBUG_PRINT_FILTER(STORMINIPORT),
+    KD_DEBUG_PRINT_FILTER(PRINTSPOOLER),
+    KD_DEBUG_PRINT_FILTER(VSSDYNDISK),
+    KD_DEBUG_PRINT_FILTER(VERIFIER),
+    KD_DEBUG_PRINT_FILTER(VDS),
+    KD_DEBUG_PRINT_FILTER(VDSBAS),
+    KD_DEBUG_PRINT_FILTER(VDSDYN),  // Specified in Vista+
+    KD_DEBUG_PRINT_FILTER(VDSDYNDR),
+    KD_DEBUG_PRINT_FILTER(VDSLDR),  // Specified in Vista+
+    KD_DEBUG_PRINT_FILTER(VDSUTIL),
+    KD_DEBUG_PRINT_FILTER(DFRGIFC),
+    KD_DEBUG_PRINT_FILTER(MM),
+    KD_DEBUG_PRINT_FILTER(DFSC),
+    KD_DEBUG_PRINT_FILTER(WOW64),
+//
+// Components specified in Vista+, some of which we also use in ReactOS
+//
+    KD_DEBUG_PRINT_FILTER(ALPC),
+    KD_DEBUG_PRINT_FILTER(WDI),
+    KD_DEBUG_PRINT_FILTER(PERFLIB),
+    KD_DEBUG_PRINT_FILTER(KTM),
+    KD_DEBUG_PRINT_FILTER(IOSTRESS),
+    KD_DEBUG_PRINT_FILTER(HEAP),
+    KD_DEBUG_PRINT_FILTER(WHEA),
+    KD_DEBUG_PRINT_FILTER(USERGDI),
+    KD_DEBUG_PRINT_FILTER(MMCSS),
+    KD_DEBUG_PRINT_FILTER(TPM),
+    KD_DEBUG_PRINT_FILTER(THREADORDER),
+    KD_DEBUG_PRINT_FILTER(ENVIRON),
+    KD_DEBUG_PRINT_FILTER(EMS),
+    KD_DEBUG_PRINT_FILTER(WDT),
+    KD_DEBUG_PRINT_FILTER(FVEVOL),
+    KD_DEBUG_PRINT_FILTER(NDIS),
+    KD_DEBUG_PRINT_FILTER(NVCTRACE),
+    KD_DEBUG_PRINT_FILTER(LUAFV),
+    KD_DEBUG_PRINT_FILTER(APPCOMPAT),
+    KD_DEBUG_PRINT_FILTER(USBSTOR),
+    KD_DEBUG_PRINT_FILTER(SBP2PORT),
+    KD_DEBUG_PRINT_FILTER(COVERAGE),
+    KD_DEBUG_PRINT_FILTER(CACHEMGR),
+    KD_DEBUG_PRINT_FILTER(MOUNTMGR),
+    KD_DEBUG_PRINT_FILTER(CFR),
+    KD_DEBUG_PRINT_FILTER(TXF),
+    KD_DEBUG_PRINT_FILTER(KSECDD),
+    KD_DEBUG_PRINT_FILTER(FLTREGRESS),
+    KD_DEBUG_PRINT_FILTER(MPIO),
+    KD_DEBUG_PRINT_FILTER(MSDSM),
+    KD_DEBUG_PRINT_FILTER(UDFS),
+    KD_DEBUG_PRINT_FILTER(PSHED),
+    KD_DEBUG_PRINT_FILTER(STORVSP),
+    KD_DEBUG_PRINT_FILTER(LSASS),
+    KD_DEBUG_PRINT_FILTER(SSPICLI),
+    KD_DEBUG_PRINT_FILTER(CNG),
+    KD_DEBUG_PRINT_FILTER(EXFAT),
+    KD_DEBUG_PRINT_FILTER(FILETRACE),
+    KD_DEBUG_PRINT_FILTER(XSAVE),
+    KD_DEBUG_PRINT_FILTER(SE),
+    KD_DEBUG_PRINT_FILTER(DRIVEEXTENDER),
+//
+// Components specified in Windows 8
+//
+    KD_DEBUG_PRINT_FILTER(POWER),
+    KD_DEBUG_PRINT_FILTER(CRASHDUMPXHCI),
+    KD_DEBUG_PRINT_FILTER(GPIO),
+    KD_DEBUG_PRINT_FILTER(REFS),
+    KD_DEBUG_PRINT_FILTER(WER),
+//
+// Components specified in Windows 10
+//
+    KD_DEBUG_PRINT_FILTER(CAPIMG),
+    KD_DEBUG_PRINT_FILTER(VPCI),
+    KD_DEBUG_PRINT_FILTER(STORAGECLASSMEMORY),
+    KD_DEBUG_PRINT_FILTER(FSLIB),
+};
+#undef KD_DEBUG_PRINT_FILTER
+
+//
+// Command Table
+//
 static const struct
 {
     PCHAR Name;
@@ -140,20 +348,21 @@ static const struct
     /* Data */
     { NULL, NULL, "Data", NULL },
     { "?", "? expression", "Evaluate expression.", KdbpCmdEvalExpression },
+#ifdef _M_IX86 // FIXME: this is broken on x64
     { "disasm", "disasm [address] [L count]", "Disassemble count instructions at address.", KdbpCmdDisassembleX },
-    { "x", "x [address] [L count]", "Display count dwords, starting at addr.", KdbpCmdDisassembleX },
+#endif // _M_IX86
+    { "x", "x [address] [L count]", "Display count dwords, starting at address.", KdbpCmdDisassembleX },
     { "regs", "regs", "Display general purpose registers.", KdbpCmdRegs },
-    { "cregs", "cregs", "Display control registers.", KdbpCmdRegs },
+    { "cregs", "cregs", "Display control, descriptor table and task segment registers.", KdbpCmdRegs },
     { "sregs", "sregs", "Display status registers.", KdbpCmdRegs },
     { "dregs", "dregs", "Display debug registers.", KdbpCmdRegs },
-    { "bt", "bt [*frameaddr|thread id]", "Prints current backtrace or from given frame addr", KdbpCmdBackTrace },
+    { "bt", "bt [*frameaddr|thread id]", "Prints current backtrace or from given frame address.", KdbpCmdBackTrace },
 #ifdef __ROS_DWARF__
-    { "dt", "dt [mod] [type] [addr]", "Print a struct.  Addr is optional.", KdbpCmdPrintStruct },
+    { "dt", "dt [mod] [type] [addr]", "Print a struct. The address is optional.", KdbpCmdPrintStruct },
 #endif
-
     /* Flow control */
     { NULL, NULL, "Flow control", NULL },
-    { "cont", "cont", "Continue execution (leave debugger)", KdbpCmdContinue },
+    { "cont", "cont", "Continue execution (leave debugger).", KdbpCmdContinue },
     { "step", "step [count]", "Execute single instructions, stepping into interrupts.", KdbpCmdStep },
     { "next", "next [count]", "Execute single instructions, skipping calls and reps.", KdbpCmdStep },
     { "bl", "bl", "List breakpoints.", KdbpCmdBreakPointList },
@@ -171,210 +380,33 @@ static const struct
     /* System information */
     { NULL, NULL, "System info", NULL },
     { "mod", "mod [address]", "List all modules or the one containing address.", KdbpCmdMod },
-    { "gdt", "gdt", "Display global descriptor table.", KdbpCmdGdtLdtIdt },
-    { "ldt", "ldt", "Display local descriptor table.", KdbpCmdGdtLdtIdt },
-    { "idt", "idt", "Display interrupt descriptor table.", KdbpCmdGdtLdtIdt },
-    { "pcr", "pcr", "Display processor control region.", KdbpCmdPcr },
-    { "tss", "tss", "Display task state segment.", KdbpCmdTss },
+    { "gdt", "gdt", "Display the global descriptor table.", KdbpCmdGdtLdtIdt },
+    { "ldt", "ldt", "Display the local descriptor table.", KdbpCmdGdtLdtIdt },
+    { "idt", "idt", "Display the interrupt descriptor table.", KdbpCmdGdtLdtIdt },
+    { "pcr", "pcr", "Display the processor control region.", KdbpCmdPcr },
+#ifdef _M_IX86
+    { "tss", "tss [selector|*descaddr]", "Display the current task state segment, or the one specified by its selector number or descriptor address.", KdbpCmdTss },
+#endif
 
     /* Others */
     { NULL, NULL, "Others", NULL },
     { "bugcheck", "bugcheck", "Bugchecks the system.", KdbpCmdBugCheck },
     { "reboot", "reboot", "Reboots the system.", KdbpCmdReboot},
-    { "filter", "filter [error|warning|trace|info|level]+|-[componentname|default]", "Enable/disable debug channels", KdbpCmdFilter },
+    { "filter", "filter [error|warning|trace|info|level]+|-[componentname|default]", "Enable/disable debug channels.", KdbpCmdFilter },
     { "set", "set [var] [value]", "Sets var to value or displays value of var.", KdbpCmdSet },
     { "dmesg", "dmesg", "Display debug messages on screen, with navigation on pages.", KdbpCmdDmesg },
     { "kmsg", "kmsg", "Kernel dmesg. Alias for dmesg.", KdbpCmdDmesg },
     { "help", "help", "Display help screen.", KdbpCmdHelp },
     { "!pool", "!pool [Address [Flags]]", "Display information about pool allocations.", ExpKdbgExtPool },
     { "!poolused", "!poolused [Flags [Tag]]", "Display pool usage.", ExpKdbgExtPoolUsed },
+    { "!poolfind", "!poolfind Tag [Pool]", "Search for pool tag allocations.", ExpKdbgExtPoolFind },
     { "!filecache", "!filecache", "Display cache usage.", ExpKdbgExtFileCache },
     { "!defwrites", "!defwrites", "Display cache write values.", ExpKdbgExtDefWrites },
+    { "!irpfind", "!irpfind [Pool [startaddress [criteria data]]]", "Lists IRPs potentially matching criteria.", ExpKdbgExtIrpFind },
+    { "!handle", "!handle [Handle]", "Displays info about handles.", ExpKdbgExtHandle },
 };
 
 /* FUNCTIONS *****************************************************************/
-
-/*!\brief Transform a component name to an integer
- *
- * \param ComponentName  The name of the component.
- * \param ComponentId    Receives the component id on success.
- *
- * \retval TRUE   Success.
- * \retval FALSE  Failure.
- */
-static BOOLEAN
-KdbpGetComponentId(
-    IN  PCCH ComponentName,
-    OUT PULONG ComponentId)
-{
-    ULONG i;
-
-    static struct
-    {
-        PCCH Name;
-        ULONG Id;
-    }
-    ComponentTable[] =
-    {
-        { "DEFAULT", MAXULONG },
-        { "SYSTEM", DPFLTR_SYSTEM_ID },
-        { "SMSS", DPFLTR_SMSS_ID },
-        { "SETUP", DPFLTR_SETUP_ID },
-        { "NTFS", DPFLTR_NTFS_ID },
-        { "FSTUB", DPFLTR_FSTUB_ID },
-        { "CRASHDUMP", DPFLTR_CRASHDUMP_ID },
-        { "CDAUDIO", DPFLTR_CDAUDIO_ID },
-        { "CDROM", DPFLTR_CDROM_ID },
-        { "CLASSPNP", DPFLTR_CLASSPNP_ID },
-        { "DISK", DPFLTR_DISK_ID },
-        { "REDBOOK", DPFLTR_REDBOOK_ID },
-        { "STORPROP", DPFLTR_STORPROP_ID },
-        { "SCSIPORT", DPFLTR_SCSIPORT_ID },
-        { "SCSIMINIPORT", DPFLTR_SCSIMINIPORT_ID },
-        { "CONFIG", DPFLTR_CONFIG_ID },
-        { "I8042PRT", DPFLTR_I8042PRT_ID },
-        { "SERMOUSE", DPFLTR_SERMOUSE_ID },
-        { "LSERMOUS", DPFLTR_LSERMOUS_ID },
-        { "KBDHID", DPFLTR_KBDHID_ID },
-        { "MOUHID", DPFLTR_MOUHID_ID },
-        { "KBDCLASS", DPFLTR_KBDCLASS_ID },
-        { "MOUCLASS", DPFLTR_MOUCLASS_ID },
-        { "TWOTRACK", DPFLTR_TWOTRACK_ID },
-        { "WMILIB", DPFLTR_WMILIB_ID },
-        { "ACPI", DPFLTR_ACPI_ID },
-        { "AMLI", DPFLTR_AMLI_ID },
-        { "HALIA64", DPFLTR_HALIA64_ID },
-        { "VIDEO", DPFLTR_VIDEO_ID },
-        { "SVCHOST", DPFLTR_SVCHOST_ID },
-        { "VIDEOPRT", DPFLTR_VIDEOPRT_ID },
-        { "TCPIP", DPFLTR_TCPIP_ID },
-        { "DMSYNTH", DPFLTR_DMSYNTH_ID },
-        { "NTOSPNP", DPFLTR_NTOSPNP_ID },
-        { "FASTFAT", DPFLTR_FASTFAT_ID },
-        { "SAMSS", DPFLTR_SAMSS_ID },
-        { "PNPMGR", DPFLTR_PNPMGR_ID },
-        { "NETAPI", DPFLTR_NETAPI_ID },
-        { "SCSERVER", DPFLTR_SCSERVER_ID },
-        { "SCCLIENT", DPFLTR_SCCLIENT_ID },
-        { "SERIAL", DPFLTR_SERIAL_ID },
-        { "SERENUM", DPFLTR_SERENUM_ID },
-        { "UHCD", DPFLTR_UHCD_ID },
-        { "RPCPROXY", DPFLTR_RPCPROXY_ID },
-        { "AUTOCHK", DPFLTR_AUTOCHK_ID },
-        { "DCOMSS", DPFLTR_DCOMSS_ID },
-        { "UNIMODEM", DPFLTR_UNIMODEM_ID },
-        { "SIS", DPFLTR_SIS_ID },
-        { "FLTMGR", DPFLTR_FLTMGR_ID },
-        { "WMICORE", DPFLTR_WMICORE_ID },
-        { "BURNENG", DPFLTR_BURNENG_ID },
-        { "IMAPI", DPFLTR_IMAPI_ID },
-        { "SXS", DPFLTR_SXS_ID },
-        { "FUSION", DPFLTR_FUSION_ID },
-        { "IDLETASK", DPFLTR_IDLETASK_ID },
-        { "SOFTPCI", DPFLTR_SOFTPCI_ID },
-        { "TAPE", DPFLTR_TAPE_ID },
-        { "MCHGR", DPFLTR_MCHGR_ID },
-        { "IDEP", DPFLTR_IDEP_ID },
-        { "PCIIDE", DPFLTR_PCIIDE_ID },
-        { "FLOPPY", DPFLTR_FLOPPY_ID },
-        { "FDC", DPFLTR_FDC_ID },
-        { "TERMSRV", DPFLTR_TERMSRV_ID },
-        { "W32TIME", DPFLTR_W32TIME_ID },
-        { "PREFETCHER", DPFLTR_PREFETCHER_ID },
-        { "RSFILTER", DPFLTR_RSFILTER_ID },
-        { "FCPORT", DPFLTR_FCPORT_ID },
-        { "PCI", DPFLTR_PCI_ID },
-        { "DMIO", DPFLTR_DMIO_ID },
-        { "DMCONFIG", DPFLTR_DMCONFIG_ID },
-        { "DMADMIN", DPFLTR_DMADMIN_ID },
-        { "WSOCKTRANSPORT", DPFLTR_WSOCKTRANSPORT_ID },
-        { "VSS", DPFLTR_VSS_ID },
-        { "PNPMEM", DPFLTR_PNPMEM_ID },
-        { "PROCESSOR", DPFLTR_PROCESSOR_ID },
-        { "DMSERVER", DPFLTR_DMSERVER_ID },
-        { "SR", DPFLTR_SR_ID },
-        { "INFINIBAND", DPFLTR_INFINIBAND_ID },
-        { "IHVDRIVER", DPFLTR_IHVDRIVER_ID },
-        { "IHVVIDEO", DPFLTR_IHVVIDEO_ID },
-        { "IHVAUDIO", DPFLTR_IHVAUDIO_ID },
-        { "IHVNETWORK", DPFLTR_IHVNETWORK_ID },
-        { "IHVSTREAMING", DPFLTR_IHVSTREAMING_ID },
-        { "IHVBUS", DPFLTR_IHVBUS_ID },
-        { "HPS", DPFLTR_HPS_ID },
-        { "RTLTHREADPOOL", DPFLTR_RTLTHREADPOOL_ID },
-        { "LDR", DPFLTR_LDR_ID },
-        { "TCPIP6", DPFLTR_TCPIP6_ID },
-        { "ISAPNP", DPFLTR_ISAPNP_ID },
-        { "SHPC", DPFLTR_SHPC_ID },
-        { "STORPORT", DPFLTR_STORPORT_ID },
-        { "STORMINIPORT", DPFLTR_STORMINIPORT_ID },
-        { "PRINTSPOOLER", DPFLTR_PRINTSPOOLER_ID },
-        { "VSSDYNDISK", DPFLTR_VSSDYNDISK_ID },
-        { "VERIFIER", DPFLTR_VERIFIER_ID },
-        { "VDS", DPFLTR_VDS_ID },
-        { "VDSBAS", DPFLTR_VDSBAS_ID },
-        { "VDSDYN", DPFLTR_VDSDYN_ID },
-        { "VDSDYNDR", DPFLTR_VDSDYNDR_ID },
-        { "VDSLDR", DPFLTR_VDSLDR_ID },
-        { "VDSUTIL", DPFLTR_VDSUTIL_ID },
-        { "DFRGIFC", DPFLTR_DFRGIFC_ID },
-        { "MM", DPFLTR_MM_ID },
-        { "DFSC", DPFLTR_DFSC_ID },
-        { "WOW64", DPFLTR_WOW64_ID },
-        { "ALPC", DPFLTR_ALPC_ID },
-        { "WDI", DPFLTR_WDI_ID },
-        { "PERFLIB", DPFLTR_PERFLIB_ID },
-        { "KTM", DPFLTR_KTM_ID },
-        { "IOSTRESS", DPFLTR_IOSTRESS_ID },
-        { "HEAP", DPFLTR_HEAP_ID },
-        { "WHEA", DPFLTR_WHEA_ID },
-        { "USERGDI", DPFLTR_USERGDI_ID },
-        { "MMCSS", DPFLTR_MMCSS_ID },
-        { "TPM", DPFLTR_TPM_ID },
-        { "THREADORDER", DPFLTR_THREADORDER_ID },
-        { "ENVIRON", DPFLTR_ENVIRON_ID },
-        { "EMS", DPFLTR_EMS_ID },
-        { "WDT", DPFLTR_WDT_ID },
-        { "FVEVOL", DPFLTR_FVEVOL_ID },
-        { "NDIS", DPFLTR_NDIS_ID },
-        { "NVCTRACE", DPFLTR_NVCTRACE_ID },
-        { "LUAFV", DPFLTR_LUAFV_ID },
-        { "APPCOMPAT", DPFLTR_APPCOMPAT_ID },
-        { "USBSTOR", DPFLTR_USBSTOR_ID },
-        { "SBP2PORT", DPFLTR_SBP2PORT_ID },
-        { "COVERAGE", DPFLTR_COVERAGE_ID },
-        { "CACHEMGR", DPFLTR_CACHEMGR_ID },
-        { "MOUNTMGR", DPFLTR_MOUNTMGR_ID },
-        { "CFR", DPFLTR_CFR_ID },
-        { "TXF", DPFLTR_TXF_ID },
-        { "KSECDD", DPFLTR_KSECDD_ID },
-        { "FLTREGRESS", DPFLTR_FLTREGRESS_ID },
-        { "MPIO", DPFLTR_MPIO_ID },
-        { "MSDSM", DPFLTR_MSDSM_ID },
-        { "UDFS", DPFLTR_UDFS_ID },
-        { "PSHED", DPFLTR_PSHED_ID },
-        { "STORVSP", DPFLTR_STORVSP_ID },
-        { "LSASS", DPFLTR_LSASS_ID },
-        { "SSPICLI", DPFLTR_SSPICLI_ID },
-        { "CNG", DPFLTR_CNG_ID },
-        { "EXFAT", DPFLTR_EXFAT_ID },
-        { "FILETRACE", DPFLTR_FILETRACE_ID },
-        { "XSAVE", DPFLTR_XSAVE_ID },
-        { "SE", DPFLTR_SE_ID },
-        { "DRIVEEXTENDER", DPFLTR_DRIVEEXTENDER_ID },
-    };
-
-    for (i = 0; i < sizeof(ComponentTable) / sizeof(ComponentTable[0]); i++)
-    {
-        if (_stricmp(ComponentName, ComponentTable[i].Name) == 0)
-        {
-            *ComponentId = ComponentTable[i].Id;
-            return TRUE;
-        }
-    }
-
-    return FALSE;
-}
 
 /*!\brief Evaluates an expression...
  *
@@ -439,7 +471,8 @@ KdbpCmdEvalExpression(
     ULONG Argc,
     PCHAR Argv[])
 {
-    ULONG i, len;
+    ULONG i;
+    SIZE_T len;
     ULONGLONG Result = 0;
     ULONG ul;
     LONG l = 0;
@@ -460,7 +493,7 @@ KdbpCmdEvalExpression(
     }
 
     /* Evaluate the expression */
-    Ok = KdbpEvaluateExpression(Argv[1], sizeof("kdb:> ")-1 + (Argv[1]-Argv[0]), &Result);
+    Ok = KdbpEvaluateExpression(Argv[1], KdbPromptStr.Length + (Argv[1]-Argv[0]), &Result);
     if (Ok)
     {
         if (Result > 0x00000000ffffffffLL)
@@ -514,10 +547,14 @@ KdbpPrintStructInternal
         KdbpPrint("%s%p+%x: %s", Indent, ((PCHAR)BaseAddress) + Member->BaseOffset, Member->Size, Member->Name ? Member->Name : "<anoymous>");
         if (DoRead) {
             if (!strcmp(Member->Type, "_UNICODE_STRING")) {
-                KdbpPrint("\"%wZ\"\n", ((PCHAR)BaseAddress) + Member->BaseOffset);
+                KdbpPrint("\"");
+                KdbpPrintUnicodeString(((PCHAR)BaseAddress) + Member->BaseOffset);
+                KdbpPrint("\"\n");
                 continue;
             } else if (!strcmp(Member->Type, "PUNICODE_STRING")) {
-                KdbpPrint("\"%wZ\"\n", *(((PUNICODE_STRING*)((PCHAR)BaseAddress) + Member->BaseOffset)));
+                KdbpPrint("\"");
+                KdbpPrintUnicodeString(*(((PUNICODE_STRING*)((PCHAR)BaseAddress) + Member->BaseOffset)));
+                KdbpPrint("\"\n");
                 continue;
             }
             switch (Member->Size) {
@@ -584,7 +621,7 @@ KdbpCmdPrintStruct(
 {
     ULONG i;
     ULONGLONG Result = 0;
-    PVOID BaseAddress = 0;
+    PVOID BaseAddress = NULL;
     ROSSYM_AGGREGATE Aggregate = {0};
     UNICODE_STRING ModName = {0};
     ANSI_STRING AnsiName = {0};
@@ -606,7 +643,7 @@ KdbpCmdPrintStruct(
     if (Argc > 3) {
         ULONG len;
         PCHAR ArgStart = Argv[3];
-        DPRINT1("Trying to get expression\n");
+        DPRINT("Trying to get expression\n");
         for (i = 3; i < Argc - 1; i++)
         {
             len = strlen(Argv[i]);
@@ -614,22 +651,47 @@ KdbpCmdPrintStruct(
         }
 
         /* Evaluate the expression */
-        DPRINT1("Arg: %s\n", ArgStart);
-        if (KdbpEvaluateExpression(ArgStart, strlen(ArgStart), &Result)) {
+        DPRINT("Arg: %s\n", ArgStart);
+        if (KdbpEvaluateExpression(ArgStart, strlen(ArgStart), &Result))
             BaseAddress = (PVOID)(ULONG_PTR)Result;
-            DPRINT1("BaseAddress: %p\n", BaseAddress);
-        }
     }
-    DPRINT1("BaseAddress %p\n", BaseAddress);
+    DPRINT("BaseAddress: %p\n", BaseAddress);
     KdbpPrintStructInternal(Info, Indent, !!BaseAddress, BaseAddress, &Aggregate);
 end:
     RosSymFreeAggregate(&Aggregate);
     RtlFreeUnicodeString(&ModName);
     return TRUE;
 }
-#endif
+#endif // __ROS_DWARF__
 
-/*!\brief Display list of active debug channels
+/*!\brief Retrieves the component ID corresponding to a given component name.
+ *
+ * \param ComponentName  The name of the component.
+ * \param ComponentId    Receives the component id on success.
+ *
+ * \retval TRUE   Success.
+ * \retval FALSE  Failure.
+ */
+static BOOLEAN
+KdbpGetComponentId(
+    IN  PCSTR ComponentName,
+    OUT PULONG ComponentId)
+{
+    ULONG i;
+
+    for (i = 0; i < RTL_NUMBER_OF(ComponentTable); i++)
+    {
+        if (_stricmp(ComponentName, ComponentTable[i].Name) == 0)
+        {
+            *ComponentId = ComponentTable[i].Id;
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
+/*!\brief Displays the list of active debug channels, or enable/disable debug channels.
  */
 static BOOLEAN
 KdbpCmdFilter(
@@ -639,35 +701,53 @@ KdbpCmdFilter(
     ULONG i, j, ComponentId, Level;
     ULONG set = DPFLTR_MASK, clear = DPFLTR_MASK;
     PCHAR pend;
-    LPCSTR opt, p;
+    PCSTR opt, p;
 
     static struct
     {
-        LPCSTR Name;
+        PCSTR Name;
         ULONG Level;
     }
     debug_classes[] =
     {
-        { "error", 1 << DPFLTR_ERROR_LEVEL },
+        { "error",   1 << DPFLTR_ERROR_LEVEL   },
         { "warning", 1 << DPFLTR_WARNING_LEVEL },
-        { "trace", 1 << DPFLTR_TRACE_LEVEL },
-        { "info", 1 << DPFLTR_INFO_LEVEL },
+        { "trace",   1 << DPFLTR_TRACE_LEVEL   },
+        { "info",    1 << DPFLTR_INFO_LEVEL    },
     };
+
+    if (Argc <= 1)
+    {
+        /* Display the list of available debug filter components */
+        KdbpPrint("REMARKS:\n"
+                  "- The 'WIN2000' system-wide debug filter component is used for DbgPrint()\n"
+                  "  messages without Component ID and Level.\n"
+                  "- The 'DEFAULT' debug filter component is used for DbgPrint() messages with\n"
+                  "  an unknown Component ID.\n\n");
+        KdbpPrint("The list of debug filter components currently available on your system is:\n\n");
+        KdbpPrint("    Component Name         Component ID\n"
+                  "  ==================     ================\n");
+        for (i = 0; i < RTL_NUMBER_OF(ComponentTable); i++)
+        {
+            KdbpPrint("%20s        0x%08lx\n", ComponentTable[i].Name, ComponentTable[i].Id);
+        }
+        return TRUE;
+    }
 
     for (i = 1; i < Argc; i++)
     {
         opt = Argv[i];
         p = opt + strcspn(opt, "+-");
-        if (!p[0]) p = opt; /* assume it's a debug channel name */
+        if (!p[0]) p = opt; /* Assume it's a debug channel name */
 
         if (p > opt)
         {
-            for (j = 0; j < sizeof(debug_classes) / sizeof(debug_classes[0]); j++)
+            for (j = 0; j < RTL_NUMBER_OF(debug_classes); j++)
             {
                 SIZE_T len = strlen(debug_classes[j].Name);
                 if (len != (p - opt))
                     continue;
-                if (_strnicmp(opt, debug_classes[j].Name, len) == 0) /* found it */
+                if (_strnicmp(opt, debug_classes[j].Name, len) == 0) /* Found it */
                 {
                     if (*p == '+')
                         set |= debug_classes[j].Level;
@@ -676,7 +756,7 @@ KdbpCmdFilter(
                     break;
                 }
             }
-            if (j == sizeof(debug_classes) / sizeof(debug_classes[0]))
+            if (j == RTL_NUMBER_OF(debug_classes))
             {
                 Level = strtoul(opt, &pend, 0);
                 if (pend != p)
@@ -726,7 +806,7 @@ KdbpCmdDisassembleX(
     ULONG ul;
     INT i;
     ULONGLONG Result = 0;
-    ULONG_PTR Address = KdbCurrentTrapFrame->Tf.Eip;
+    ULONG_PTR Address = KeGetContextPc(KdbCurrentTrapFrame);
     LONG InstLen;
 
     if (Argv[0][0] == 'x') /* display memory */
@@ -769,7 +849,7 @@ KdbpCmdDisassembleX(
     /* Evaluate the expression */
     if (Argc > 1)
     {
-        if (!KdbpEvaluateExpression(Argv[1], sizeof("kdb:> ")-1 + (Argv[1]-Argv[0]), &Result))
+        if (!KdbpEvaluateExpression(Argv[1], KdbPromptStr.Length + (Argv[1]-Argv[0]), &Result))
             return TRUE;
 
         if (Result > (ULONGLONG)(~((ULONG_PTR)0)))
@@ -791,7 +871,7 @@ KdbpCmdDisassembleX(
         while (Count > 0)
         {
             if (!KdbSymPrintAddress((PVOID)Address, NULL))
-                KdbpPrint("<%x>:", Address);
+                KdbpPrint("<%p>:", (PVOID)Address);
             else
                 KdbpPrint(":");
 
@@ -843,7 +923,7 @@ KdbpCmdRegs(
     ULONG Argc,
     PCHAR Argv[])
 {
-    PKTRAP_FRAME Tf = &KdbCurrentTrapFrame->Tf;
+    PCONTEXT Context = KdbCurrentTrapFrame;
     INT i;
     static const PCHAR EflagsBits[32] = { " CF", NULL, " PF", " BIT3", " AF", " BIT5",
                                           " ZF", " SF", " TF", " IF", " DF", " OF",
@@ -855,47 +935,61 @@ KdbpCmdRegs(
 
     if (Argv[0][0] == 'r') /* regs */
     {
+#ifdef _M_IX86
         KdbpPrint("CS:EIP  0x%04x:0x%08x\n"
                   "SS:ESP  0x%04x:0x%08x\n"
                   "   EAX  0x%08x   EBX  0x%08x\n"
                   "   ECX  0x%08x   EDX  0x%08x\n"
                   "   ESI  0x%08x   EDI  0x%08x\n"
                   "   EBP  0x%08x\n",
-                  Tf->SegCs & 0xFFFF, Tf->Eip,
-                  Tf->HardwareSegSs, Tf->HardwareEsp,
-                  Tf->Eax, Tf->Ebx,
-                  Tf->Ecx, Tf->Edx,
-                  Tf->Esi, Tf->Edi,
-                  Tf->Ebp);
-        KdbpPrint("EFLAGS  0x%08x ", Tf->EFlags);
-
+                  Context->SegCs & 0xFFFF, Context->Eip,
+                  Context->SegSs, Context->Esp,
+                  Context->Eax, Context->Ebx,
+                  Context->Ecx, Context->Edx,
+                  Context->Esi, Context->Edi,
+                  Context->Ebp);
+#else
+        KdbpPrint("CS:RIP  0x%04x:0x%p\n"
+                  "SS:RSP  0x%04x:0x%p\n"
+                  "   RAX  0x%p     RBX  0x%p\n"
+                  "   RCX  0x%p     RDX  0x%p\n"
+                  "   RSI  0x%p     RDI  0x%p\n"
+                  "   RBP  0x%p\n",
+                  Context->SegCs & 0xFFFF, Context->Rip,
+                  Context->SegSs, Context->Rsp,
+                  Context->Rax, Context->Rbx,
+                  Context->Rcx, Context->Rdx,
+                  Context->Rsi, Context->Rdi,
+                  Context->Rbp);
+#endif
+        /* Display the EFlags */
+        KdbpPrint("EFLAGS  0x%08x ", Context->EFlags);
         for (i = 0; i < 32; i++)
         {
             if (i == 1)
             {
-                if ((Tf->EFlags & (1 << 1)) == 0)
+                if ((Context->EFlags & (1 << 1)) == 0)
                     KdbpPrint(" !BIT1");
             }
             else if (i == 12)
             {
-                KdbpPrint(" IOPL%d", (Tf->EFlags >> 12) & 3);
+                KdbpPrint(" IOPL%d", (Context->EFlags >> 12) & 3);
             }
             else if (i == 13)
             {
             }
-            else if ((Tf->EFlags & (1 << i)) != 0)
+            else if ((Context->EFlags & (1 << i)) != 0)
             {
                 KdbpPrint(EflagsBits[i]);
             }
         }
-
         KdbpPrint("\n");
     }
     else if (Argv[0][0] == 'c') /* cregs */
     {
         ULONG Cr0, Cr2, Cr3, Cr4;
         KDESCRIPTOR Gdtr = {0, 0, 0}, Idtr = {0, 0, 0};
-        USHORT Ldtr;
+        USHORT Ldtr, Tr;
         static const PCHAR Cr0Bits[32] = { " PE", " MP", " EM", " TS", " ET", " NE", NULL, NULL,
                                            NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                                            " WP", NULL, " AM", NULL, NULL, NULL, NULL, NULL,
@@ -904,20 +998,41 @@ KdbpCmdRegs(
                                            " PCE", " OSFXSR", " OSXMMEXCPT", NULL, NULL, NULL, NULL, NULL,
                                            NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                                            NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
+        SYSDBG_CONTROL_SPACE Input;
+        KSPECIAL_REGISTERS SpecialRegisters;
+        NTSTATUS Status = STATUS_NOT_IMPLEMENTED;
 
-        Cr0 = KdbCurrentTrapFrame->Cr0;
-        Cr2 = KdbCurrentTrapFrame->Cr2;
-        Cr3 = KdbCurrentTrapFrame->Cr3;
-        Cr4 = KdbCurrentTrapFrame->Cr4;
+        /* Retrieve the control registers */
+        RtlZeroMemory(&Input, sizeof(Input));
+        Input.Buffer = &SpecialRegisters;
+        Input.Request = sizeof(SpecialRegisters);
+#ifdef _M_IX86
+        Input.Address = sizeof(CONTEXT);
+#else
+        Input.Address = AMD64_DEBUG_CONTROL_SPACE_KSPECIAL;
+#endif
+        Status = KdSystemDebugControl(SysDbgReadControlSpace,
+                                      &Input, sizeof(Input),
+                                      NULL, 0,
+                                      NULL, KernelMode);
+        if (!NT_SUCCESS(Status))
+        {
+            KdbpPrint("Failed to get registers: status 0x%08x\n", Status);
+            return TRUE;
+        }
+        Cr0 = SpecialRegisters.Cr0;
+        Cr2 = SpecialRegisters.Cr2;
+        Cr3 = SpecialRegisters.Cr3;
+        Cr4 = SpecialRegisters.Cr4;
 
-        /* Get descriptor table regs */
-        Ke386GetGlobalDescriptorTable(&Gdtr.Limit);
-        Ldtr = Ke386GetLocalDescriptorTable();
-        __sidt(&Idtr.Limit);
+        /* Retrieve the descriptor table and task segment registers */
+        Gdtr = SpecialRegisters.Gdtr;
+        Ldtr = SpecialRegisters.Ldtr;
+        Idtr = SpecialRegisters.Idtr;
+        Tr = SpecialRegisters.Tr;
 
         /* Display the control registers */
         KdbpPrint("CR0  0x%08x ", Cr0);
-
         for (i = 0; i < 32; i++)
         {
             if (!Cr0Bits[i])
@@ -926,12 +1041,12 @@ KdbpCmdRegs(
             if ((Cr0 & (1 << i)) != 0)
                 KdbpPrint(Cr0Bits[i]);
         }
+        KdbpPrint("\n");
 
-        KdbpPrint("\nCR2  0x%08x\n", Cr2);
+        KdbpPrint("CR2  0x%08x\n", Cr2);
         KdbpPrint("CR3  0x%08x  Pagedir-Base 0x%08x %s%s\n", Cr3, (Cr3 & 0xfffff000),
                   (Cr3 & (1 << 3)) ? " PWT" : "", (Cr3 & (1 << 4)) ? " PCD" : "" );
         KdbpPrint("CR4  0x%08x ", Cr4);
-
         for (i = 0; i < 32; i++)
         {
             if (!Cr4Bits[i])
@@ -940,27 +1055,29 @@ KdbpCmdRegs(
             if ((Cr4 & (1 << i)) != 0)
                 KdbpPrint(Cr4Bits[i]);
         }
+        KdbpPrint("\n");
 
-        /* Display the descriptor table regs */
-        KdbpPrint("\nGDTR  Base 0x%08x  Size 0x%04x\n", Gdtr.Base, Gdtr.Limit);
-        KdbpPrint("LDTR  0x%04x\n", Ldtr);
-        KdbpPrint("IDTR  Base 0x%08x  Size 0x%04x\n", Idtr.Base, Idtr.Limit);
+        /* Display the descriptor table and task segment registers */
+        KdbpPrint("GDTR Base 0x%08x  Size 0x%04x\n", Gdtr.Base, Gdtr.Limit);
+        KdbpPrint("LDTR 0x%04x\n", Ldtr);
+        KdbpPrint("IDTR Base 0x%08x  Size 0x%04x\n", Idtr.Base, Idtr.Limit);
+        KdbpPrint("TR   0x%04x\n", Tr);
     }
     else if (Argv[0][0] == 's') /* sregs */
     {
         KdbpPrint("CS  0x%04x  Index 0x%04x  %cDT RPL%d\n",
-                  Tf->SegCs & 0xffff, (Tf->SegCs & 0xffff) >> 3,
-                  (Tf->SegCs & (1 << 2)) ? 'L' : 'G', Tf->SegCs & 3);
+                  Context->SegCs & 0xffff, (Context->SegCs & 0xffff) >> 3,
+                  (Context->SegCs & (1 << 2)) ? 'L' : 'G', Context->SegCs & 3);
         KdbpPrint("DS  0x%04x  Index 0x%04x  %cDT RPL%d\n",
-                  Tf->SegDs, Tf->SegDs >> 3, (Tf->SegDs & (1 << 2)) ? 'L' : 'G', Tf->SegDs & 3);
+                  Context->SegDs, Context->SegDs >> 3, (Context->SegDs & (1 << 2)) ? 'L' : 'G', Context->SegDs & 3);
         KdbpPrint("ES  0x%04x  Index 0x%04x  %cDT RPL%d\n",
-                  Tf->SegEs, Tf->SegEs >> 3, (Tf->SegEs & (1 << 2)) ? 'L' : 'G', Tf->SegEs & 3);
+                  Context->SegEs, Context->SegEs >> 3, (Context->SegEs & (1 << 2)) ? 'L' : 'G', Context->SegEs & 3);
         KdbpPrint("FS  0x%04x  Index 0x%04x  %cDT RPL%d\n",
-                  Tf->SegFs, Tf->SegFs >> 3, (Tf->SegFs & (1 << 2)) ? 'L' : 'G', Tf->SegFs & 3);
+                  Context->SegFs, Context->SegFs >> 3, (Context->SegFs & (1 << 2)) ? 'L' : 'G', Context->SegFs & 3);
         KdbpPrint("GS  0x%04x  Index 0x%04x  %cDT RPL%d\n",
-                  Tf->SegGs, Tf->SegGs >> 3, (Tf->SegGs & (1 << 2)) ? 'L' : 'G', Tf->SegGs & 3);
+                  Context->SegGs, Context->SegGs >> 3, (Context->SegGs & (1 << 2)) ? 'L' : 'G', Context->SegGs & 3);
         KdbpPrint("SS  0x%04x  Index 0x%04x  %cDT RPL%d\n",
-                  Tf->HardwareSegSs, Tf->HardwareSegSs >> 3, (Tf->HardwareSegSs & (1 << 2)) ? 'L' : 'G', Tf->HardwareSegSs & 3);
+                  Context->SegSs, Context->SegSs >> 3, (Context->SegSs & (1 << 2)) ? 'L' : 'G', Context->SegSs & 3);
     }
     else /* dregs */
     {
@@ -971,93 +1088,216 @@ KdbpCmdRegs(
                   "DR3  0x%08x\n"
                   "DR6  0x%08x\n"
                   "DR7  0x%08x\n",
-                  Tf->Dr0, Tf->Dr1, Tf->Dr2, Tf->Dr3,
-                  Tf->Dr6, Tf->Dr7);
+                  Context->Dr0, Context->Dr1, Context->Dr2, Context->Dr3,
+                  Context->Dr6, Context->Dr7);
     }
 
     return TRUE;
 }
 
-static BOOLEAN
-KdbpTrapFrameFromPrevTss(
-    PKTRAP_FRAME TrapFrame)
+#ifdef _M_IX86
+static PKTSS
+KdbpRetrieveTss(
+    IN USHORT TssSelector,
+    OUT PULONG pType OPTIONAL,
+    IN PKDESCRIPTOR pGdtr OPTIONAL)
 {
-    ULONG_PTR Eip, Ebp;
     KDESCRIPTOR Gdtr;
     KGDTENTRY Desc;
-    USHORT Sel;
     PKTSS Tss;
 
-    Ke386GetGlobalDescriptorTable(&Gdtr.Limit);
-    Sel = Ke386GetTr();
+    /* Retrieve the Global Descriptor Table (user-provided or system) */
+    if (pGdtr)
+        Gdtr = *pGdtr;
+    else
+        Ke386GetGlobalDescriptorTable(&Gdtr.Limit);
 
-    if ((Sel & (sizeof(KGDTENTRY) - 1)) ||
-        (Sel < sizeof(KGDTENTRY)) ||
-        (Sel + sizeof(KGDTENTRY) - 1 > Gdtr.Limit))
-        return FALSE;
+    /* Check limits */
+    if ((TssSelector & (sizeof(KGDTENTRY) - 1)) ||
+        (TssSelector < sizeof(KGDTENTRY)) ||
+        (TssSelector + sizeof(KGDTENTRY) - 1 > Gdtr.Limit))
+    {
+        return NULL;
+    }
 
+    /* Retrieve the descriptor */
     if (!NT_SUCCESS(KdbpSafeReadMemory(&Desc,
-                                       (PVOID)(Gdtr.Base + Sel),
+                                       (PVOID)(Gdtr.Base + TssSelector),
                                        sizeof(KGDTENTRY))))
-        return FALSE;
+    {
+        return NULL;
+    }
 
-    if (Desc.HighWord.Bits.Type != 0xB)
-        return FALSE;
+    /* Check for TSS32(Avl) or TSS32(Busy) */
+    if (Desc.HighWord.Bits.Type != 9 && Desc.HighWord.Bits.Type != 11)
+    {
+        return NULL;
+    }
+    if (pType) *pType = Desc.HighWord.Bits.Type;
 
     Tss = (PKTSS)(ULONG_PTR)(Desc.BaseLow |
                              Desc.HighWord.Bytes.BaseMid << 16 |
                              Desc.HighWord.Bytes.BaseHi << 24);
 
-    if (!NT_SUCCESS(KdbpSafeReadMemory(&Sel,
+    return Tss;
+}
+
+FORCEINLINE BOOLEAN
+KdbpIsNestedTss(
+    IN USHORT TssSelector,
+    IN PKTSS Tss)
+{
+    USHORT Backlink;
+
+    if (!Tss)
+        return FALSE;
+
+#ifdef _M_AMD64
+    // HACK
+    return FALSE;
+#else
+    /* Retrieve the TSS Backlink */
+    if (!NT_SUCCESS(KdbpSafeReadMemory(&Backlink,
                                        (PVOID)&Tss->Backlink,
                                        sizeof(USHORT))))
+    {
         return FALSE;
+    }
+#endif
 
-    if ((Sel & (sizeof(KGDTENTRY) - 1)) ||
-        (Sel < sizeof(KGDTENTRY)) ||
-        (Sel + sizeof(KGDTENTRY) - 1 > Gdtr.Limit))
+    return (Backlink != 0 && Backlink != TssSelector);
+}
+
+static BOOLEAN
+KdbpContextFromPrevTss(
+    IN OUT PCONTEXT Context,
+    OUT PUSHORT TssSelector,
+    IN OUT PKTSS* pTss,
+    IN PKDESCRIPTOR pGdtr)
+{
+    ULONG_PTR Eip, Ebp;
+    USHORT Backlink;
+    PKTSS Tss = *pTss;
+
+#ifdef _M_AMD64
+    // HACK
+    return FALSE;
+#else
+    /* Retrieve the TSS Backlink */
+    if (!NT_SUCCESS(KdbpSafeReadMemory(&Backlink,
+                                       (PVOID)&Tss->Backlink,
+                                       sizeof(USHORT))))
+    {
         return FALSE;
+    }
 
-    if (!NT_SUCCESS(KdbpSafeReadMemory(&Desc,
-                                       (PVOID)(Gdtr.Base + Sel),
-                                       sizeof(KGDTENTRY))))
+    /* Retrieve the parent TSS */
+    Tss = KdbpRetrieveTss(Backlink, NULL, pGdtr);
+    if (!Tss)
         return FALSE;
-
-    if (Desc.HighWord.Bits.Type != 0xB)
-        return FALSE;
-
-    Tss = (PKTSS)(ULONG_PTR)(Desc.BaseLow |
-                             Desc.HighWord.Bytes.BaseMid << 16 |
-                             Desc.HighWord.Bytes.BaseHi << 24);
 
     if (!NT_SUCCESS(KdbpSafeReadMemory(&Eip,
                                        (PVOID)&Tss->Eip,
                                        sizeof(ULONG_PTR))))
+    {
         return FALSE;
+    }
 
     if (!NT_SUCCESS(KdbpSafeReadMemory(&Ebp,
                                        (PVOID)&Tss->Ebp,
                                        sizeof(ULONG_PTR))))
+    {
         return FALSE;
+    }
 
-    TrapFrame->Eip = Eip;
-    TrapFrame->Ebp = Ebp;
+    /* Return the parent TSS and its trap frame */
+    *TssSelector = Backlink;
+    *pTss = Tss;
+    Context->Eip = Eip;
+    Context->Ebp = Ebp;
+#endif
+    return TRUE;
+}
+#endif // _M_IX86
+
+#ifdef _M_AMD64
+
+static
+BOOLEAN
+GetNextFrame(
+    _Inout_ PCONTEXT Context)
+{
+    PRUNTIME_FUNCTION FunctionEntry;
+    ULONG64 ImageBase, EstablisherFrame;
+    PVOID HandlerData;
+
+    _SEH2_TRY
+    {
+        /* Lookup the FunctionEntry for the current RIP */
+        FunctionEntry = RtlLookupFunctionEntry(Context->Rip, &ImageBase, NULL);
+        if (FunctionEntry == NULL)
+        {
+            /* No function entry, so this must be a leaf function. Pop the return address from the stack.
+            Note: this can happen after the first frame as the result of an exception */
+            Context->Rip = *(DWORD64*)Context->Rsp;
+            Context->Rsp += sizeof(DWORD64);
+            return TRUE;
+        }
+        else
+        {
+            RtlVirtualUnwind(UNW_FLAG_NHANDLER,
+                             ImageBase,
+                             Context->Rip,
+                             FunctionEntry,
+                             Context,
+                             &HandlerData,
+                             &EstablisherFrame,
+                             NULL);
+        }
+    }
+    _SEH2_EXCEPT(1)
+    {
+        return FALSE;
+    }
+    _SEH2_END
+
     return TRUE;
 }
 
-VOID __cdecl KiTrap02(VOID);
-VOID FASTCALL KiTrap03Handler(IN PKTRAP_FRAME);
-VOID __cdecl KiTrap08(VOID);
-VOID __cdecl KiTrap09(VOID);
-
 static BOOLEAN
-KdbpInNmiOrDoubleFaultHandler(
-    ULONG_PTR Address)
+KdbpCmdBackTrace(
+    ULONG Argc,
+    PCHAR Argv[])
 {
-    return (Address > (ULONG_PTR)KiTrap02 && Address < (ULONG_PTR)KiTrap03Handler) ||
-           (Address > (ULONG_PTR)KiTrap08 && Address < (ULONG_PTR)KiTrap09);
-}
+    CONTEXT Context = *KdbCurrentTrapFrame;
 
+    /* Walk through the frames */
+    KdbpPrint("Frames:\n");
+    do
+    {
+        BOOLEAN GotNextFrame;
+
+        KdbpPrint("[%p] ", (PVOID)Context.Rsp);
+
+        /* Print the location after the call instruction */
+        if (!KdbSymPrintAddress((PVOID)Context.Rip, &Context))
+            KdbpPrint("<%p>", (PVOID)Context.Rip);
+        KdbpPrint("\n");
+
+        if (KdbOutputAborted)
+            break;
+
+        GotNextFrame = GetNextFrame(&Context);
+        if (!GotNextFrame)
+        {
+            KdbpPrint("Couldn't get next frame\n");
+            break;
+        }
+    } while ((Context.Rip != 0) && (Context.Rsp != 0));
+
+    return TRUE;
+}
+#else
 /*!\brief Displays a backtrace.
  */
 static BOOLEAN
@@ -1067,15 +1307,14 @@ KdbpCmdBackTrace(
 {
     ULONG ul;
     ULONGLONG Result = 0;
-    ULONG_PTR Frame = KdbCurrentTrapFrame->Tf.Ebp;
+    CONTEXT Context = *KdbCurrentTrapFrame;
+    ULONG_PTR Frame = KeGetContextFrameRegister(&Context);
     ULONG_PTR Address;
-    KTRAP_FRAME TrapFrame;
 
     if (Argc >= 2)
     {
         /* Check for [L count] part */
         ul = 0;
-
         if (strcmp(Argv[Argc-2], "L") == 0)
         {
             ul = strtoul(Argv[Argc-1], NULL, 0);
@@ -1102,7 +1341,7 @@ KdbpCmdBackTrace(
         Argc++;
     }
 
-    /* Check if frame addr or thread id is given. */
+    /* Check if a Frame Address or Thread ID is given */
     if (Argc > 1)
     {
         if (Argv[1][0] == '*')
@@ -1110,11 +1349,11 @@ KdbpCmdBackTrace(
             Argv[1]++;
 
             /* Evaluate the expression */
-            if (!KdbpEvaluateExpression(Argv[1], sizeof("kdb:> ")-1 + (Argv[1]-Argv[0]), &Result))
+            if (!KdbpEvaluateExpression(Argv[1], KdbPromptStr.Length + (Argv[1]-Argv[0]), &Result))
                 return TRUE;
 
             if (Result > (ULONGLONG)(~((ULONG_PTR)0)))
-                KdbpPrint("Warning: Address %I64x is beeing truncated\n",Result);
+                KdbpPrint("Warning: Address %I64x is beeing truncated\n", Result);
 
             Frame = (ULONG_PTR)Result;
         }
@@ -1124,70 +1363,115 @@ KdbpCmdBackTrace(
             return TRUE;
         }
     }
-    else
+
+#ifdef _M_IX86
+    KDESCRIPTOR Gdtr;
+    USHORT TssSelector;
+    PKTSS Tss;
+
+    /* Retrieve the Global Descriptor Table */
+    Ke386GetGlobalDescriptorTable(&Gdtr.Limit);
+
+    /* Retrieve the current (active) TSS */
+    TssSelector = Ke386GetTr();
+    Tss = KdbpRetrieveTss(TssSelector, NULL, &Gdtr);
+    if (KdbpIsNestedTss(TssSelector, Tss))
+    {
+        /* Display the active TSS if it is nested */
+        KdbpPrint("[Active TSS 0x%04x @ 0x%p]\n", TssSelector, Tss);
+    }
+#endif
+
+    /* If no Frame Address or Thread ID was given, try printing the function at EIP */
+    if (Argc <= 1)
     {
         KdbpPrint("Eip:\n");
-
-        /* Try printing the function at EIP */
-        if (!KdbSymPrintAddress((PVOID)KdbCurrentTrapFrame->Tf.Eip, &KdbCurrentTrapFrame->Tf))
-            KdbpPrint("<%08x>\n", KdbCurrentTrapFrame->Tf.Eip);
+        if (!KdbSymPrintAddress((PVOID)KeGetContextPc(&Context), &Context))
+            KdbpPrint("<%p>\n", KeGetContextPc(&Context));
         else
             KdbpPrint("\n");
     }
 
-    TrapFrame = KdbCurrentTrapFrame->Tf;
+    /* Walk through the frames */
     KdbpPrint("Frames:\n");
-
     for (;;)
     {
         BOOLEAN GotNextFrame;
 
         if (Frame == 0)
-            break;
+            goto CheckForParentTSS;
 
-        if (!NT_SUCCESS(KdbpSafeReadMemory(&Address, (PVOID)(Frame + sizeof(ULONG_PTR)), sizeof (ULONG_PTR))))
+        Address = 0;
+        if (!NT_SUCCESS(KdbpSafeReadMemory(&Address, (PVOID)(Frame + sizeof(ULONG_PTR)), sizeof(ULONG_PTR))))
         {
             KdbpPrint("Couldn't access memory at 0x%p!\n", Frame + sizeof(ULONG_PTR));
-            break;
+            goto CheckForParentTSS;
         }
 
-        if ((GotNextFrame = NT_SUCCESS(KdbpSafeReadMemory(&Frame, (PVOID)Frame, sizeof (ULONG_PTR)))))
-            TrapFrame.Ebp = Frame;
+        if (Address == 0)
+            goto CheckForParentTSS;
 
-        /* Print the location of the call instruction */
-        if (!KdbSymPrintAddress((PVOID)(Address - 5), &TrapFrame))
+        GotNextFrame = NT_SUCCESS(KdbpSafeReadMemory(&Frame, (PVOID)Frame, sizeof(ULONG_PTR)));
+        if (GotNextFrame)
+        {
+            KeSetContextFrameRegister(&Context, Frame);
+        }
+        // else
+            // Frame = 0;
+
+        /* Print the location of the call instruction (assumed 5 bytes length) */
+        if (!KdbSymPrintAddress((PVOID)(Address - 5), &Context))
             KdbpPrint("<%08x>\n", Address);
         else
             KdbpPrint("\n");
 
-        if (KdbOutputAborted) break;
-
-        if (Address == 0)
+        if (KdbOutputAborted)
             break;
-
-        if (KdbpInNmiOrDoubleFaultHandler(Address))
-        {
-            if ((GotNextFrame = KdbpTrapFrameFromPrevTss(&TrapFrame)))
-            {
-                Address = TrapFrame.Eip;
-                Frame = TrapFrame.Ebp;
-
-                if (!KdbSymPrintAddress((PVOID)Address, &TrapFrame))
-                    KdbpPrint("<%08x>\n", Address);
-                else
-                    KdbpPrint("\n");
-            }
-        }
 
         if (!GotNextFrame)
         {
             KdbpPrint("Couldn't access memory at 0x%p!\n", Frame);
-            break;
+            goto CheckForParentTSS; // break;
         }
+
+        continue;
+
+CheckForParentTSS:
+#ifndef _M_IX86
+        break;
+#else
+        /*
+         * We have ended the stack walking for the current (active) TSS.
+         * Check whether this TSS was nested, and if so switch to its parent
+         * and walk its stack.
+         */
+        if (!KdbpIsNestedTss(TssSelector, Tss))
+            break; // The TSS is not nested, we stop there.
+
+        GotNextFrame = KdbpContextFromPrevTss(&Context, &TssSelector, &Tss, &Gdtr);
+        if (!GotNextFrame)
+        {
+            KdbpPrint("Couldn't access parent TSS 0x%04x\n", Tss->Backlink);
+            break; // Cannot retrieve the parent TSS, we stop there.
+        }
+
+
+        Address = Context.Eip;
+        Frame = Context.Ebp;
+
+        KdbpPrint("[Parent TSS 0x%04x @ 0x%p]\n", TssSelector, Tss);
+
+        if (!KdbSymPrintAddress((PVOID)Address, &Context))
+            KdbpPrint("<%08x>\n", Address);
+        else
+            KdbpPrint("\n");
+#endif
     }
 
     return TRUE;
 }
+
+#endif // M_AMD64
 
 /*!\brief Continues execution of the system/leaves KDB.
  */
@@ -1283,8 +1567,8 @@ KdbpCmdBreakPointList(
         else
         {
             GlobalOrLocal = Buffer;
-            sprintf(Buffer, "  PID 0x%08lx",
-                    (ULONG)(Process ? Process->UniqueProcessId : INVALID_HANDLE_VALUE));
+            sprintf(Buffer, "  PID 0x%Ix",
+                    (ULONG_PTR)(Process ? Process->UniqueProcessId : INVALID_HANDLE_VALUE));
         }
 
         if (Type == KdbBreakPointSoftware || Type == KdbBreakPointTemporary)
@@ -1474,7 +1758,7 @@ KdbpCmdBreakPoint(ULONG Argc, PCHAR Argv[])
 
     /* Evaluate the address expression */
     if (!KdbpEvaluateExpression(Argv[AddressArgIndex],
-                                sizeof("kdb:> ")-1 + (Argv[AddressArgIndex]-Argv[0]),
+                                KdbPromptStr.Length + (Argv[AddressArgIndex]-Argv[0]),
                                 &Result))
     {
         return TRUE;
@@ -1503,10 +1787,10 @@ KdbpCmdThread(
     PETHREAD Thread = NULL;
     PEPROCESS Process = NULL;
     BOOLEAN ReferencedThread = FALSE, ReferencedProcess = FALSE;
-    PULONG Esp;
-    PULONG Ebp;
-    ULONG Eip;
-    ULONG ul = 0;
+    PULONG_PTR Stack;
+    PULONG_PTR Frame;
+    ULONG_PTR Pc;
+    ULONG_PTR ul = 0;
     PCHAR State, pend, str1, str2;
     static const PCHAR ThreadStateToString[DeferredReady+1] =
     {
@@ -1523,7 +1807,7 @@ KdbpCmdThread(
 
         if (Argc >= 3)
         {
-            ul = strtoul(Argv[2], &pend, 0);
+            ul = strtoulptr(Argv[2], &pend, 0);
             if (Argv[2] == pend)
             {
                 KdbpPrint("thread: '%s' is not a valid process id!\n", Argv[2]);
@@ -1544,7 +1828,7 @@ KdbpCmdThread(
         if (Entry == &Process->ThreadListHead)
         {
             if (Argc >= 3)
-                KdbpPrint("No threads in process 0x%08x!\n", ul);
+                KdbpPrint("No threads in process 0x%px!\n", (PVOID)ul);
             else
                 KdbpPrint("No threads in current process!\n");
 
@@ -1573,27 +1857,23 @@ KdbpCmdThread(
             if (!Thread->Tcb.InitialStack)
             {
                 /* Thread has no kernel stack (probably terminated) */
-                Esp = Ebp = NULL;
-                Eip = 0;
+                Stack = Frame = NULL;
+                Pc = 0;
             }
             else if (Thread->Tcb.TrapFrame)
             {
-                if (Thread->Tcb.TrapFrame->PreviousPreviousMode == KernelMode)
-                    Esp = (PULONG)Thread->Tcb.TrapFrame->TempEsp;
-                else
-                    Esp = (PULONG)Thread->Tcb.TrapFrame->HardwareEsp;
-
-                Ebp = (PULONG)Thread->Tcb.TrapFrame->Ebp;
-                Eip = Thread->Tcb.TrapFrame->Eip;
+                Stack = (PULONG_PTR)KeGetTrapFrameStackRegister(Thread->Tcb.TrapFrame);
+                Frame = (PULONG_PTR)KeGetTrapFrameFrameRegister(Thread->Tcb.TrapFrame);
+                Pc = KeGetTrapFramePc(Thread->Tcb.TrapFrame);
             }
             else
             {
-                Esp = (PULONG)Thread->Tcb.KernelStack;
-                Ebp = (PULONG)Esp[4];
-                Eip = 0;
+                Stack = (PULONG_PTR)Thread->Tcb.KernelStack;
+                Frame = (PULONG_PTR)Stack[4];
+                Pc = 0;
 
-                if (Ebp) /* FIXME: Should we attach to the process to read Ebp[1]? */
-                    KdbpSafeReadMemory(&Eip, Ebp + 1, sizeof (Eip));
+                if (Frame) /* FIXME: Should we attach to the process to read Ebp[1]? */
+                    KdbpSafeReadMemory(&Pc, Frame + 1, sizeof(Pc));
             }
 
             if (Thread->Tcb.State < (DeferredReady + 1))
@@ -1607,8 +1887,8 @@ KdbpCmdThread(
                       State,
                       Thread->Tcb.Priority,
                       Thread->Tcb.Affinity,
-                      Ebp,
-                      Eip,
+                      Frame,
+                      Pc,
                       str2);
 
             Entry = Entry->Flink;
@@ -1627,7 +1907,7 @@ KdbpCmdThread(
             return TRUE;
         }
 
-        ul = strtoul(Argv[2], &pend, 0);
+        ul = strtoulptr(Argv[2], &pend, 0);
         if (Argv[2] == pend)
         {
             KdbpPrint("thread attach: '%s' is not a valid thread id!\n", Argv[2]);
@@ -1647,7 +1927,7 @@ KdbpCmdThread(
 
         if (Argc >= 2)
         {
-            ul = strtoul(Argv[1], &pend, 0);
+            ul = strtoulptr(Argv[1], &pend, 0);
             if (Argv[1] == pend)
             {
                 KdbpPrint("thread: '%s' is not a valid thread id!\n", Argv[1]);
@@ -1679,18 +1959,23 @@ KdbpCmdThread(
                   "  Stack Base:     0x%08x\n"
                   "  Kernel Stack:   0x%08x\n"
                   "  Trap Frame:     0x%08x\n"
-                  "  NPX State:      %s (0x%x)\n",
-                  (Argc < 2) ? "Current Thread:\n" : "",
-                  Thread->Cid.UniqueThread,
-                  State, Thread->Tcb.State,
-                  Thread->Tcb.Priority,
-                  Thread->Tcb.Affinity,
-                  Thread->Tcb.InitialStack,
-                  Thread->Tcb.StackLimit,
-                  Thread->Tcb.StackBase,
-                  Thread->Tcb.KernelStack,
-                  Thread->Tcb.TrapFrame,
-                  NPX_STATE_TO_STRING(Thread->Tcb.NpxState), Thread->Tcb.NpxState);
+#ifndef _M_AMD64
+                  "  NPX State:      %s (0x%x)\n"
+#endif
+                  , (Argc < 2) ? "Current Thread:\n" : ""
+                  , Thread->Cid.UniqueThread
+                  , State, Thread->Tcb.State
+                  , Thread->Tcb.Priority
+                  , Thread->Tcb.Affinity
+                  , Thread->Tcb.InitialStack
+                  , Thread->Tcb.StackLimit
+                  , Thread->Tcb.StackBase
+                  , Thread->Tcb.KernelStack
+                  , Thread->Tcb.TrapFrame
+#ifndef _M_AMD64
+                  , NPX_STATE_TO_STRING(Thread->Tcb.NpxState), Thread->Tcb.NpxState
+#endif
+            );
 
             /* Release our reference if we had one */
             if (ReferencedThread)
@@ -1711,7 +1996,7 @@ KdbpCmdProc(
     PEPROCESS Process;
     BOOLEAN ReferencedProcess = FALSE;
     PCHAR State, pend, str1, str2;
-    ULONG ul;
+    ULONG_PTR ul;
     extern LIST_ENTRY PsActiveProcessHead;
 
     if (Argc >= 2 && _stricmp(Argv[1], "list") == 0)
@@ -1761,7 +2046,7 @@ KdbpCmdProc(
             return TRUE;
         }
 
-        ul = strtoul(Argv[2], &pend, 0);
+        ul = strtoulptr(Argv[2], &pend, 0);
         if (Argv[2] == pend)
         {
             KdbpPrint("process attach: '%s' is not a valid process id!\n", Argv[2]);
@@ -1773,8 +2058,8 @@ KdbpCmdProc(
             return TRUE;
         }
 
-        KdbpPrint("Attached to process 0x%08x, thread 0x%08x.\n", (ULONG)ul,
-                  (ULONG)KdbCurrentThread->Cid.UniqueThread);
+        KdbpPrint("Attached to process 0x%p, thread 0x%p.\n", (PVOID)ul,
+                  KdbCurrentThread->Cid.UniqueThread);
     }
     else
     {
@@ -1782,7 +2067,7 @@ KdbpCmdProc(
 
         if (Argc >= 2)
         {
-            ul = strtoul(Argv[1], &pend, 0);
+            ul = strtoulptr(Argv[1], &pend, 0);
             if (Argv[1] == pend)
             {
                 KdbpPrint("proc: '%s' is not a valid process id!\n", Argv[1]);
@@ -1839,7 +2124,7 @@ KdbpCmdMod(
             Argv[Argc][strlen(Argv[Argc])] = ' ';
 
         /* Evaluate the expression */
-        if (!KdbpEvaluateExpression(Argv[1], sizeof("kdb:> ")-1 + (Argv[1]-Argv[0]), &Result))
+        if (!KdbpEvaluateExpression(Argv[1], KdbPromptStr.Length + (Argv[1]-Argv[0]), &Result))
         {
             return TRUE;
         }
@@ -1849,7 +2134,7 @@ KdbpCmdMod(
 
         Address = (ULONG_PTR)Result;
 
-        if (!KdbpSymFindModule((PVOID)Address, NULL, -1, &LdrEntry))
+        if (!KdbpSymFindModule((PVOID)Address, -1, &LdrEntry))
         {
             KdbpPrint("No module containing address 0x%p found!\n", Address);
             return TRUE;
@@ -1859,11 +2144,11 @@ KdbpCmdMod(
     }
     else
     {
-        if (!KdbpSymFindModule(NULL, NULL, 0, &LdrEntry))
+        if (!KdbpSymFindModule(NULL, 0, &LdrEntry))
         {
-            ULONG_PTR ntoskrnlBase = ((ULONG_PTR)KdbpCmdMod) & 0xfff00000;
+            ULONG_PTR ntoskrnlBase = (ULONG_PTR)__ImageBase;
             KdbpPrint("  Base      Size      Name\n");
-            KdbpPrint("  %08x  %08x  %s\n", ntoskrnlBase, 0, "ntoskrnl.exe");
+            KdbpPrint("  %p  %08x  %s\n", (PVOID)ntoskrnlBase, 0, "ntoskrnl.exe");
             return TRUE;
         }
 
@@ -1873,16 +2158,18 @@ KdbpCmdMod(
     KdbpPrint("  Base      Size      Name\n");
     for (;;)
     {
-        KdbpPrint("  %08x  %08x  %wZ\n", LdrEntry->DllBase, LdrEntry->SizeOfImage, &LdrEntry->BaseDllName);
+        KdbpPrint("  %p  %08x  ", LdrEntry->DllBase, LdrEntry->SizeOfImage);
+        KdbpPrintUnicodeString(&LdrEntry->BaseDllName);
+        KdbpPrint("\n");
 
-        if(DisplayOnlyOneModule || !KdbpSymFindModule(NULL, NULL, i++, &LdrEntry))
+        if(DisplayOnlyOneModule || !KdbpSymFindModule(NULL, i++, &LdrEntry))
             break;
     }
 
     return TRUE;
 }
 
-/*!\brief Displays GDT, LDT or IDTd.
+/*!\brief Displays GDT, LDT or IDT.
  */
 static BOOLEAN
 KdbpCmdGdtLdtIdt(
@@ -1915,9 +2202,9 @@ KdbpCmdGdtLdtIdt(
 
         for (i = 0; (i + sizeof(SegDesc) - 1) <= Reg.Limit; i += 8)
         {
-            if (!NT_SUCCESS(KdbpSafeReadMemory(SegDesc, (PVOID)(Reg.Base + i), sizeof(SegDesc))))
+            if (!NT_SUCCESS(KdbpSafeReadMemory(SegDesc, (PVOID)((ULONG_PTR)Reg.Base + i), sizeof(SegDesc))))
             {
-                KdbpPrint("Couldn't access memory at 0x%08x!\n", Reg.Base + i);
+                KdbpPrint("Couldn't access memory at 0x%p!\n", (PVOID)((ULONG_PTR)Reg.Base + i));
                 return TRUE;
             }
 
@@ -1970,7 +2257,7 @@ KdbpCmdGdtLdtIdt(
             ASSERT(Argv[0][0] == 'l');
 
             /* Read LDTR */
-            Reg.Limit = Ke386GetLocalDescriptorTable();
+            Ke386GetLocalDescriptorTable(&Reg.Limit);
             Reg.Base = 0;
             i = 0;
             ul = 1 << 2;
@@ -1989,9 +2276,9 @@ KdbpCmdGdtLdtIdt(
 
         for (; (i + sizeof(SegDesc) - 1) <= Reg.Limit; i += 8)
         {
-            if (!NT_SUCCESS(KdbpSafeReadMemory(SegDesc, (PVOID)(Reg.Base + i), sizeof(SegDesc))))
+            if (!NT_SUCCESS(KdbpSafeReadMemory(SegDesc, (PVOID)((ULONG_PTR)Reg.Base + i), sizeof(SegDesc))))
             {
-                KdbpPrint("Couldn't access memory at 0x%08x!\n", Reg.Base + i);
+                KdbpPrint("Couldn't access memory at 0x%p!\n", (ULONG_PTR)Reg.Base + i);
                 return TRUE;
             }
 
@@ -2018,19 +2305,19 @@ KdbpCmdGdtLdtIdt(
             {
                 switch (Type)
                 {
-                    case 1: SegType = "TSS16(Avl)"; break;
-                    case 2: SegType = "LDT"; break;
-                    case 3: SegType = "TSS16(Busy)"; break;
-                    case 4: SegType = "CALLGATE16"; break;
-                    case 5: SegType = "TASKGATE"; break;
-                    case 6: SegType = "INTGATE16"; break;
-                    case 7: SegType = "TRAPGATE16"; break;
-                    case 9: SegType = "TSS32(Avl)"; break;
-                    case 11: SegType = "TSS32(Busy)"; break;
-                    case 12: SegType = "CALLGATE32"; break;
-                    case 14: SegType = "INTGATE32"; break;
-                    case 15: SegType = "INTGATE32"; break;
-                    default: SegType = "UNKNOWN"; break;
+                    case  1: SegType = "TSS16(Avl)";    break;
+                    case  2: SegType = "LDT";           break;
+                    case  3: SegType = "TSS16(Busy)";   break;
+                    case  4: SegType = "CALLGATE16";    break;
+                    case  5: SegType = "TASKGATE";      break;
+                    case  6: SegType = "INTGATE16";     break;
+                    case  7: SegType = "TRAPGATE16";    break;
+                    case  9: SegType = "TSS32(Avl)";    break;
+                    case 11: SegType = "TSS32(Busy)";   break;
+                    case 12: SegType = "CALLGATE32";    break;
+                    case 14: SegType = "INTGATE32";     break;
+                    case 15: SegType = "TRAPGATE32";    break;
+                    default: SegType = "UNKNOWN";       break;
                 }
 
                 if (!(Type >= 1 && Type <= 3) &&
@@ -2055,7 +2342,7 @@ KdbpCmdGdtLdtIdt(
                     SegType = "CODE16";
             }
 
-            if ((SegDesc[1] & (1 << 15)) == 0) /* not present */
+            if ((SegDesc[1] & (1 << 15)) == 0) /* Not present */
             {
                 KdbpPrint("  %03d  0x%04x  %-11s  [NP]        [NP]        %02d   NP\n",
                           i / 8, i | Dpl | ul, SegType, Dpl);
@@ -2110,7 +2397,8 @@ KdbpCmdPcr(
 {
     PKIPCR Pcr = (PKIPCR)KeGetPcr();
 
-    KdbpPrint("Current PCR is at 0x%08x.\n", (INT)Pcr);
+    KdbpPrint("Current PCR is at 0x%p.\n", Pcr);
+#ifdef _M_IX86
     KdbpPrint("  Tib.ExceptionList:         0x%08x\n"
               "  Tib.StackBase:             0x%08x\n"
               "  Tib.StackLimit:            0x%08x\n"
@@ -2136,18 +2424,46 @@ KdbpCmdPcr(
               "  L2CacheAssociativity:      0x%02x\n"
               "  VdmAlert:                  0x%08x\n"
               "  L2CacheSize:               0x%08x\n"
-              "  InterruptMode:             0x%08x\n",
-              Pcr->NtTib.ExceptionList, Pcr->NtTib.StackBase, Pcr->NtTib.StackLimit,
+              "  InterruptMode:             0x%08x\n"
+              , Pcr->NtTib.ExceptionList, Pcr->NtTib.StackBase, Pcr->NtTib.StackLimit,
               Pcr->NtTib.SubSystemTib, Pcr->NtTib.FiberData, Pcr->NtTib.ArbitraryUserPointer,
-              Pcr->NtTib.Self, Pcr->SelfPcr, Pcr->Prcb, Pcr->Irql, Pcr->IRR, Pcr->IrrActive,
-              Pcr->IDR, Pcr->KdVersionBlock, Pcr->IDT, Pcr->GDT, Pcr->TSS,
-              Pcr->MajorVersion, Pcr->MinorVersion, Pcr->SetMember, Pcr->StallScaleFactor,
-              Pcr->Number, Pcr->SecondLevelCacheAssociativity,
-              Pcr->VdmAlert, Pcr->SecondLevelCacheSize, Pcr->InterruptMode);
+              Pcr->NtTib.Self
+              , Pcr->SelfPcr
+              , Pcr->Prcb, Pcr->Irql
+              , Pcr->IRR, Pcr->IrrActive , Pcr->IDR
+              , Pcr->KdVersionBlock
+              , Pcr->IDT, Pcr->GDT, Pcr->TSS
+              , Pcr->MajorVersion, Pcr->MinorVersion
+              , Pcr->SetMember
+              , Pcr->StallScaleFactor
+              , Pcr->Number
+              , Pcr->SecondLevelCacheAssociativity
+              , Pcr->VdmAlert
+              , Pcr->SecondLevelCacheSize
+              , Pcr->InterruptMode);
+#else
+    KdbpPrint("  GdtBase:                       0x%p\n", Pcr->GdtBase);
+    KdbpPrint("  TssBase:                       0x%p\n", Pcr->TssBase);
+    KdbpPrint("  UserRsp:                       0x%p\n", (PVOID)Pcr->UserRsp);
+    KdbpPrint("  Self:                          0x%p\n", Pcr->Self);
+    KdbpPrint("  CurrentPrcb:                   0x%p\n", Pcr->CurrentPrcb);
+    KdbpPrint("  LockArray:                     0x%p\n", Pcr->LockArray);
+    KdbpPrint("  Used_Self:                     0x%p\n", Pcr->Used_Self);
+    KdbpPrint("  IdtBase:                       0x%p\n", Pcr->IdtBase);
+    KdbpPrint("  Irql:                          %u\n", Pcr->Irql);
+    KdbpPrint("  SecondLevelCacheAssociativity: 0x%u\n", Pcr->SecondLevelCacheAssociativity);
+    KdbpPrint("  ObsoleteNumber:                %u\n", Pcr->ObsoleteNumber);
+    KdbpPrint("  MajorVersion:                  0x%x\n", Pcr->MajorVersion);
+    KdbpPrint("  MinorVersion:                  0x%x\n", Pcr->MinorVersion);
+    KdbpPrint("  StallScaleFactor:              0x%lx\n", Pcr->StallScaleFactor);
+    KdbpPrint("  SecondLevelCacheSize:          0x%lx\n", Pcr->SecondLevelCacheSize);
+    KdbpPrint("  KdVersionBlock:                0x%p\n", Pcr->KdVersionBlock);
+#endif
 
     return TRUE;
 }
 
+#ifdef _M_IX86
 /*!\brief Displays the TSS
  */
 static BOOLEAN
@@ -2155,21 +2471,97 @@ KdbpCmdTss(
     ULONG Argc,
     PCHAR Argv[])
 {
-    KTSS *Tss = KeGetPcr()->TSS;
+    USHORT TssSelector;
+    PKTSS Tss = NULL;
 
-    KdbpPrint("Current TSS is at 0x%08x.\n", (INT)Tss);
-    KdbpPrint("  Eip:           0x%08x\n"
-              "  Es:            0x%04x\n"
-              "  Cs:            0x%04x\n"
-              "  Ss:            0x%04x\n"
-              "  Ds:            0x%04x\n"
-              "  Fs:            0x%04x\n"
-              "  Gs:            0x%04x\n"
-              "  IoMapBase:     0x%04x\n",
-              Tss->Eip, Tss->Es, Tss->Cs, Tss->Ds, Tss->Fs, Tss->Gs, Tss->IoMapBase);
+    if (Argc >= 2)
+    {
+        /*
+         * Specified TSS via its selector [selector] or descriptor address [*descaddr].
+         * Note that we ignore any other argument values.
+         */
+        PCHAR Param, pszNext;
+        ULONG ulValue;
+
+        Param = Argv[1];
+        if (Argv[1][0] == '*')
+            ++Param;
+
+        ulValue = strtoul(Param, &pszNext, 0);
+        if (pszNext && *pszNext)
+        {
+            KdbpPrint("Invalid TSS specification.\n");
+            return TRUE;
+        }
+
+        if (Argv[1][0] == '*')
+        {
+            /* Descriptor specified */
+            TssSelector = 0; // Unknown selector!
+            // TODO: Room for improvement: Find the TSS descriptor
+            // in the GDT so as to validate it.
+            Tss = (PKTSS)(ULONG_PTR)ulValue;
+            if (!Tss)
+            {
+                KdbpPrint("Invalid 32-bit TSS descriptor.\n");
+                return TRUE;
+            }
+        }
+        else
+        {
+            /* Selector specified, retrive the corresponding TSS */
+            TssSelector = (USHORT)ulValue;
+            Tss = KdbpRetrieveTss(TssSelector, NULL, NULL);
+            if (!Tss)
+            {
+                KdbpPrint("Invalid 32-bit TSS selector.\n");
+                return TRUE;
+            }
+        }
+    }
+
+    if (!Tss)
+    {
+        /* If no TSS was specified, use the current TSS descriptor */
+        TssSelector = Ke386GetTr();
+        Tss = KeGetPcr()->TSS;
+        // NOTE: If everything works OK, Tss is the current TSS corresponding to the TR selector.
+    }
+
+    KdbpPrint("%s TSS 0x%04x is at 0x%p.\n",
+              (Tss == KeGetPcr()->TSS) ? "Current" : "Specified", TssSelector, Tss);
+    KdbpPrint("  Backlink:  0x%04x\n"
+              "  Ss0:Esp0:  0x%04x:0x%08x\n"
+              // NOTE: Ss1:Esp1 and Ss2:Esp2: are in the NotUsed1 field.
+              "  CR3:       0x%08x\n"
+              "  EFlags:    0x%08x\n"
+              "  Eax:       0x%08x\n"
+              "  Ebx:       0x%08x\n"
+              "  Ecx:       0x%08x\n"
+              "  Edx:       0x%08x\n"
+              "  Esi:       0x%08x\n"
+              "  Edi:       0x%08x\n"
+              "  Eip:       0x%08x\n"
+              "  Esp:       0x%08x\n"
+              "  Ebp:       0x%08x\n"
+              "  Cs:        0x%04x\n"
+              "  Ss:        0x%04x\n"
+              "  Ds:        0x%04x\n"
+              "  Es:        0x%04x\n"
+              "  Fs:        0x%04x\n"
+              "  Gs:        0x%04x\n"
+              "  LDT:       0x%04x\n"
+              "  Flags:     0x%04x\n"
+              "  IoMapBase: 0x%04x\n",
+              Tss->Backlink, Tss->Ss0, Tss->Esp0, Tss->CR3, Tss->EFlags,
+              Tss->Eax, Tss->Ebx, Tss->Ecx, Tss->Edx, Tss->Esi, Tss->Edi,
+              Tss->Eip, Tss->Esp, Tss->Ebp,
+              Tss->Cs, Tss->Ss, Tss->Ds, Tss->Es, Tss->Fs, Tss->Gs,
+              Tss->LDT, Tss->Flags, Tss->IoMapBase);
 
     return TRUE;
 }
+#endif // _M_IX86
 
 /*!\brief Bugchecks the system.
  */
@@ -2180,7 +2572,6 @@ KdbpCmdBugCheck(
 {
     /* Set the flag and quit looping */
     KdbpBugCheckRequested = TRUE;
-
     return FALSE;
 }
 
@@ -2194,12 +2585,6 @@ KdbpCmdReboot(
     return FALSE;
 }
 
-
-VOID
-KdbpPager(
-    IN PCHAR Buffer,
-    IN ULONG BufLength);
-
 /*!\brief Display debug messages on screen, with paging.
  *
  * Keys for per-page view: Home, End, PageUp, Arrow Up, PageDown,
@@ -2210,41 +2595,41 @@ KdbpCmdDmesg(
     ULONG Argc,
     PCHAR Argv[])
 {
-  ULONG beg, end;
+    ULONG beg, end;
 
-  KdbpIsInDmesgMode = TRUE; /* Toggle logging flag */
-  if (!KdpDmesgBuffer)
-  {
-    KdbpPrint("Dmesg: error, buffer is not allocated! /DEBUGPORT=SCREEN kernel param required for dmesg.\n");
+    KdbpIsInDmesgMode = TRUE; /* Toggle logging flag */
+    if (!KdpDmesgBuffer)
+    {
+        KdbpPrint("Dmesg: error, buffer is not allocated! /DEBUGPORT=SCREEN kernel param required for dmesg.\n");
+        return TRUE;
+    }
+
+    KdbpPrint("*** Dmesg *** TotalWritten=%lu, BufferSize=%lu, CurrentPosition=%lu\n",
+              KdbDmesgTotalWritten, KdpDmesgBufferSize, KdpDmesgCurrentPosition);
+
+    /* Pass data to the pager */
+    end = KdpDmesgCurrentPosition;
+    beg = (end + KdpDmesgFreeBytes) % KdpDmesgBufferSize;
+
+    /* No roll-overs, and overwritten=lost bytes */
+    if (KdbDmesgTotalWritten <= KdpDmesgBufferSize)
+    {
+        /* Show buffer (KdpDmesgBuffer + beg, num) */
+        KdbpPager(KdpDmesgBuffer, KdpDmesgCurrentPosition);
+    }
+    else
+    {
+        /* Show 2 buffers: (KdpDmesgBuffer + beg, KdpDmesgBufferSize - beg)
+         *            and: (KdpDmesgBuffer,       end) */
+        KdbpPager(KdpDmesgBuffer + beg, KdpDmesgBufferSize - beg);
+        KdbpPrint("*** Dmesg: buffer rollup ***\n");
+        KdbpPager(KdpDmesgBuffer,       end);
+    }
+    KdbpPrint("*** Dmesg: end of output ***\n");
+
+    KdbpIsInDmesgMode = FALSE; /* Toggle logging flag */
+
     return TRUE;
-  }
-
-  KdbpPrint("*** Dmesg *** TotalWritten=%lu, BufferSize=%lu, CurrentPosition=%lu\n",
-            KdbDmesgTotalWritten, KdpDmesgBufferSize, KdpDmesgCurrentPosition);
-
-  // Pass data to the pager:
-  end = KdpDmesgCurrentPosition;
-  beg = (end + KdpDmesgFreeBytes) % KdpDmesgBufferSize;
-
-  // no roll-overs, and overwritten=lost bytes
-  if (KdbDmesgTotalWritten <= KdpDmesgBufferSize)
-  {
-    // show buffer (KdpDmesgBuffer + beg, num)
-    KdbpPager(KdpDmesgBuffer, KdpDmesgCurrentPosition);
-  }
-  else
-  {
-    // show 2 buffers: (KdpDmesgBuffer + beg, KdpDmesgBufferSize - beg)
-    //            and: (KdpDmesgBuffer,       end)
-    KdbpPager(KdpDmesgBuffer + beg, KdpDmesgBufferSize - beg);
-    KdbpPrint("*** Dmesg: buffer rollup ***\n");
-    KdbpPager(KdpDmesgBuffer,       end);
-  }
-  KdbpPrint("*** Dmesg: end of output ***\n");
-
-  KdbpIsInDmesgMode = FALSE; /* Toggle logging flag */
-
-  return TRUE;
 }
 
 /*!\brief Sets or displays a config variables value.
@@ -2302,10 +2687,10 @@ KdbpCmdSet(
                     continue;
 
                 if (!KdbpGetEnterCondition(l, TRUE, &ConditionFirst))
-                    ASSERT(0);
+                    ASSERT(FALSE);
 
                 if (!KdbpGetEnterCondition(l, FALSE, &ConditionLast))
-                    ASSERT(0);
+                    ASSERT(FALSE);
 
                 KdbpPrint("  #%02d  %-20s %-8s %-8s\n", l, ExceptionNames[l],
                           KDB_ENTER_CONDITION_TO_STRING(ConditionFirst),
@@ -2383,10 +2768,10 @@ KdbpCmdSet(
             else /* Argc >= 3 */
             {
                 if (!KdbpGetEnterCondition(l, TRUE, &ConditionFirst))
-                    ASSERT(0);
+                    ASSERT(FALSE);
 
                 if (!KdbpGetEnterCondition(l, FALSE, &ConditionLast))
-                    ASSERT(0);
+                    ASSERT(FALSE);
 
                 if (l < (RTL_NUMBER_OF(ExceptionNames) - 1))
                 {
@@ -2455,246 +2840,9 @@ KdbpCmdHelp(
     return TRUE;
 }
 
-/*!\brief Prints the given string with printf-like formatting.
- *
- * \param Format  Format of the string/arguments.
- * \param ...     Variable number of arguments matching the format specified in \a Format.
- *
- * \note Doesn't correctly handle \\t and terminal escape sequences when calculating the
- *       number of lines required to print a single line from the Buffer in the terminal.
- *       Prints maximum 4096 chars, because of its buffer size.
- */
-VOID
-KdbpPrint(
-    IN PCHAR Format,
-    IN ...  OPTIONAL)
-{
-    static CHAR Buffer[4096];
-    static BOOLEAN TerminalInitialized = FALSE;
-    static BOOLEAN TerminalConnected = FALSE;
-    static BOOLEAN TerminalReportsSize = TRUE;
-    CHAR c = '\0';
-    PCHAR p, p2;
-    ULONG Length;
-    ULONG i, j;
-    LONG RowsPrintedByTerminal;
-    ULONG ScanCode;
-    va_list ap;
 
-    /* Check if the user has aborted output of the current command */
-    if (KdbOutputAborted)
-        return;
-
-    /* Initialize the terminal */
-    if (!TerminalInitialized)
-    {
-        DbgPrint("\x1b[7h");      /* Enable linewrap */
-
-        /* Query terminal type */
-        /*DbgPrint("\x1b[Z");*/
-        DbgPrint("\x05");
-
-        TerminalInitialized = TRUE;
-        Length = 0;
-        KeStallExecutionProcessor(100000);
-
-        for (;;)
-        {
-            c = KdbpTryGetCharSerial(5000);
-            if (c == -1)
-                break;
-
-            Buffer[Length++] = c;
-            if (Length >= (sizeof (Buffer) - 1))
-                break;
-        }
-
-        Buffer[Length] = '\0';
-        if (Length > 0)
-            TerminalConnected = TRUE;
-    }
-
-    /* Get number of rows and columns in terminal */
-    if ((KdbNumberOfRowsTerminal < 0) || (KdbNumberOfColsTerminal < 0) ||
-        (KdbNumberOfRowsPrinted) == 0) /* Refresh terminal size each time when number of rows printed is 0 */
-    {
-        if ((KdbDebugState & KD_DEBUG_KDSERIAL) && TerminalConnected && TerminalReportsSize)
-        {
-            /* Try to query number of rows from terminal. A reply looks like "\x1b[8;24;80t" */
-            TerminalReportsSize = FALSE;
-            KeStallExecutionProcessor(100000);
-            DbgPrint("\x1b[18t");
-            c = KdbpTryGetCharSerial(5000);
-
-            if (c == KEY_ESC)
-            {
-                c = KdbpTryGetCharSerial(5000);
-                if (c == '[')
-                {
-                    Length = 0;
-
-                    for (;;)
-                    {
-                        c = KdbpTryGetCharSerial(5000);
-                        if (c == -1)
-                            break;
-
-                        Buffer[Length++] = c;
-                        if (isalpha(c) || Length >= (sizeof (Buffer) - 1))
-                            break;
-                    }
-
-                    Buffer[Length] = '\0';
-                    if (Buffer[0] == '8' && Buffer[1] == ';')
-                    {
-                        for (i = 2; (i < Length) && (Buffer[i] != ';'); i++);
-
-                        if (Buffer[i] == ';')
-                        {
-                            Buffer[i++] = '\0';
-
-                            /* Number of rows is now at Buffer + 2 and number of cols at Buffer + i */
-                            KdbNumberOfRowsTerminal = strtoul(Buffer + 2, NULL, 0);
-                            KdbNumberOfColsTerminal = strtoul(Buffer + i, NULL, 0);
-                            TerminalReportsSize = TRUE;
-                        }
-                    }
-                }
-                /* Clear further characters */
-                while ((c = KdbpTryGetCharSerial(5000)) != -1);
-            }
-        }
-
-        if (KdbNumberOfRowsTerminal <= 0)
-        {
-            /* Set number of rows to the default. */
-            KdbNumberOfRowsTerminal = 23; //24; //Mna.: 23 for SCREEN debugport
-        }
-        else if (KdbNumberOfColsTerminal <= 0)
-        {
-            /* Set number of cols to the default. */
-            KdbNumberOfColsTerminal = 75; //80; //Mna.: 75 for SCREEN debugport
-        }
-    }
-
-    /* Get the string */
-    va_start(ap, Format);
-    Length = _vsnprintf(Buffer, sizeof (Buffer) - 1, Format, ap);
-    Buffer[Length] = '\0';
-    va_end(ap);
-
-    p = Buffer;
-    while (p[0] != '\0')
-    {
-        i = strcspn(p, "\n");
-
-        /* Calculate the number of lines which will be printed in the terminal
-         * when outputting the current line
-         */
-        if (i > 0)
-            RowsPrintedByTerminal = (i + KdbNumberOfColsPrinted - 1) / KdbNumberOfColsTerminal;
-        else
-            RowsPrintedByTerminal = 0;
-
-        if (p[i] == '\n')
-            RowsPrintedByTerminal++;
-
-        /*DbgPrint("!%d!%d!%d!%d!", KdbNumberOfRowsPrinted, KdbNumberOfColsPrinted, i, RowsPrintedByTerminal);*/
-
-        /* Display a prompt if we printed one screen full of text */
-        if (KdbNumberOfRowsTerminal > 0 &&
-            (LONG)(KdbNumberOfRowsPrinted + RowsPrintedByTerminal) >= KdbNumberOfRowsTerminal)
-        {
-            KdbRepeatLastCommand = FALSE;
-
-            if (KdbNumberOfColsPrinted > 0)
-                DbgPrint("\n");
-
-            DbgPrint("--- Press q to abort, any other key to continue ---");
-            RowsPrintedByTerminal++; /* added by Mna. */
-
-            if (KdbDebugState & KD_DEBUG_KDSERIAL)
-                c = KdbpGetCharSerial();
-            else
-                c = KdbpGetCharKeyboard(&ScanCode);
-
-            if (c == '\r')
-            {
-                /* Try to read '\n' which might follow '\r' - if \n is not received here
-                 * it will be interpreted as "return" when the next command should be read.
-                 */
-                if (KdbDebugState & KD_DEBUG_KDSERIAL)
-                    c = KdbpTryGetCharSerial(5);
-                else
-                    c = KdbpTryGetCharKeyboard(&ScanCode, 5);
-            }
-
-            DbgPrint("\n");
-            if (c == 'q')
-            {
-                KdbOutputAborted = TRUE;
-                return;
-            }
-
-            KdbNumberOfRowsPrinted = 0;
-            KdbNumberOfColsPrinted = 0;
-        }
-
-        /* Insert a NUL after the line and print only the current line. */
-        if (p[i] == '\n' && p[i + 1] != '\0')
-        {
-            c = p[i + 1];
-            p[i + 1] = '\0';
-        }
-        else
-        {
-            c = '\0';
-        }
-
-        /* Remove escape sequences from the line if there's no terminal connected */
-        if (!TerminalConnected)
-        {
-            while ((p2 = strrchr(p, '\x1b'))) /* Look for escape character */
-            {
-                if (p2[1] == '[')
-                {
-                    j = 2;
-                    while (!isalpha(p2[j++]));
-                    strcpy(p2, p2 + j);
-                }
-                else
-                {
-                    strcpy(p2, p2 + 1);
-                }
-            }
-        }
-
-        DbgPrint("%s", p);
-
-        if (c != '\0')
-            p[i + 1] = c;
-
-        /* Set p to the start of the next line and
-         * remember the number of rows/cols printed
-         */
-        p += i;
-        if (p[0] == '\n')
-        {
-            p++;
-            KdbNumberOfColsPrinted = 0;
-        }
-        else
-        {
-            ASSERT(p[0] == '\0');
-            KdbNumberOfColsPrinted += i;
-        }
-
-        KdbNumberOfRowsPrinted += RowsPrintedByTerminal;
-    }
-}
-
-/** memrchr(), explicitly defined, since was absent in MinGW of RosBE. */
 /*
+ * memrchr(), explicitly defined, since absent in the CRT.
  * Reverse memchr()
  * Find the last occurrence of 'c' in the buffer 's' of size 'n'.
  */
@@ -2715,25 +2863,37 @@ memrchr(const void *s, int c, size_t n)
     return NULL;
 }
 
-/*!\brief Calculate pointer position for N lines upper of current position.
+/**
+ * @brief   Calculate pointer position for N lines above the current position.
  *
- * \param Buffer     Characters buffer to operate on.
- * \param BufLength  Buffer size.
+ * Calculate pointer position for N lines above the current displaying
+ * position within the given buffer. Used by KdbpPager().
  *
- * \note Calculate pointer position for N lines upper of current displaying
- *       position within the given buffer.
+ * @param[in]   Buffer
+ * Character buffer to operate on.
  *
- * Used by KdbpPager().
- * Now N lines count is hardcoded to KdbNumberOfRowsTerminal.
- */
-PCHAR
-CountOnePageUp(PCHAR Buffer, ULONG BufLength, PCHAR pCurPos)
+ * @param[in]   BufLength
+ * Size of the buffer.
+ *
+ * @param[in]   pCurPos
+ * Current position within the buffer.
+ *
+ * @return  Beginning of the previous page of text.
+ *
+ * @note    N lines count is hardcoded to the terminal's number of rows.
+ **/
+static PCHAR
+CountOnePageUp(
+    _In_ PCCH Buffer,
+    _In_ ULONG BufLength,
+    _In_ PCCH pCurPos,
+    _In_ const SIZE* TermSize)
 {
-    PCHAR p;
+    PCCH p;
     // p0 is initial guess of Page Start
-    ULONG p0len = KdbNumberOfRowsTerminal * KdbNumberOfColsTerminal;
-    PCHAR p0 = pCurPos - p0len;
-    PCHAR prev_p = p0, p1;
+    ULONG p0len = TermSize->cx * TermSize->cy;
+    PCCH p0 = pCurPos - p0len;
+    PCCH prev_p = p0, p1;
     ULONG j;
 
     if (pCurPos < Buffer)
@@ -2741,29 +2901,53 @@ CountOnePageUp(PCHAR Buffer, ULONG BufLength, PCHAR pCurPos)
     ASSERT(pCurPos <= Buffer + BufLength);
 
     p = memrchr(p0, '\n', p0len);
-    if (NULL == p)
+    if (!p)
         p = p0;
-    for (j = KdbNumberOfRowsTerminal; j--; )
+    for (j = TermSize->cy; j--; )
     {
         int linesCnt;
         p1 = memrchr(p0, '\n', p-p0);
         prev_p = p;
         p = p1;
-        if (NULL == p)
+        if (!p)
         {
             p = prev_p;
-            if (NULL == p)
+            if (!p)
                 p = p0;
             break;
         }
-        linesCnt = (KdbNumberOfColsTerminal+prev_p-p-2) / KdbNumberOfColsTerminal;
+        linesCnt = (TermSize->cx+prev_p-p-2) / TermSize->cx;
         if (linesCnt > 1)
             j -= linesCnt-1;
     }
 
-    ASSERT(p != 0);
+    ASSERT(p != NULL);
     ++p;
-    return p;
+    return (PCHAR)p;
+}
+
+static VOID
+KdpFilterEscapes(
+    _Inout_ PSTR String)
+{
+    PCHAR p;
+    SIZE_T i;
+    size_t len;
+
+    while ((p = strrchr(String, '\x1b'))) /* Look for escape character */
+    {
+        len = strlen(p);
+        if (p[1] == '[')
+        {
+            i = 2;
+            while (!isalpha(p[i++]));
+            memmove(p, p + i, len + 1 - i);
+        }
+        else
+        {
+            memmove(p, p + 1, len);
+        }
+    }
 }
 
 /*!\brief Prints the given string with, page by page.
@@ -2774,28 +2958,25 @@ CountOnePageUp(PCHAR Buffer, ULONG BufLength, PCHAR pCurPos)
  * \note Doesn't correctly handle \\t and terminal escape sequences when calculating the
  *       number of lines required to print a single line from the Buffer in the terminal.
  *       Maximum length of buffer is limited only by memory size.
+ *       Uses KdbPrintf internally.
  *
- * Note: BufLength should be greater then (KdbNumberOfRowsTerminal * KdbNumberOfColsTerminal).
- *
+ * Note: BufLength should be greater than (KdTermSize.cx * KdTermSize.cy).
  */
-VOID
-KdbpPager(
-    IN PCHAR Buffer,
-    IN ULONG BufLength)
+static VOID
+KdbpPagerInternal(
+    _In_ PCHAR Buffer,
+    _In_ ULONG BufLength,
+    _In_ BOOLEAN DoPage)
 {
-    static CHAR InBuffer[4096];
     static BOOLEAN TerminalInitialized = FALSE;
-    static BOOLEAN TerminalConnected = FALSE;
-    static BOOLEAN TerminalReportsSize = TRUE;
-    CHAR c = '\0';
-    PCHAR p, p2;
-    ULONG Length;
-    ULONG i, j;
-    LONG RowsPrintedByTerminal;
+    CHAR c;
     ULONG ScanCode;
+    PCHAR p;
+    SIZE_T i;
+    LONG RowsPrintedByTerminal;
 
-    if( BufLength == 0)
-      return;
+    if (BufLength == 0)
+        return;
 
     /* Check if the user has aborted output of the current command */
     if (KdbOutputAborted)
@@ -2804,188 +2985,107 @@ KdbpPager(
     /* Initialize the terminal */
     if (!TerminalInitialized)
     {
-        DbgPrint("\x1b[7h");      /* Enable linewrap */
-
-        /* Query terminal type */
-        /*DbgPrint("\x1b[Z");*/
-        DbgPrint("\x05");
-
         TerminalInitialized = TRUE;
-        Length = 0;
-        KeStallExecutionProcessor(100000);
-
-        for (;;)
-        {
-            c = KdbpTryGetCharSerial(5000);
-            if (c == -1)
-                break;
-
-            InBuffer[Length++] = c;
-            if (Length >= (sizeof (InBuffer) - 1))
-                break;
-        }
-
-        InBuffer[Length] = '\0';
-        if (Length > 0)
-            TerminalConnected = TRUE;
+        KdpInitTerminal();
     }
 
-    /* Get number of rows and columns in terminal */
-    if ((KdbNumberOfRowsTerminal < 0) || (KdbNumberOfColsTerminal < 0) ||
-        (KdbNumberOfRowsPrinted) == 0) /* Refresh terminal size each time when number of rows printed is 0 */
+    /* Refresh terminal size each time when number of printed rows is 0 */
+    if (KdbNumberOfRowsPrinted == 0)
     {
-        if ((KdbDebugState & KD_DEBUG_KDSERIAL) && TerminalConnected && TerminalReportsSize)
-        {
-            /* Try to query number of rows from terminal. A reply looks like "\x1b[8;24;80t" */
-            TerminalReportsSize = FALSE;
-            KeStallExecutionProcessor(100000);
-            DbgPrint("\x1b[18t");
-            c = KdbpTryGetCharSerial(5000);
-
-            if (c == KEY_ESC)
-            {
-                c = KdbpTryGetCharSerial(5000);
-                if (c == '[')
-                {
-                    Length = 0;
-
-                    for (;;)
-                    {
-                        c = KdbpTryGetCharSerial(5000);
-                        if (c == -1)
-                            break;
-
-                        InBuffer[Length++] = c;
-                        if (isalpha(c) || Length >= (sizeof (InBuffer) - 1))
-                            break;
-                    }
-
-                    InBuffer[Length] = '\0';
-                    if (InBuffer[0] == '8' && InBuffer[1] == ';')
-                    {
-                        for (i = 2; (i < Length) && (InBuffer[i] != ';'); i++);
-
-                        if (Buffer[i] == ';')
-                        {
-                            Buffer[i++] = '\0';
-
-                            /* Number of rows is now at Buffer + 2 and number of cols at Buffer + i */
-                            KdbNumberOfRowsTerminal = strtoul(InBuffer + 2, NULL, 0);
-                            KdbNumberOfColsTerminal = strtoul(InBuffer + i, NULL, 0);
-                            TerminalReportsSize = TRUE;
-                        }
-                    }
-                }
-                /* Clear further characters */
-                while ((c = KdbpTryGetCharSerial(5000)) != -1);
-            }
-        }
-
-        if (KdbNumberOfRowsTerminal <= 0)
-        {
-            /* Set number of rows to the default. */
-            KdbNumberOfRowsTerminal = 24;
-        }
-        else if (KdbNumberOfColsTerminal <= 0)
-        {
-            /* Set number of cols to the default. */
-            KdbNumberOfColsTerminal = 80;
-        }
+        KdpUpdateTerminalSize(&KdTermSize);
     }
 
-    /* Get the string */
+    /* Loop through the strings */
     p = Buffer;
-
     while (p[0] != '\0')
     {
-        if ( p > Buffer+BufLength)
+        if (DoPage)
         {
-          DbgPrint("Dmesg: error, p > Buffer+BufLength,d=%d", p - (Buffer+BufLength));
-          return;
+            if (p > Buffer + BufLength)
+            {
+                KdbPrintf("Dmesg: error, p > Buffer+BufLength,d=%d", p - (Buffer + BufLength));
+                return;
+            }
         }
         i = strcspn(p, "\n");
 
-        // Are we out of buffer?
-        if (p + i > Buffer + BufLength)
-          // Leaving pager function:
-          break;
+        if (DoPage)
+        {
+            /* Are we out of buffer? */
+            if (p + i > Buffer + BufLength)
+                break; // Leaving pager function
+        }
 
-        /* Calculate the number of lines which will be printed in the terminal
-         * when outputting the current line
-         */
+        /* Calculate the number of lines which will be printed in
+         * the terminal when outputting the current line. */
         if (i > 0)
-            RowsPrintedByTerminal = (i + KdbNumberOfColsPrinted - 1) / KdbNumberOfColsTerminal;
+            RowsPrintedByTerminal = (i + KdbNumberOfColsPrinted - 1) / KdTermSize.cx;
         else
             RowsPrintedByTerminal = 0;
 
         if (p[i] == '\n')
             RowsPrintedByTerminal++;
 
-        /*DbgPrint("!%d!%d!%d!%d!", KdbNumberOfRowsPrinted, KdbNumberOfColsPrinted, i, RowsPrintedByTerminal);*/
+        //KdbPrintf("!%d!%d!%d!%d!", KdbNumberOfRowsPrinted, KdbNumberOfColsPrinted, i, RowsPrintedByTerminal);
 
         /* Display a prompt if we printed one screen full of text */
-        if (KdbNumberOfRowsTerminal > 0 &&
-            (LONG)(KdbNumberOfRowsPrinted + RowsPrintedByTerminal) >= KdbNumberOfRowsTerminal)
+        if (KdTermSize.cy > 0 &&
+            (LONG)(KdbNumberOfRowsPrinted + RowsPrintedByTerminal) >= KdTermSize.cy)
         {
+            PCSTR Prompt;
+
+            /* Disable the repetition of previous command with long many-page output */
             KdbRepeatLastCommand = FALSE;
 
             if (KdbNumberOfColsPrinted > 0)
-                DbgPrint("\n");
+                KdbPuts("\n");
 
-            DbgPrint("--- Press q to abort, e/End,h/Home,u/PgUp, other key/PgDn ---");
-            RowsPrintedByTerminal++;
-
-            if (KdbDebugState & KD_DEBUG_KDSERIAL)
-                c = KdbpGetCharSerial();
+            if (DoPage)
+                Prompt = "--- Press q to abort, e/End,h/Home,u/PgUp, other key/PgDn ---";
             else
-                c = KdbpGetCharKeyboard(&ScanCode);
+                Prompt = "--- Press q to abort, any other key to continue ---";
 
-            if (c == '\r')
-            {
-                /* Try to read '\n' which might follow '\r' - if \n is not received here
-                 * it will be interpreted as "return" when the next command should be read.
-                 */
-                if (KdbDebugState & KD_DEBUG_KDSERIAL)
-                    c = KdbpTryGetCharSerial(5);
-                else
-                    c = KdbpTryGetCharKeyboard(&ScanCode, 5);
-            }
+            KdbPuts(Prompt);
+            c = KdpReadTermKey(&ScanCode);
+            if (DoPage) // Show pressed key
+                KdbPrintf(" '%c'/scan=%04x\n", c, ScanCode);
+            else
+                KdbPuts("\n");
 
-            //DbgPrint("\n"); //Consize version: don't show pressed key
-            DbgPrint(" '%c'/scan=%04x\n", c, ScanCode); // Shows pressed key
+            RowsPrintedByTerminal++;
 
             if (c == 'q')
             {
                 KdbOutputAborted = TRUE;
                 return;
             }
-            if (     ScanCode == KEYSC_END || c=='e')
+
+            if (DoPage)
             {
-              PCHAR pBufEnd = Buffer + BufLength;
-              p = CountOnePageUp(Buffer, BufLength, pBufEnd);
-              i = strcspn(p, "\n");
-            }
-            else if (ScanCode == KEYSC_PAGEUP  || c=='u')
-            {
-              p = CountOnePageUp(Buffer, BufLength, p);
-              i = strcspn(p, "\n");
-            }
-            else if (ScanCode == KEYSC_HOME || c=='h')
-            {
-              p = Buffer;
-              i = strcspn(p, "\n");
-            }
-            else if (ScanCode == KEYSC_ARROWUP)
-            {
-              p = CountOnePageUp(Buffer, BufLength, p);
-              i = strcspn(p, "\n");
+                if (ScanCode == KEYSC_END || c == 'e')
+                {
+                    PCHAR pBufEnd = Buffer + BufLength;
+                    p = CountOnePageUp(Buffer, BufLength, pBufEnd, &KdTermSize);
+                    i = strcspn(p, "\n");
+                }
+                else if (ScanCode == KEYSC_PAGEUP  ||
+                         ScanCode == KEYSC_ARROWUP || c == 'u')
+                {
+                    p = CountOnePageUp(Buffer, BufLength, p, &KdTermSize);
+                    i = strcspn(p, "\n");
+                }
+                else if (ScanCode == KEYSC_HOME || c == 'h')
+                {
+                    p = Buffer;
+                    i = strcspn(p, "\n");
+                }
             }
 
             KdbNumberOfRowsPrinted = 0;
             KdbNumberOfColsPrinted = 0;
         }
 
-        /* Insert a NUL after the line and print only the current line. */
+        /* Insert a NUL after the line and print only the current line */
         if (p[i] == '\n' && p[i + 1] != '\0')
         {
             c = p[i + 1];
@@ -2996,34 +3096,20 @@ KdbpPager(
             c = '\0';
         }
 
-        /* Remove escape sequences from the line if there's no terminal connected */
-        if (!TerminalConnected)
-        {
-            while ((p2 = strrchr(p, '\x1b'))) /* Look for escape character */
-            {
-                if (p2[1] == '[')
-                {
-                    j = 2;
-                    while (!isalpha(p2[j++]));
-                    strcpy(p2, p2 + j);
-                }
-                else
-                {
-                    strcpy(p2, p2 + 1);
-                }
-            }
-        }
+        /* Remove escape sequences from the line if there is no terminal connected */
+        // FIXME: Dangerous operation since we modify the source string!!
+        if (!KdTermConnected)
+            KdpFilterEscapes(p);
 
-        // The main printing of the current line:
-        DbgPrint(p);
+        /* Print the current line */
+        KdbPuts(p);
 
-        // restore not null char with saved:
+        /* Restore not null char with saved */
         if (c != '\0')
             p[i + 1] = c;
 
         /* Set p to the start of the next line and
-         * remember the number of rows/cols printed
-         */
+         * remember the number of printed rows/cols */
         p += i;
         if (p[0] == '\n')
         {
@@ -3040,270 +3126,74 @@ KdbpPager(
     }
 }
 
-/*!\brief Appends a command to the command history
+/*!\brief Prints the given string with, page by page.
  *
- * \param Command  Pointer to the command to append to the history.
+ * \param Buffer     Characters buffer to print.
+ * \param BufferLen  Buffer size.
+ *
+ * \note Doesn't correctly handle \\t and terminal escape sequences when calculating the
+ *       number of lines required to print a single line from the Buffer in the terminal.
+ *       Maximum length of buffer is limited only by memory size.
+ *       Uses KdbPrintf internally.
+ *
+ * Note: BufLength should be greater than (KdTermSize.cx * KdTermSize.cy).
  */
-static VOID
-KdbpCommandHistoryAppend(
-    IN PCHAR Command)
+VOID
+KdbpPager(
+    _In_ PCHAR Buffer,
+    _In_ ULONG BufLength)
 {
-    ULONG Length1 = strlen(Command) + 1;
-    ULONG Length2 = 0;
-    INT i;
-    PCHAR Buffer;
+    /* Call the internal function */
+    KdbpPagerInternal(Buffer, BufLength, TRUE);
+}
 
-    ASSERT(Length1 <= RTL_NUMBER_OF(KdbCommandHistoryBuffer));
+/*!\brief Prints the given string with printf-like formatting.
+ *
+ * \param Format  Format of the string/arguments.
+ * \param ...     Variable number of arguments matching the format specified in \a Format.
+ *
+ * \note Doesn't correctly handle \\t and terminal escape sequences when calculating the
+ *       number of lines required to print a single line from the Buffer in the terminal.
+ *       Prints maximum 4096 chars, because of its buffer size.
+ */
+VOID
+KdbpPrint(
+    _In_ PSTR Format,
+    _In_ ...)
+{
+    static CHAR Buffer[4096];
+    ULONG Length;
+    va_list ap;
 
-    if (Length1 <= 1 ||
-        (KdbCommandHistory[KdbCommandHistoryIndex] &&
-         strcmp(KdbCommandHistory[KdbCommandHistoryIndex], Command) == 0))
+    /* Check if the user has aborted output of the current command */
+    if (KdbOutputAborted)
+        return;
+
+    /* Build the string */
+    va_start(ap, Format);
+    Length = _vsnprintf(Buffer, sizeof(Buffer) - 1, Format, ap);
+    Buffer[Length] = '\0';
+    va_end(ap);
+
+    /* Actually print it */
+    KdbpPagerInternal(Buffer, Length, FALSE);
+}
+
+VOID
+KdbpPrintUnicodeString(
+    _In_ PCUNICODE_STRING String)
+{
+    ULONG i;
+
+    if ((String == NULL) || (String->Buffer == NULL))
     {
+        KdbpPrint("<NULL>");
         return;
     }
 
-    /* Calculate Length1 and Length2 */
-    Buffer = KdbCommandHistoryBuffer + KdbCommandHistoryBufferIndex;
-    KdbCommandHistoryBufferIndex += Length1;
-    if (KdbCommandHistoryBufferIndex >= (LONG)RTL_NUMBER_OF(KdbCommandHistoryBuffer))
+    for (i = 0; i < String->Length / sizeof(WCHAR); i++)
     {
-        KdbCommandHistoryBufferIndex -= RTL_NUMBER_OF(KdbCommandHistoryBuffer);
-        Length2 = KdbCommandHistoryBufferIndex;
-        Length1 -= Length2;
-    }
-
-    /* Remove previous commands until there is enough space to append the new command */
-    for (i = KdbCommandHistoryIndex; KdbCommandHistory[i];)
-    {
-        if ((Length2 > 0 &&
-            (KdbCommandHistory[i] >= Buffer ||
-             KdbCommandHistory[i] < (KdbCommandHistoryBuffer + KdbCommandHistoryBufferIndex))) ||
-            (Length2 <= 0 &&
-             (KdbCommandHistory[i] >= Buffer &&
-              KdbCommandHistory[i] < (KdbCommandHistoryBuffer + KdbCommandHistoryBufferIndex))))
-        {
-            KdbCommandHistory[i] = NULL;
-        }
-
-        i--;
-        if (i < 0)
-            i = RTL_NUMBER_OF(KdbCommandHistory) - 1;
-
-        if (i == KdbCommandHistoryIndex)
-            break;
-    }
-
-    /* Make sure the new command history entry is free */
-    KdbCommandHistoryIndex++;
-    KdbCommandHistoryIndex %= RTL_NUMBER_OF(KdbCommandHistory);
-    if (KdbCommandHistory[KdbCommandHistoryIndex])
-    {
-        KdbCommandHistory[KdbCommandHistoryIndex] = NULL;
-    }
-
-    /* Append command */
-    KdbCommandHistory[KdbCommandHistoryIndex] = Buffer;
-    ASSERT((KdbCommandHistory[KdbCommandHistoryIndex] + Length1) <= KdbCommandHistoryBuffer + RTL_NUMBER_OF(KdbCommandHistoryBuffer));
-    memcpy(KdbCommandHistory[KdbCommandHistoryIndex], Command, Length1);
-    if (Length2 > 0)
-    {
-        memcpy(KdbCommandHistoryBuffer, Command + Length1, Length2);
-    }
-}
-
-/*!\brief Reads a line of user-input.
- *
- * \param Buffer  Buffer to store the input into. Trailing newlines are removed.
- * \param Size    Size of \a Buffer.
- *
- * \note Accepts only \n newlines, \r is ignored.
- */
-static VOID
-KdbpReadCommand(
-    OUT PCHAR Buffer,
-    IN  ULONG Size)
-{
-    CHAR Key;
-    PCHAR Orig = Buffer;
-    ULONG ScanCode = 0;
-    BOOLEAN EchoOn;
-    static CHAR LastCommand[1024];
-    static CHAR NextKey = '\0';
-    INT CmdHistIndex = -1;
-    INT i;
-
-    EchoOn = !((KdbDebugState & KD_DEBUG_KDNOECHO) != 0);
-
-    for (;;)
-    {
-        if (KdbDebugState & KD_DEBUG_KDSERIAL)
-        {
-            Key = (NextKey == '\0') ? KdbpGetCharSerial() : NextKey;
-            NextKey = '\0';
-            ScanCode = 0;
-            if (Key == KEY_ESC) /* ESC */
-            {
-                Key = KdbpGetCharSerial();
-                if (Key == '[')
-                {
-                    Key = KdbpGetCharSerial();
-
-                    switch (Key)
-                    {
-                        case 'A':
-                            ScanCode = KEY_SCAN_UP;
-                            break;
-                        case 'B':
-                            ScanCode = KEY_SCAN_DOWN;
-                            break;
-                        case 'C':
-                            break;
-                        case 'D':
-                            break;
-                    }
-                }
-            }
-        }
-        else
-        {
-            ScanCode = 0;
-            Key = (NextKey == '\0') ? KdbpGetCharKeyboard(&ScanCode) : NextKey;
-            NextKey = '\0';
-        }
-
-        if ((ULONG)(Buffer - Orig) >= (Size - 1))
-        {
-            /* Buffer is full, accept only newlines */
-            if (Key != '\n')
-                continue;
-        }
-
-        if (Key == '\r')
-        {
-            /* Read the next char - this is to throw away a \n which most clients should
-             * send after \r.
-             */
-            KeStallExecutionProcessor(100000);
-
-            if (KdbDebugState & KD_DEBUG_KDSERIAL)
-                NextKey = KdbpTryGetCharSerial(5);
-            else
-                NextKey = KdbpTryGetCharKeyboard(&ScanCode, 5);
-
-            if (NextKey == '\n' || NextKey == -1) /* \n or no response at all */
-                NextKey = '\0';
-
-            KdbpPrint("\n");
-
-            /*
-             * Repeat the last command if the user presses enter. Reduces the
-             * risk of RSI when single-stepping.
-             */
-            if (Buffer != Orig)
-            {
-                KdbRepeatLastCommand = TRUE;
-                *Buffer = '\0';
-                RtlStringCbCopyA(LastCommand, sizeof(LastCommand), Orig);
-            }
-            else if (KdbRepeatLastCommand)
-                RtlStringCbCopyA(Buffer, Size, LastCommand);
-            else
-                *Buffer = '\0';
-
-            return;
-        }
-        else if (Key == KEY_BS || Key == KEY_DEL)
-        {
-            if (Buffer > Orig)
-            {
-                Buffer--;
-                *Buffer = 0;
-
-                if (EchoOn)
-                    KdbpPrint("%c %c", KEY_BS, KEY_BS);
-                else
-                    KdbpPrint(" %c", KEY_BS);
-            }
-        }
-        else if (ScanCode == KEY_SCAN_UP)
-        {
-            BOOLEAN Print = TRUE;
-
-            if (CmdHistIndex < 0)
-            {
-                CmdHistIndex = KdbCommandHistoryIndex;
-            }
-            else
-            {
-                i = CmdHistIndex - 1;
-
-                if (i < 0)
-                    CmdHistIndex = RTL_NUMBER_OF(KdbCommandHistory) - 1;
-
-                if (KdbCommandHistory[i] && i != KdbCommandHistoryIndex)
-                    CmdHistIndex = i;
-                else
-                    Print = FALSE;
-            }
-
-            if (Print && KdbCommandHistory[CmdHistIndex])
-            {
-                while (Buffer > Orig)
-                {
-                    Buffer--;
-                    *Buffer = 0;
-
-                    if (EchoOn)
-                        KdbpPrint("%c %c", KEY_BS, KEY_BS);
-                    else
-                        KdbpPrint(" %c", KEY_BS);
-                }
-
-                i = min(strlen(KdbCommandHistory[CmdHistIndex]), Size - 1);
-                memcpy(Orig, KdbCommandHistory[CmdHistIndex], i);
-                Orig[i] = '\0';
-                Buffer = Orig + i;
-                KdbpPrint("%s", Orig);
-            }
-        }
-        else if (ScanCode == KEY_SCAN_DOWN)
-        {
-            if (CmdHistIndex > 0 && CmdHistIndex != KdbCommandHistoryIndex)
-            {
-                i = CmdHistIndex + 1;
-                if (i >= (INT)RTL_NUMBER_OF(KdbCommandHistory))
-                    i = 0;
-
-                if (KdbCommandHistory[i])
-                {
-                    CmdHistIndex = i;
-                    while (Buffer > Orig)
-                    {
-                        Buffer--;
-                        *Buffer = 0;
-
-                        if (EchoOn)
-                            KdbpPrint("%c %c", KEY_BS, KEY_BS);
-                        else
-                            KdbpPrint(" %c", KEY_BS);
-                    }
-
-                    i = min(strlen(KdbCommandHistory[CmdHistIndex]), Size - 1);
-                    memcpy(Orig, KdbCommandHistory[CmdHistIndex], i);
-                    Orig[i] = '\0';
-                    Buffer = Orig + i;
-                    KdbpPrint("%s", Orig);
-                }
-            }
-        }
-        else
-        {
-            if (EchoOn)
-                KdbpPrint("%c", Key);
-
-            *Buffer = Key;
-            Buffer++;
-        }
+        KdbpPrint("%c", (CHAR)String->Buffer[i]);
     }
 }
 
@@ -3360,7 +3250,7 @@ BOOLEAN
 KdbpInvokeCliCallbacks(
     IN PCHAR Command,
     IN ULONG Argc,
-    IN PCH Argv[])
+    IN PCHAR Argv[])
 {
     ULONG i;
 
@@ -3394,11 +3284,12 @@ static BOOLEAN
 KdbpDoCommand(
     IN PCHAR Command)
 {
-    ULONG i;
+    BOOLEAN Continue = TRUE;
+    SIZE_T i;
     PCHAR p;
     ULONG Argc;
     // FIXME: for what do we need a 1024 characters command line and 256 tokens?
-    static PCH Argv[256];
+    static PCHAR Argv[256];
     static CHAR OrigCommand[1024];
 
     RtlStringCbCopyA(OrigCommand, sizeof(OrigCommand), Command);
@@ -3427,6 +3318,10 @@ KdbpDoCommand(
     if (Argc < 1)
         return TRUE;
 
+    /* Reset the pager state: number of printed rows/cols and aborted output flag */
+    KdbNumberOfRowsPrinted = KdbNumberOfColsPrinted = 0;
+    KdbOutputAborted = FALSE;
+
     for (i = 0; i < RTL_NUMBER_OF(KdbDebuggerCommands); i++)
     {
         if (!KdbDebuggerCommands[i].Name)
@@ -3434,18 +3329,20 @@ KdbpDoCommand(
 
         if (strcmp(KdbDebuggerCommands[i].Name, Argv[0]) == 0)
         {
-            return KdbDebuggerCommands[i].Fn(Argc, Argv);
+            Continue = KdbDebuggerCommands[i].Fn(Argc, Argv);
+            goto Done;
         }
     }
 
     /* Now invoke the registered callbacks */
     if (KdbpInvokeCliCallbacks(Command, Argc, Argv))
-    {
-        return TRUE;
-    }
+        goto Done;
 
-    KdbpPrint("Command '%s' is unknown.\n", OrigCommand);
-    return TRUE;
+    KdbPrintf("Command '%s' is unknown.\n", OrigCommand);
+
+Done:
+    KdbOutputAborted = FALSE;
+    return Continue;
 }
 
 /*!\brief KDB Main Loop.
@@ -3456,112 +3353,112 @@ VOID
 KdbpCliMainLoop(
     IN BOOLEAN EnteredOnSingleStep)
 {
+    BOOLEAN Continue = TRUE;
     static CHAR Command[1024];
-    BOOLEAN Continue;
+    static CHAR LastCommand[1024] = "";
+
+// FIXME HACK: SYSREG SUPPORT CORE-19807 -- Emit a backtrace.
+// TODO: Remove once SYSREG "bt" command emission is fixed!
+#if 1
+    KdbpDoCommand("bt");
+#endif
 
     if (EnteredOnSingleStep)
     {
-        if (!KdbSymPrintAddress((PVOID)KdbCurrentTrapFrame->Tf.Eip, &KdbCurrentTrapFrame->Tf))
-        {
-            KdbpPrint("<%x>", KdbCurrentTrapFrame->Tf.Eip);
-        }
+        if (!KdbSymPrintAddress((PVOID)KeGetContextPc(KdbCurrentTrapFrame), KdbCurrentTrapFrame))
+            KdbPrintf("<%p>", KeGetContextPc(KdbCurrentTrapFrame));
 
-        KdbpPrint(": ");
-        if (KdbpDisassemble(KdbCurrentTrapFrame->Tf.Eip, KdbUseIntelSyntax) < 0)
-        {
-            KdbpPrint("<INVALID>");
-        }
-        KdbpPrint("\n");
-    }
-
-    /* Flush the input buffer */
-    if (KdbDebugState & KD_DEBUG_KDSERIAL)
-    {
-        while (KdbpTryGetCharSerial(1) != -1);
+        KdbPuts(": ");
+        if (KdbpDisassemble(KeGetContextPc(KdbCurrentTrapFrame), KdbUseIntelSyntax) < 0)
+            KdbPuts("<INVALID>");
+        KdbPuts("\n");
     }
     else
     {
-        ULONG ScanCode;
-        while (KdbpTryGetCharKeyboard(&ScanCode, 1) != -1);
+        /* Preceding this message is one of the "Entered debugger..." banners */
+        // KdbPuts("\nEntered debugger\n");
+        KdbPuts("\nType \"help\" for a list of commands.\n");
     }
 
     /* Main loop */
-    do
+    while (Continue)
     {
-        /* Reset the number of rows/cols printed */
-        KdbNumberOfRowsPrinted = KdbNumberOfColsPrinted = 0;
+        /*
+         * Print the prompt and read a command.
+         * Repeat the last one if the user pressed Enter.
+         * This reduces the risk of RSI when single-stepping!
+         */
+        // TEMP HACK! Issue an empty string instead of duplicating "kdb:>"
+        SIZE_T CmdLen = KdbPrompt(/*KdbPromptStr.Buffer*/"", Command, sizeof(Command));
+        if (CmdLen == 0)
+        {
+            /* Nothing received but the user didn't press Enter, retry */
+            continue;
+        }
+        else if (CmdLen > 1) // i.e. (*Command != ANSI_NULL)
+        {
+            /* Save this new last command */
+            KdbRepeatLastCommand = TRUE;
+            RtlStringCbCopyA(LastCommand, sizeof(LastCommand), Command);
 
-        /* Print the prompt */
-        KdbpPrint("kdb:> ");
+            /* Remember it */
+            KdbpCommandHistoryAppend(Command);
+        }
+        else if (KdbRepeatLastCommand)
+        {
+            /* The user directly pressed Enter */
+            RtlStringCbCopyA(Command, sizeof(Command), LastCommand);
+        }
 
-        /* Read a command and remember it */
-        KdbpReadCommand(Command, sizeof (Command));
-        KdbpCommandHistoryAppend(Command);
-
-        /* Reset the number of rows/cols printed and output aborted state */
-        KdbNumberOfRowsPrinted = KdbNumberOfColsPrinted = 0;
-        KdbOutputAborted = FALSE;
-
-        /* Call the command */
+        /* Invoke the command */
         Continue = KdbpDoCommand(Command);
-        KdbOutputAborted = FALSE;
     }
-    while (Continue);
 }
 
-/*!\brief Called when a module is loaded.
+/**
+ * @brief
+ * Interprets the KDBinit file from the \SystemRoot\System32\drivers\etc
+ * directory, that has been loaded by KdbpCliInit().
  *
- * \param Name  Filename of the module which was loaded.
- */
-VOID
-KdbpCliModuleLoaded(
-    IN PUNICODE_STRING Name)
-{
-    if (!KdbBreakOnModuleLoad)
-        return;
-
-    KdbpPrint("Module %wZ loaded.\n", Name);
-    DbgBreakPointWithStatus(DBG_STATUS_CONTROL_C);
-}
-
-/*!\brief This function is called by KdbEnterDebuggerException...
- *
- * Used to interpret the init file in a context with a trapframe setup
- * (KdbpCliInit call KdbEnter which will call KdbEnterDebuggerException which will
- * call this function if KdbInitFileBuffer is not NULL.
- */
+ * This function is used to interpret the init file in the debugger context
+ * with a trap frame set up. KdbpCliInit() enters the debugger by calling
+ * DbgBreakPointWithStatus(DBG_STATUS_CONTROL_C). In turn, this will call
+ * KdbEnterDebuggerException() which will finally call this function if
+ * KdbInitFileBuffer is not NULL.
+ **/
 VOID
 KdbpCliInterpretInitFile(VOID)
 {
     PCHAR p1, p2;
-    INT i;
-    CHAR c;
+
+    p1 = InterlockedExchangePointer((PVOID*)&KdbInitFileBuffer, NULL);
+    if (!p1)
+        return;
 
     /* Execute the commands in the init file */
-    DPRINT("KDB: Executing KDBinit file...\n");
-    p1 = KdbInitFileBuffer;
+    KdbPuts("KDB: Executing KDBinit file...\n");
     while (p1[0] != '\0')
     {
-        i = strcspn(p1, "\r\n");
+        size_t i = strcspn(p1, "\r\n");
         if (i > 0)
         {
-            c = p1[i];
+            CHAR c = p1[i];
             p1[i] = '\0';
 
             /* Look for "break" command and comments */
             p2 = p1;
-
             while (isspace(p2[0]))
                 p2++;
 
             if (strncmp(p2, "break", sizeof("break")-1) == 0 &&
                 (p2[sizeof("break")-1] == '\0' || isspace(p2[sizeof("break")-1])))
             {
-                /* break into the debugger */
+                /* Run the interactive debugger loop */
                 KdbpCliMainLoop(FALSE);
             }
             else if (p2[0] != '#' && p2[0] != '\0') /* Ignore empty lines and comments */
             {
+                /* Invoke the command */
                 KdbpDoCommand(p1);
             }
 
@@ -3572,14 +3469,16 @@ KdbpCliInterpretInitFile(VOID)
         while (p1[0] == '\r' || p1[0] == '\n')
             p1++;
     }
-    DPRINT("KDB: KDBinit executed\n");
+    KdbPuts("KDB: KDBinit executed\n");
 }
 
-/*!\brief Called when KDB is initialized
+/**
+ * @brief   Called when KDB is initialized.
  *
- * Reads the KDBinit file from the SystemRoot\System32\drivers\etc directory and executes it.
- */
-VOID
+ * Loads the KDBinit file from the \SystemRoot\System32\drivers\etc
+ * directory and interprets it, by calling back into the debugger.
+ **/
+NTSTATUS
 KdbpCliInit(VOID)
 {
     NTSTATUS Status;
@@ -3588,13 +3487,20 @@ KdbpCliInit(VOID)
     IO_STATUS_BLOCK Iosb;
     FILE_STANDARD_INFORMATION FileStdInfo;
     HANDLE hFile = NULL;
-    INT FileSize;
+    ULONG FileSize;
     PCHAR FileBuffer;
-    ULONG OldEflags;
+
+    /* Don't load the KDBinit file if its buffer is already lying around */
+    if (KdbInitFileBuffer)
+        return STATUS_SUCCESS;
 
     /* Initialize the object attributes */
     RtlInitUnicodeString(&FileName, L"\\SystemRoot\\System32\\drivers\\etc\\KDBinit");
-    InitializeObjectAttributes(&ObjectAttributes, &FileName, 0, NULL, NULL);
+    InitializeObjectAttributes(&ObjectAttributes,
+                               &FileName,
+                               OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+                               NULL,
+                               NULL);
 
     /* Open the file */
     Status = ZwOpenFile(&hFile, FILE_READ_DATA | SYNCHRONIZE,
@@ -3603,254 +3509,203 @@ KdbpCliInit(VOID)
                         FILE_NO_INTERMEDIATE_BUFFERING);
     if (!NT_SUCCESS(Status))
     {
-        DPRINT("Could not open \\SystemRoot\\System32\\drivers\\etc\\KDBinit (Status 0x%x)", Status);
-        return;
+        DPRINT("Could not open %wZ (Status 0x%lx)\n", &FileName, Status);
+        return Status;
     }
 
     /* Get the size of the file */
-    Status = ZwQueryInformationFile(hFile, &Iosb, &FileStdInfo, sizeof (FileStdInfo),
+    Status = ZwQueryInformationFile(hFile, &Iosb,
+                                    &FileStdInfo, sizeof(FileStdInfo),
                                     FileStandardInformation);
     if (!NT_SUCCESS(Status))
     {
         ZwClose(hFile);
-        DPRINT("Could not query size of \\SystemRoot\\System32\\drivers\\etc\\KDBinit (Status 0x%x)", Status);
-        return;
+        DPRINT1("Could not query size of %wZ (Status 0x%lx)\n", &FileName, Status);
+        return Status;
     }
     FileSize = FileStdInfo.EndOfFile.u.LowPart;
 
-    /* Allocate memory for the file */
-    FileBuffer = ExAllocatePool(PagedPool, FileSize + 1); /* add 1 byte for terminating '\0' */
+    /* Allocate memory for the file (add 1 byte for terminating NUL) */
+    FileBuffer = ExAllocatePool(NonPagedPool, FileSize + 1);
     if (!FileBuffer)
     {
         ZwClose(hFile);
-        DPRINT("Could not allocate %d bytes for KDBinit file\n", FileSize);
-        return;
+        DPRINT1("Could not allocate %lu bytes for KDBinit file\n", FileSize);
+        return Status;
     }
 
     /* Load file into memory */
-    Status = ZwReadFile(hFile, NULL, NULL, NULL, &Iosb, FileBuffer, FileSize, NULL, NULL);
+    Status = ZwReadFile(hFile, NULL, NULL, NULL, &Iosb,
+                        FileBuffer, FileSize, NULL, NULL);
     ZwClose(hFile);
 
-    if (!NT_SUCCESS(Status) && Status != STATUS_END_OF_FILE)
+    if (!NT_SUCCESS(Status) && (Status != STATUS_END_OF_FILE))
     {
         ExFreePool(FileBuffer);
-        DPRINT("Could not read KDBinit file into memory (Status 0x%lx)\n", Status);
-        return;
+        DPRINT1("Could not read KDBinit file into memory (Status 0x%lx)\n", Status);
+        return Status;
     }
 
-    FileSize = min(FileSize, (INT)Iosb.Information);
-    FileBuffer[FileSize] = '\0';
+    FileSize = min(FileSize, (ULONG)Iosb.Information);
+    FileBuffer[FileSize] = ANSI_NULL;
 
-    /* Enter critical section */
-    OldEflags = __readeflags();
-    _disable();
-
-    /* Interpret the init file... */
-    KdbInitFileBuffer = FileBuffer;
-    KdbEnter();
-    KdbInitFileBuffer = NULL;
-
-    /* Leave critical section */
-    __writeeflags(OldEflags);
+    /* Interpret the KDBinit file by calling back into the debugger */
+    InterlockedExchangePointer((PVOID*)&KdbInitFileBuffer, FileBuffer);
+    DbgBreakPointWithStatus(DBG_STATUS_CONTROL_C);
+    InterlockedExchangePointer((PVOID*)&KdbInitFileBuffer, NULL);
 
     ExFreePool(FileBuffer);
+
+    return STATUS_SUCCESS;
 }
 
-VOID
-NTAPI
-KdpSerialDebugPrint(
-    LPSTR Message,
-    ULONG Length
-);
 
-STRING KdpPromptString = RTL_CONSTANT_STRING("kdb:> ");
-extern KSPIN_LOCK KdpSerialSpinLock;
-
-ULONG
+/**
+ * @brief   Debug logger function.
+ *
+ * This function writes text strings into KdpDmesgBuffer, using it as
+ * a circular buffer. KdpDmesgBuffer contents can be later (re)viewed
+ * using the dmesg command. KdbDebugPrint() protects KdpDmesgBuffer
+ * from simultaneous writes by use of KdpDmesgLogSpinLock.
+ **/
+static VOID
 NTAPI
-KdpPrompt(
-    _In_reads_bytes_(InStringLength) PCHAR UnsafeInString,
-    _In_ USHORT InStringLength,
-    _Out_writes_bytes_(OutStringLength) PCHAR UnsafeOutString,
-    _In_ USHORT OutStringLength,
-    _In_ KPROCESSOR_MODE PreviousMode)
+KdbDebugPrint(
+    _In_ PCCH String,
+    _In_ ULONG Length)
 {
-    USHORT i;
-    CHAR Response;
-    ULONG DummyScanCode;
     KIRQL OldIrql;
-    PCHAR InString;
-    PCHAR OutString;
-    CHAR InStringBuffer[512];
-    CHAR OutStringBuffer[512];
+    ULONG beg, end, num;
 
-    /* Normalize the lengths */
-    InStringLength = min(InStringLength,
-                         sizeof(InStringBuffer));
-    OutStringLength = min(OutStringLength,
-                          sizeof(OutStringBuffer));
+    /* Avoid recursive calling if we already are in Dmesg mode */
+    if (KdbpIsInDmesgMode)
+       return;
 
-    /* Check if we need to verify the string */
-    if (PreviousMode != KernelMode)
-    {
-        /* Handle user-mode buffers safely */
-        _SEH2_TRY
-        {
-            /* Probe the prompt */
-            ProbeForRead(UnsafeInString,
-                         InStringLength,
-                         1);
-
-            /* Capture prompt */
-            InString = InStringBuffer;
-            RtlCopyMemory(InString,
-                          UnsafeInString,
-                          InStringLength);
-
-            /* Probe and make room for response */
-            ProbeForWrite(UnsafeOutString,
-                          OutStringLength,
-                          1);
-            OutString = OutStringBuffer;
-        }
-        _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
-        {
-            /* Bad string pointer, bail out */
-            _SEH2_YIELD(return 0);
-        }
-        _SEH2_END;
-    }
-    else
-    {
-        InString = UnsafeInString;
-        OutString = UnsafeOutString;
-    }
+    if (KdpDmesgBuffer == NULL)
+        return;
 
     /* Acquire the printing spinlock without waiting at raised IRQL */
-    while (TRUE)
+    OldIrql = KdbpAcquireLock(&KdpDmesgLogSpinLock);
+
+    beg = KdpDmesgCurrentPosition;
+    /* Invariant: always_true(KdpDmesgFreeBytes == KdpDmesgBufferSize); */
+    num = min(Length, KdpDmesgFreeBytes);
+    if (num != 0)
     {
-        /* Wait when the spinlock becomes available */
-        while (!KeTestSpinLock(&KdpSerialSpinLock));
-
-        /* Spinlock was free, raise IRQL */
-        KeRaiseIrql(HIGH_LEVEL, &OldIrql);
-
-        /* Try to get the spinlock */
-        if (KeTryToAcquireSpinLockAtDpcLevel(&KdpSerialSpinLock))
-            break;
-
-        /* Someone else got the spinlock, lower IRQL back */
-        KeLowerIrql(OldIrql);
-    }
-
-    /* Loop the string to send */
-    for (i = 0; i < InStringLength; i++)
-    {
-        /* Print it to serial */
-        KdPortPutByteEx(&SerialPortInfo, *(PCHAR)(InString + i));
-    }
-
-    /* Print a new line for log neatness */
-    KdPortPutByteEx(&SerialPortInfo, '\r');
-    KdPortPutByteEx(&SerialPortInfo, '\n');
-
-    /* Print the kdb prompt */
-    for (i = 0; i < KdpPromptString.Length; i++)
-    {
-        /* Print it to serial */
-        KdPortPutByteEx(&SerialPortInfo,
-                        *(KdpPromptString.Buffer + i));
-    }
-
-    if (!(KdbDebugState & KD_DEBUG_KDSERIAL))
-        KbdDisableMouse();
-
-    /* Loop the whole string */
-    for (i = 0; i < OutStringLength; i++)
-    {
-        /* Check if this is serial debugging mode */
-        if (KdbDebugState & KD_DEBUG_KDSERIAL)
+        end = (beg + num) % KdpDmesgBufferSize;
+        if (end > beg)
         {
-            /* Get the character from serial */
-            do
-            {
-                Response = KdbpTryGetCharSerial(MAXULONG);
-            } while (Response == -1);
+            RtlCopyMemory(KdpDmesgBuffer + beg, String, Length);
         }
         else
         {
-            /* Get the response from the keyboard */
-            do
-            {
-                Response = KdbpTryGetCharKeyboard(&DummyScanCode, MAXULONG);
-            } while (Response == -1);
+            RtlCopyMemory(KdpDmesgBuffer + beg, String, KdpDmesgBufferSize - beg);
+            RtlCopyMemory(KdpDmesgBuffer, String + (KdpDmesgBufferSize - beg), end);
         }
+        KdpDmesgCurrentPosition = end;
 
-        /* Check for return */
-        if (Response == '\r')
-        {
-            /*
-             * We might need to discard the next '\n'.
-             * Wait a bit to make sure we receive it.
-             */
-            KeStallExecutionProcessor(100000);
-
-            /* Check the mode */
-            if (KdbDebugState & KD_DEBUG_KDSERIAL)
-            {
-                /* Read and discard the next character, if any */
-                KdbpTryGetCharSerial(5);
-            }
-            else
-            {
-                /* Read and discard the next character, if any */
-                KdbpTryGetCharKeyboard(&DummyScanCode, 5);
-            }
-
-            /*
-             * Null terminate the output string -- documentation states that
-             * DbgPrompt does not null terminate, but it does
-             */
-            *(PCHAR)(OutString + i) = 0;
-            break;
-        }
-
-        /* Write it back and print it to the log */
-        *(PCHAR)(OutString + i) = Response;
-        KdPortPutByteEx(&SerialPortInfo, Response);
+        /* Counting the total bytes written */
+        KdbDmesgTotalWritten += num;
     }
 
-    if (!(KdbDebugState & KD_DEBUG_KDSERIAL))
-        KbdEnableMouse();
+    /* Release the spinlock */
+    KdbpReleaseLock(&KdpDmesgLogSpinLock, OldIrql);
 
-    /* Print a new line */
-    KdPortPutByteEx(&SerialPortInfo, '\r');
-    KdPortPutByteEx(&SerialPortInfo, '\n');
-
-    /* Release spinlock */
-    KiReleaseSpinLock(&KdpSerialSpinLock);
-
-    /* Lower IRQL back */
-    KeLowerIrql(OldIrql);
-
-    /* Copy back response if required */
-    if (PreviousMode != KernelMode)
-    {
-        _SEH2_TRY
-        {
-            /* Safely copy back response to user mode */
-            RtlCopyMemory(UnsafeOutString,
-                          OutString,
-                          i);
-        }
-        _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
-        {
-            /* String became invalid after we exited, fail */
-            _SEH2_YIELD(return 0);
-        }
-        _SEH2_END;
-    }
-
-    /* Return the length  */
-    return i;
+    /* Optional step(?): find out a way to notify about buffer exhaustion,
+     * and possibly fall into kbd to use dmesg command: user will read
+     * debug strings before they will be wiped over by next writes. */
 }
+
+/**
+ * @brief   Initializes the KDBG debugger.
+ *
+ * @param[in]   DispatchTable
+ * Pointer to the KD dispatch table.
+ *
+ * @param[in]   BootPhase
+ * Phase of initialization.
+ *
+ * @return  A status value.
+ * @note    Also known as "KdpKdbgInit".
+ **/
+NTSTATUS
+NTAPI
+KdbInitialize(
+    _In_ PKD_DISPATCH_TABLE DispatchTable,
+    _In_ ULONG BootPhase)
+{
+    /* Saves the different symbol-loading status across boot phases */
+    static ULONG LoadSymbols = 0;
+
+    if (BootPhase == 0)
+    {
+        /* Write out the functions that we support for now */
+        DispatchTable->KdpPrintRoutine = KdbDebugPrint;
+
+        /* Check if we have a command line */
+        if (KeLoaderBlock && KeLoaderBlock->LoadOptions)
+        {
+            /* Get the KDBG Settings */
+            KdbpGetCommandLineSettings(KeLoaderBlock->LoadOptions);
+        }
+
+        /* Register for BootPhase 1 initialization and as a Provider */
+        DispatchTable->KdpInitRoutine = KdbInitialize;
+        InsertTailList(&KdProviders, &DispatchTable->KdProvidersList);
+    }
+    else if (BootPhase == 1)
+    {
+        /* Register for later BootPhase 2 reinitialization */
+        DispatchTable->KdpInitRoutine = KdbInitialize;
+
+        /* Initialize Dmesg support */
+
+        /* Allocate a buffer for Dmesg log buffer. +1 for terminating null,
+         * see kdbp_cli.c:KdbpCmdDmesg()/2 */
+        KdpDmesgBuffer = ExAllocatePoolZero(NonPagedPool,
+                                            KdpDmesgBufferSize + 1,
+                                            TAG_KDBG);
+        /* Ignore failure if KdpDmesgBuffer is NULL */
+        KdpDmesgFreeBytes = KdpDmesgBufferSize;
+        KdbDmesgTotalWritten = 0;
+
+        /* Initialize spinlock */
+        KeInitializeSpinLock(&KdpDmesgLogSpinLock);
+    }
+
+    /* Initialize symbols support in BootPhase 0 and 1 */
+    if (BootPhase <= 1)
+    {
+        LoadSymbols <<= 1;
+        LoadSymbols |= KdbSymInit(BootPhase);
+    }
+
+    if (BootPhase == 1)
+    {
+        /* Announce ourselves */
+        CHAR buffer[60];
+        RtlStringCbPrintfA(buffer, sizeof(buffer),
+                           "   KDBG debugger enabled - %s\r\n",
+                           !(LoadSymbols & 0x2) ? "No symbols loaded" :
+                           !(LoadSymbols & 0x1) ? "Kernel symbols loaded"
+                                                : "Loading symbols");
+        HalDisplayString(buffer);
+    }
+
+    if (BootPhase >= 2)
+    {
+        /* I/O is now set up for disk access: load the KDBinit file */
+        NTSTATUS Status = KdbpCliInit();
+
+        /* Schedule an I/O reinitialization if needed */
+        if (Status == STATUS_OBJECT_NAME_NOT_FOUND ||
+            Status == STATUS_OBJECT_PATH_NOT_FOUND)
+        {
+            DispatchTable->KdpInitRoutine = KdbInitialize;
+        }
+    }
+
+    return STATUS_SUCCESS;
+}
+
+/* EOF */

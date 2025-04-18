@@ -3,8 +3,7 @@
 
 #include <setjmp.h>
 #include <intrin.h>
-#include <pseh/pseh2.h>
-#include <pseh/excpt.h>
+#include <excpt.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,6 +15,8 @@ extern "C" {
 #define EH_EXIT_UNWIND      0x04
 #define EH_STACK_INVALID    0x08
 #define EH_NESTED_CALL      0x10
+#define EH_TARGET_UNWIND    0x20
+#define EH_COLLIDED_UNWIND  0x40
 
 #define EXCEPTION_WINE_STUB       0x80000100
 #define EXCEPTION_WINE_ASSERTION  0x80000101
@@ -56,10 +57,12 @@ typedef struct _WINE_EXCEPTION_REGISTRATION_RECORD
 
 #define __TRY _SEH2_TRY
 #define __EXCEPT(func) _SEH2_EXCEPT(func(_SEH2_GetExceptionInformation()))
+#define __EXCEPT_CTX(func, ctx) _SEH2_EXCEPT((func)(GetExceptionInformation(), ctx))
 #define __EXCEPT_PAGE_FAULT _SEH2_EXCEPT(_SEH2_GetExceptionCode() == STATUS_ACCESS_VIOLATION)
-#define __EXCEPT_ALL _SEH2_EXCEPT(_SEH_EXECUTE_HANDLER)
+#define __EXCEPT_ALL _SEH2_EXCEPT(1)
 #define __ENDTRY _SEH2_END
 #define __FINALLY(func) _SEH2_FINALLY { func(!_SEH2_AbnormalTermination()); }
+#define __FINALLY_CTX(func, ctx) _SEH2_FINALLY { func(!_SEH2_AbnormalTermination(), ctx); }; _SEH2_END
 
 #ifndef GetExceptionCode
 #define GetExceptionCode() _SEH2_GetExceptionCode()
@@ -72,7 +75,6 @@ typedef struct _WINE_EXCEPTION_REGISTRATION_RECORD
 #ifndef AbnormalTermination
 #define AbnormalTermination() _SEH2_AbnormalTermination()
 #endif
-
 
 #if defined(__MINGW32__) || defined(__CYGWIN__)
 #define sigjmp_buf jmp_buf

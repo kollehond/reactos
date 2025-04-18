@@ -1,24 +1,27 @@
 /*
  * PROJECT:     ReactOS Application compatibility module
- * LICENSE:     GPL-2.0+ (https://spdx.org/licenses/GPL-2.0+)
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
  * PURPOSE:     Shim database manipulation functions
  * COPYRIGHT:   Copyright 2011 André Hentschel
  *              Copyright 2013 Mislav Blažević
- *              Copyright 2015-2017 Mark Jansen (mark.jansen@reactos.org)
+ *              Copyright 2015-2019 Mark Jansen (mark.jansen@reactos.org)
  */
 
 #if !defined(SDBWRITE_HOSTTOOL)
 #define WIN32_NO_STATUS
 #include "windef.h"
 #include "ntndk.h"
+#include <appcompat/sdbtypes.h>
+#include <appcompat/sdbtagid.h>
 #else
 #include <typedefs.h>
 #include <guiddef.h>
+#include <sdbtypes.h>
+#include <sdbtagid.h>
 #endif
 
-#include "sdbtypes.h"
+
 #include "sdbpapi.h"
-#include "sdbtagid.h"
 #include "sdbstringtable.h"
 
 
@@ -88,9 +91,9 @@ static BOOL WINAPI SdbpWriteStringtable(PDB pdb)
 
 /**
  * Creates new shim database file
- * 
+ *
  * If a file already exists on specified path, that file shall be overwritten.
- * 
+ *
  * @note Use SdbCloseDatabaseWrite to close the database opened with this function.
  *
  * @param [in]  path    Path to the new shim database.
@@ -108,12 +111,12 @@ PDB WINAPI SdbCreateDatabase(LPCWSTR path, PATH_TYPE type)
     if (!pdb)
         return NULL;
 
-    pdb->size = sizeof(DWORD) + sizeof(DWORD) + strlen(magic);
+    pdb->size = sizeof(DWORD) + sizeof(DWORD) + (DWORD)strlen(magic);
     pdb->data = SdbAlloc(pdb->size);
 
     SdbpWrite(pdb, &version_major, sizeof(DWORD));
     SdbpWrite(pdb, &version_minor, sizeof(DWORD));
-    SdbpWrite(pdb, magic, strlen(magic));
+    SdbpWrite(pdb, magic, (DWORD)strlen(magic));
 
     return pdb;
 }
@@ -310,7 +313,7 @@ BOOL WINAPI SdbWriteBinaryTagFromFile(PDB pdb, TAG tag, LPCWSTR path)
  *
  * @param [in]  pdb  Handle to the shim database.
  * @param [in]  tag TAG for the list
- *                  
+ *
  *                  RETURNS Success: TAGID of the newly created list, or TAGID_NULL on failure.
  *
  * @return  A TAGID.

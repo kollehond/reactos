@@ -249,7 +249,7 @@ extern HINSTANCE hInstance;
 extern OSVERSIONINFOEXW OsVersionInfo;
 
 /*
- * See: https://msdn.microsoft.com/en-us/library/bb432397(v=vs.85).aspx
+ * See: https://learn.microsoft.com/en-us/windows/win32/devnotes/psetupsetglobalflags
  * for more information.
  */
 extern DWORD GlobalSetupFlags;
@@ -298,6 +298,9 @@ UINT CALLBACK QUEUE_callback_WtoA( void *context, UINT notification, UINT_PTR, U
 
 /* devinst.c */
 
+DWORD
+GetErrorCodeFromCrCode(const IN CONFIGRET cr);
+
 BOOL
 CreateDeviceInfo(
     IN struct DeviceInfoSet *list,
@@ -311,6 +314,11 @@ SETUP_CreateDevicesList(
     IN PCWSTR MachineName OPTIONAL,
     IN CONST GUID *Class OPTIONAL,
     IN PCWSTR Enumerator OPTIONAL);
+
+HKEY SETUPDI_CreateDevKey(HKEY RootKey, struct DeviceInfo *devInfo, REGSAM samDesired);
+HKEY SETUPDI_CreateDrvKey(HKEY RootKey, struct DeviceInfo *devInfo, UUID *ClassGuid, REGSAM samDesired);
+HKEY SETUPDI_OpenDevKey(HKEY RootKey, struct DeviceInfo *devInfo, REGSAM samDesired);
+HKEY SETUPDI_OpenDrvKey(HKEY RootKey, struct DeviceInfo *devInfo, REGSAM samDesired);
 
 /* driver.c */
 

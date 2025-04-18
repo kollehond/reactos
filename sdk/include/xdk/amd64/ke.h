@@ -116,7 +116,11 @@ FORCEINLINE
 KIRQL
 KeRaiseIrqlToSynchLevel(VOID)
 {
+#ifdef CONFIG_SMP
     return KfRaiseIrql(12); // SYNCH_LEVEL = IPI_LEVEL - 2
+#else
+    return KfRaiseIrql(2); // SYNCH_LEVEL = DISPATCH_LEVEL
+#endif
 }
 
 FORCEINLINE
@@ -151,6 +155,15 @@ KeRestoreFloatingPointState(
     UNREFERENCED_PARAMETER(FloatSave);
     return STATUS_SUCCESS;
 }
+
+#if (NTDDI_VERSION >= NTDDI_WIN7)
+FORCEINLINE
+ULONG
+KeGetCurrentProcessorIndex(VOID)
+{
+    return __readgsdword(0x1a4);
+}
+#endif
 
 /* VOID
  * KeFlushIoBuffers(
@@ -263,8 +276,8 @@ typedef struct DECLSPEC_ALIGN(16) _CONTEXT {
       M128A Xmm13;
       M128A Xmm14;
       M128A Xmm15;
-    } DUMMYSTRUCTNAME;
-  } DUMMYUNIONNAME;
+    } DUMMYSTRUCTNAME DECLSPEC_ALIGN(16);
+  } DUMMYUNIONNAME DECLSPEC_ALIGN(16);
   M128A VectorRegister[26];
   ULONG64 VectorControl;
   ULONG64 DebugControl;
@@ -320,11 +333,14 @@ KeGetPcr(VOID)
     return (PKPCR)__readgsqword(FIELD_OFFSET(KPCR, Self));
 }
 
+#if (NTDDI_VERSION >= NTDDI_WIN7)
+_CRT_DEPRECATE_TEXT("KeGetCurrentProcessorNumber is deprecated. Use KeGetCurrentProcessorNumberEx or KeGetCurrentProcessorIndex instead.")
+#endif
 FORCEINLINE
 ULONG
 KeGetCurrentProcessorNumber(VOID)
 {
-    return (ULONG)__readgsword(0x184);
+    return __readgsbyte(0x184);
 }
 
 $endif /* _NTDDK_ */

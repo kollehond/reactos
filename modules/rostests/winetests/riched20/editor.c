@@ -33,6 +33,8 @@
 #include <ole2.h>
 #include <richedit.h>
 #include <richole.h>
+#include <imm.h>
+#include <textserv.h>
 #include <commdlg.h>
 #include <time.h>
 #include <wine/test.h>
@@ -51,12 +53,38 @@ static CHAR string1[MAX_PATH], string2[MAX_PATH], string3[MAX_PATH];
 static HMODULE hmoduleRichEdit;
 static BOOL is_lang_japanese;
 
+#if defined(__i386__) && !defined(__MINGW32__) && (!defined(_MSC_VER) || !defined(__clang__))
+static void disable_beep( HWND hwnd )
+{
+    /* don't attempt to disable beep if we don't have thiscall compiler support */
+}
+#else
+#define ITextServices_OnTxPropertyBitsChange(This,a,b) (This)->lpVtbl->OnTxPropertyBitsChange(This,a,b)
+static void disable_beep( HWND hwnd )
+{
+    IRichEditOle *richole;
+    ITextServices *services;
+    IID *pIID_ITextServices = (IID *)GetProcAddress( hmoduleRichEdit, "IID_ITextServices" );
+
+    if (SendMessageW( hwnd, EM_GETOLEINTERFACE, 0, (LPARAM)&richole ))
+    {
+        if (SUCCEEDED( IRichEditOle_QueryInterface( richole, pIID_ITextServices, (void **)&services ) ))
+        {
+            ITextServices_OnTxPropertyBitsChange( services, TXTBIT_ALLOWBEEP, 0 );
+            ITextServices_Release( services );
+        }
+        IRichEditOle_Release( richole );
+    }
+}
+#endif
+
 static HWND new_window(LPCSTR lpClassName, DWORD dwStyle, HWND parent) {
   HWND hwnd;
   hwnd = CreateWindowA(lpClassName, NULL, dwStyle|WS_POPUP|WS_HSCROLL|WS_VSCROLL
                       |WS_VISIBLE, 0, 0, 200, 60, parent, NULL,
                       hmoduleRichEdit, NULL);
   ok(hwnd != NULL, "class: %s, error: %d\n", lpClassName, (int) GetLastError());
+  disable_beep( hwnd );
   return hwnd;
 }
 
@@ -66,6 +94,7 @@ static HWND new_windowW(LPCWSTR lpClassName, DWORD dwStyle, HWND parent) {
                       |WS_VISIBLE, 0, 0, 200, 60, parent, NULL,
                       hmoduleRichEdit, NULL);
   ok(hwnd != NULL, "class: %s, error: %d\n", wine_dbgstr_w(lpClassName), (int) GetLastError());
+  disable_beep( hwnd );
   return hwnd;
 }
 
@@ -340,14 +369,12 @@ static void test_EM_FINDTEXT(BOOL unicode)
        hwndRichEdit = new_richedit(NULL);
 
   /* Empty rich edit control */
-  run_tests_EM_FINDTEXT(hwndRichEdit, "1", find_tests,
-      sizeof(find_tests)/sizeof(struct find_s), unicode);
+  run_tests_EM_FINDTEXT(hwndRichEdit, "1", find_tests, ARRAY_SIZE(find_tests), unicode);
 
   SendMessageA(hwndRichEdit, WM_SETTEXT, 0, (LPARAM)haystack);
 
   /* Haystack text */
-  run_tests_EM_FINDTEXT(hwndRichEdit, "2", find_tests2,
-      sizeof(find_tests2)/sizeof(struct find_s), unicode);
+  run_tests_EM_FINDTEXT(hwndRichEdit, "2", find_tests2, ARRAY_SIZE(find_tests2), unicode);
 
   /* Setting a format on an arbitrary range should have no effect in search
      results. This tests correct offset reporting across runs. */
@@ -359,8 +386,7 @@ static void test_EM_FINDTEXT(BOOL unicode)
   SendMessageA(hwndRichEdit, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf2);
 
   /* Haystack text, again */
-  run_tests_EM_FINDTEXT(hwndRichEdit, "2-bis", find_tests2,
-      sizeof(find_tests2)/sizeof(struct find_s), unicode);
+  run_tests_EM_FINDTEXT(hwndRichEdit, "2-bis", find_tests2, ARRAY_SIZE(find_tests2), unicode);
 
   /* Yet another range */
   cf2.dwMask = CFM_BOLD | cf2.dwMask;
@@ -369,8 +395,7 @@ static void test_EM_FINDTEXT(BOOL unicode)
   SendMessageA(hwndRichEdit, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf2);
 
   /* Haystack text, again */
-  run_tests_EM_FINDTEXT(hwndRichEdit, "2-bisbis", find_tests2,
-      sizeof(find_tests2)/sizeof(struct find_s), unicode);
+  run_tests_EM_FINDTEXT(hwndRichEdit, "2-bisbis", find_tests2, ARRAY_SIZE(find_tests2), unicode);
 
   DestroyWindow(hwndRichEdit);
 }
@@ -404,7 +429,7 @@ static void test_EM_GETLINE(void)
   SendMessageA(hwndRichEdit, WM_SETTEXT, 0, (LPARAM)text);
 
   memset(origdest, 0xBB, nBuf);
-  for (i = 0; i < sizeof(gl)/sizeof(struct getline_s); i++)
+  for (i = 0; i < ARRAY_SIZE(gl); i++)
   {
     int nCopied;
     int expected_nCopied = min(gl[i].buffer_len, strlen(gl[i].text));
@@ -509,7 +534,7 @@ static void test_EM_LINELENGTH(void)
            {15, 4}, /* Line 3: |wine */
     };
     SendMessageA(hwndRichEdit, WM_SETTEXT, 0, (LPARAM)text1);
-    for (i = 0; i < sizeof(offset_test1)/sizeof(offset_test1[0]); i++) {
+    for (i = 0; i < ARRAY_SIZE(offset_test1); i++) {
       result = SendMessageA(hwndRichEdit, EM_LINELENGTH, offset_test1[i][0], 0);
       ok(result == offset_test1[i][1], "Length of line at offset %d is %ld, expected %d\n",
          offset_test1[i][0], result, offset_test1[i][1]);
@@ -619,7 +644,7 @@ static void test_EM_POSFROMCHAR(void)
       "gg\n"
       "hh\n";
 
-  rtl = (GetLocaleInfoA(LOCALE_USER_DEFAULT, LOCALE_FONTSIGNATURE,
+  rtl = (GetLocaleInfoA(LOCALE_SYSTEM_DEFAULT, LOCALE_FONTSIGNATURE,
                         (LPSTR) &sig, sizeof(LOCALESIGNATURE)) &&
          (sig.lsUsb[3] & 0x08000000) != 0);
 
@@ -661,6 +686,7 @@ static void test_EM_POSFROMCHAR(void)
     }
     else
     {
+      ros_skip_flaky
       ok(HIWORD(result) == i * height, "EM_POSFROMCHAR reports y=%d, expected %d\n", HIWORD(result), i * height);
       ok(LOWORD(result) == xpos, "EM_POSFROMCHAR reports x=%d, expected 1\n", LOWORD(result));
     }
@@ -755,6 +781,8 @@ static void test_EM_SETCHARFORMAT(void)
   HWND hwndRichEdit = new_richedit(NULL);
   CHARFORMAT2A cf2;
   CHARFORMAT2W cfW;
+  CHARFORMATA cf1a;
+  CHARFORMATW cf1w;
   int rc = 0;
   int tested_effects[] = {
     CFE_BOLD,
@@ -773,7 +801,7 @@ static void test_EM_SETCHARFORMAT(void)
   BOOL rtl;
   DWORD expect_effects;
 
-  rtl = (GetLocaleInfoA(LOCALE_USER_DEFAULT, LOCALE_FONTSIGNATURE,
+  rtl = (GetLocaleInfoA(LOCALE_SYSTEM_DEFAULT, LOCALE_FONTSIGNATURE,
                         (LPSTR) &sig, sizeof(LOCALESIGNATURE)) &&
          (sig.lsUsb[3] & 0x08000000) != 0);
 
@@ -1342,6 +1370,23 @@ static void test_EM_SETCHARFORMAT(void)
   ok(cf2.dwEffects & CFE_UNDERLINE, "got %08x\n", cf2.dwEffects);
   ok(cf2.bUnderlineType == CFU_UNDERLINEDOUBLE, "got %x\n", cf2.bUnderlineType);
 
+  /* Check setting CFM_ALL2/CFM_EFFECTS2 in CHARFORMAT(A/W). */
+  memset(&cf1a, 0, sizeof(CHARFORMATA));
+  memset(&cf1w, 0, sizeof(CHARFORMATW));
+  cf1a.cbSize = sizeof(CHARFORMATA);
+  cf1w.cbSize = sizeof(CHARFORMATW);
+  cf1a.dwMask = cf1w.dwMask = CFM_ALL2;
+  cf1a.dwEffects = cf1w.dwEffects = CFM_EFFECTS2;
+  SendMessageA(hwndRichEdit, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf1a);
+  SendMessageA(hwndRichEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf1a);
+  /* flags only valid for CHARFORMAT2 should be masked out */
+  ok((cf1a.dwMask & (CFM_ALL2 & ~CFM_ALL)) == 0, "flags were not masked out\n");
+  ok((cf1a.dwEffects & (CFM_EFFECTS2 & ~CFM_EFFECTS)) == 0, "flags were not masked out\n");
+  SendMessageA(hwndRichEdit, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf1w);
+  SendMessageA(hwndRichEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf1w);
+  ok((cf1w.dwMask & (CFM_ALL2 & ~CFM_ALL)) == 0, "flags were not masked out\n");
+  ok((cf1w.dwEffects & (CFM_EFFECTS2 & ~CFM_EFFECTS)) == 0, "flags were not masked out\n");
+
   DestroyWindow(hwndRichEdit);
 }
 
@@ -1775,8 +1820,8 @@ static void test_EM_GETTEXTRANGE(void)
         textRange.chrg.cpMin = 4;
         textRange.chrg.cpMax = 8;
         result = SendMessageA(hwndRichEdit, EM_GETTEXTRANGE, 0, (LPARAM)&textRange);
-        todo_wine ok(result == 5, "EM_GETTEXTRANGE returned %ld\n", result);
-        todo_wine ok(!strcmp("ef\x8e\xf0g", buffer), "EM_GETTEXTRANGE filled %s\n", buffer);
+        ok(result == 5, "EM_GETTEXTRANGE returned %ld\n", result);
+        ok(!strcmp("ef\x8e\xf0g", buffer), "EM_GETTEXTRANGE filled %s\n", buffer);
     }
 
     DestroyWindow(hwndRichEdit);
@@ -1813,8 +1858,8 @@ static void test_EM_GETSELTEXT(void)
         SendMessageA(hwndRichEdit, WM_SETTEXT, 0, (LPARAM)"abcdef\x8e\xf0ghijk");
         SendMessageA(hwndRichEdit, EM_SETSEL, 4, 8);
         result = SendMessageA(hwndRichEdit, EM_GETSELTEXT, 0, (LPARAM)buffer);
-        todo_wine ok(result == 5, "EM_GETSELTEXT returned %ld\n", result);
-        todo_wine ok(!strcmp("ef\x8e\xf0g", buffer), "EM_GETSELTEXT filled %s\n", buffer);
+        ok(result == 5, "EM_GETSELTEXT returned %ld\n", result);
+        ok(!strcmp("ef\x8e\xf0g", buffer), "EM_GETSELTEXT filled %s\n", buffer);
     }
 
     DestroyWindow(hwndRichEdit);
@@ -1847,6 +1892,7 @@ static void test_EM_SETOPTIONS(void)
                                 hmoduleRichEdit, NULL);
     ok(hwndRichEdit != NULL, "class: %s, error: %d\n",
        RICHEDIT_CLASS20A, (int) GetLastError());
+    disable_beep( hwndRichEdit );
     options = SendMessageA(hwndRichEdit, EM_GETOPTIONS, 0, 0);
     /* WS_[VH]SCROLL cause the ECO_AUTO[VH]SCROLL options to be set */
     ok(options == (ECO_AUTOVSCROLL|ECO_AUTOHSCROLL),
@@ -2049,7 +2095,7 @@ static void test_EM_AUTOURLDETECT(void)
   urlRet=SendMessageA(hwndRichEdit, EM_AUTOURLDETECT, (WPARAM)"h", (LPARAM)"h");
   ok(urlRet==E_INVALIDARG, "Bad wParam2: urlRet is: %d\n", urlRet);
   /* for each url, check the text to see if CFE_LINK effect is present */
-  for (i = 0; i < sizeof(urls)/sizeof(struct urls_s); i++) {
+  for (i = 0; i < ARRAY_SIZE(urls); i++) {
 
     SendMessageA(hwndRichEdit, EM_AUTOURLDETECT, FALSE, 0);
     SendMessageA(hwndRichEdit, WM_SETTEXT, 0, (LPARAM)urls[i].text);
@@ -2063,10 +2109,10 @@ static void test_EM_AUTOURLDETECT(void)
   DestroyWindow(hwndRichEdit);
 
   /* Test detection of URLs within normal text - WM_SETTEXT case. */
-  for (i = 0; i < sizeof(urls)/sizeof(struct urls_s); i++) {
+  for (i = 0; i < ARRAY_SIZE(urls); i++) {
     hwndRichEdit = new_richedit(parent);
 
-    for (j = 0; j < sizeof(templates_delim) / sizeof(const char *); j++) {
+    for (j = 0; j < ARRAY_SIZE(templates_delim); j++) {
       char * at_pos;
       int at_offset;
       int end_offset;
@@ -2117,7 +2163,7 @@ static void test_EM_AUTOURLDETECT(void)
       }
     }
 
-    for (j = 0; j < sizeof(templates_non_delim) / sizeof(const char *); j++) {
+    for (j = 0; j < ARRAY_SIZE(templates_non_delim); j++) {
       char * at_pos;
       int at_offset;
       int end_offset;
@@ -2158,7 +2204,7 @@ static void test_EM_AUTOURLDETECT(void)
       }
     }
 
-    for (j = 0; j < sizeof(templates_xten_delim) / sizeof(const char *); j++) {
+    for (j = 0; j < ARRAY_SIZE(templates_xten_delim); j++) {
       char * at_pos;
       int at_offset;
       int end_offset;
@@ -2213,7 +2259,7 @@ static void test_EM_AUTOURLDETECT(void)
       }
     }
 
-    for (j = 0; j < sizeof(templates_neutral_delim) / sizeof(const char *); j++) {
+    for (j = 0; j < ARRAY_SIZE(templates_neutral_delim); j++) {
       char * at_pos, * end_pos;
       int at_offset;
       int end_offset;
@@ -2421,7 +2467,7 @@ static void test_EM_AUTOURLDETECT(void)
      */
 
     /* Set entire text in one go, like WM_SETTEXT */
-    for (j = 0; j < sizeof(templates_delim) / sizeof(const char *); j++) {
+    for (j = 0; j < ARRAY_SIZE(templates_delim); j++) {
       char * at_pos;
       int at_offset;
       int end_offset;
@@ -2476,7 +2522,7 @@ static void test_EM_AUTOURLDETECT(void)
     }
 
     /* Set selection with X to the URL */
-    for (j = 0; j < sizeof(templates_delim) / sizeof(const char *); j++) {
+    for (j = 0; j < ARRAY_SIZE(templates_delim); j++) {
       char * at_pos;
       int at_offset;
       int end_offset;
@@ -2530,7 +2576,7 @@ static void test_EM_AUTOURLDETECT(void)
     }
 
     /* Set selection with X to the first character of the URL, then the rest */
-    for (j = 0; j < sizeof(templates_delim) / sizeof(const char *); j++) {
+    for (j = 0; j < ARRAY_SIZE(templates_delim); j++) {
       char * at_pos;
       int at_offset;
       int end_offset;
@@ -2598,7 +2644,7 @@ static void test_EM_AUTOURLDETECT(void)
     hwndRichEdit = new_richedit(parent);
 
     /* Set selection with X to the URL */
-    for (j = 0; j < sizeof(templates_delim) / sizeof(const char *); j++) {
+    for (j = 0; j < ARRAY_SIZE(templates_delim); j++) {
       char * at_pos;
       int at_offset;
       int end_offset;
@@ -2649,7 +2695,7 @@ static void test_EM_AUTOURLDETECT(void)
     }
 
     /* Set selection with X to the first character of the URL, then the rest */
-    for (j = 0; j < sizeof(templates_delim) / sizeof(const char *); j++) {
+    for (j = 0; j < ARRAY_SIZE(templates_delim); j++) {
       char * at_pos;
       int at_offset;
       int end_offset;
@@ -3094,11 +3140,9 @@ static void test_scrollbar_visibility(void)
   GetScrollInfo(hwndRichEdit, SB_VERT, &si);
   ok (((GetWindowLongA(hwndRichEdit, GWL_STYLE) & WS_VSCROLL) != 0),
     "Vertical scrollbar is invisible, should be visible.\n");
-  todo_wine {
   ok(si.nPage == 0 && si.nMin == 0 && si.nMax == 100,
         "reported page/range is %d (%d..%d) expected 0 (0..100)\n",
         si.nPage, si.nMin, si.nMax);
-  }
 
   /* Ditto, see above */
   SendMessageA(hwndRichEdit, WM_SETTEXT, 0, 0);
@@ -3108,11 +3152,9 @@ static void test_scrollbar_visibility(void)
   GetScrollInfo(hwndRichEdit, SB_VERT, &si);
   ok (((GetWindowLongA(hwndRichEdit, GWL_STYLE) & WS_VSCROLL) != 0),
     "Vertical scrollbar is invisible, should be visible.\n");
-  todo_wine {
   ok(si.nPage == 0 && si.nMin == 0 && si.nMax == 100,
         "reported page/range is %d (%d..%d) expected 0 (0..100)\n",
         si.nPage, si.nMin, si.nMax);
-  }
 
   /* Ditto, see above */
   SendMessageA(hwndRichEdit, WM_SETTEXT, 0, (LPARAM)"a");
@@ -3122,11 +3164,9 @@ static void test_scrollbar_visibility(void)
   GetScrollInfo(hwndRichEdit, SB_VERT, &si);
   ok (((GetWindowLongA(hwndRichEdit, GWL_STYLE) & WS_VSCROLL) != 0),
     "Vertical scrollbar is invisible, should be visible.\n");
-  todo_wine {
   ok(si.nPage == 0 && si.nMin == 0 && si.nMax == 100,
         "reported page/range is %d (%d..%d) expected 0 (0..100)\n",
         si.nPage, si.nMin, si.nMax);
-  }
 
   /* Ditto, see above */
   SendMessageA(hwndRichEdit, WM_SETTEXT, 0, (LPARAM)"a\na");
@@ -3136,11 +3176,9 @@ static void test_scrollbar_visibility(void)
   GetScrollInfo(hwndRichEdit, SB_VERT, &si);
   ok (((GetWindowLongA(hwndRichEdit, GWL_STYLE) & WS_VSCROLL) != 0),
     "Vertical scrollbar is invisible, should be visible.\n");
-  todo_wine {
   ok(si.nPage == 0 && si.nMin == 0 && si.nMax == 100,
         "reported page/range is %d (%d..%d) expected 0 (0..100)\n",
         si.nPage, si.nMin, si.nMax);
-  }
 
   /* Ditto, see above */
   SendMessageA(hwndRichEdit, WM_SETTEXT, 0, 0);
@@ -3150,11 +3188,9 @@ static void test_scrollbar_visibility(void)
   GetScrollInfo(hwndRichEdit, SB_VERT, &si);
   ok (((GetWindowLongA(hwndRichEdit, GWL_STYLE) & WS_VSCROLL) != 0),
     "Vertical scrollbar is invisible, should be visible.\n");
-  todo_wine {
   ok(si.nPage == 0 && si.nMin == 0 && si.nMax == 100,
         "reported page/range is %d (%d..%d) expected 0 (0..100)\n",
         si.nPage, si.nMin, si.nMax);
-  }
 
   SendMessageA(hwndRichEdit, WM_SETTEXT, 0, (LPARAM)text);
   SendMessageA(hwndRichEdit, WM_SETTEXT, 0, 0);
@@ -4933,7 +4969,7 @@ static void test_EM_EXSETSEL(void)
 {
     HWND hwndRichEdit = new_richedit(NULL);
     int i;
-    const int num_tests = sizeof(exsetsel_tests)/sizeof(struct exsetsel_s);
+    const int num_tests = ARRAY_SIZE(exsetsel_tests);
 
     /* sending some text to the window */
     SendMessageA(hwndRichEdit, WM_SETTEXT, 0, (LPARAM)"testing selection");
@@ -4955,7 +4991,7 @@ static void test_EM_EXSETSEL(void)
         /* Test with multibyte character */
         SendMessageA(hwndRichEdit, WM_SETTEXT, 0, (LPARAM)"abcdef\x8e\xf0ghijk");
         /*                                                 012345     6  78901 */
-        cr.cpMin = 4, cr.cpMax = 8;
+        cr.cpMin = 4; cr.cpMax = 8;
         result =  SendMessageA(hwndRichEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
         ok(result == 8, "EM_EXSETSEL return %ld expected 8\n", result);
         result = SendMessageA(hwndRichEdit, EM_GETSELTEXT, sizeof(bufA), (LPARAM)bufA);
@@ -4988,7 +5024,7 @@ static void test_EM_SETSEL(void)
     char buffA[32] = {0};
     HWND hwndRichEdit = new_richedit(NULL);
     int i;
-    const int num_tests = sizeof(exsetsel_tests)/sizeof(struct exsetsel_s);
+    const int num_tests = ARRAY_SIZE(exsetsel_tests);
 
     /* sending some text to the window */
     SendMessageA(hwndRichEdit, WM_SETTEXT, 0, (LPARAM)"testing selection");
@@ -5594,7 +5630,7 @@ static void test_EM_FORMATRANGE(void)
     {"WINE\r\n\r\nwine\r\nwine", 5, 6}
   };
 
-  skip_non_english = (PRIMARYLANGID(GetUserDefaultLangID()) != LANG_ENGLISH);
+  skip_non_english = (PRIMARYLANGID(GetSystemDefaultLangID()) != LANG_ENGLISH);
   if (skip_non_english)
     skip("Skipping some tests on non-English platform\n");
 
@@ -5623,7 +5659,7 @@ static void test_EM_FORMATRANGE(void)
 
   SendMessageA(hwndRichEdit, EM_FORMATRANGE, FALSE, 0);
 
-  for (i = 0; i < sizeof(fmtstrings)/sizeof(fmtstrings[0]); i++)
+  for (i = 0; i < ARRAY_SIZE(fmtstrings); i++)
   {
     GETTEXTLENGTHEX gtl;
     SIZE stringsize;
@@ -5758,6 +5794,30 @@ static DWORD CALLBACK test_EM_STREAMIN_esCallback_UTF8Split(DWORD_PTR dwCookie,
     return 0;
 }
 
+static DWORD CALLBACK test_EM_STREAMIN_null_bytes(DWORD_PTR cookie, BYTE *buf, LONG size, LONG *written)
+{
+    DWORD *phase = (DWORD *)cookie;
+
+    if (*phase == 0)
+    {
+        static const char first[] = "{\\rtf1\\ansi{Th\0is";
+        *written = sizeof(first);
+        memcpy(buf, first, *written);
+    }
+    else if (*phase == 1)
+    {
+        static const char second[] = " is a test}}";
+        *written = sizeof(second);
+        memcpy(buf, second, *written);
+    }
+    else
+        *written = 0;
+
+    ++*phase;
+
+    return 0;
+}
+
 struct StringWithLength {
     int length;
     char *buffer;
@@ -5831,7 +5891,7 @@ static void test_EM_STREAMIN(void)
   };
 
   const WCHAR streamText5[] = { 'T', 'e', 's', 't', 'S', 'o', 'm', 'e', 'T', 'e', 'x', 't' };
-  int length5 = sizeof(streamText5) / sizeof(WCHAR);
+  int length5 = ARRAY_SIZE(streamText5);
   struct StringWithLength cookieForStream5 = {
       sizeof(streamText5),
       (char *)streamText5,
@@ -6044,6 +6104,17 @@ static void test_EM_STREAMIN(void)
   result = SendMessageA(hwndRichEdit, WM_GETTEXT, 1024, (LPARAM)buffer);
   ok (!strcmp(buffer, "line1"),
       "EM_STREAMIN: Unexpected text '%s'\n", buffer);
+
+  /* Test 0-bytes inside text */
+  hwndRichEdit = new_richedit_with_style(NULL, 0);
+  phase = 0;
+  es.dwCookie = (DWORD_PTR)&phase;
+  es.dwError = 0;
+  es.pfnCallback = test_EM_STREAMIN_null_bytes;
+  result = SendMessageA(hwndRichEdit, EM_STREAMIN, SF_RTF, (LPARAM)&es);
+  ok(result == 16, "got %ld, expected %d\n", result, 16);
+  result = SendMessageA(hwndRichEdit, WM_GETTEXT, 1024, (LPARAM)buffer);
+  ok (!strcmp(buffer, "Th is  is a test"), "EM_STREAMIN: Unexpected text '%s'\n", buffer);
 }
 
 static void test_EM_StreamIn_Undo(void)
@@ -6297,6 +6368,7 @@ static void test_WM_CHAR(void)
     hwnd = CreateWindowExA(0, "RichEdit20W", NULL, WS_POPUP,
                            0, 0, 200, 60, 0, 0, 0, 0);
     ok(hwnd != 0, "CreateWindowExA error %u\n", GetLastError());
+    disable_beep( hwnd );
 
     p = char_list;
     while (*p != '\0') {
@@ -6868,7 +6940,7 @@ static void test_EN_LINK(void)
     GetCursorPos(&orig_cursor_pos);
     SetCursorPos(0, 0);
 
-    for (i = 0; i < sizeof(link_notify_tests)/sizeof(link_notify_tests[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(link_notify_tests); i++)
     {
         link_notify_test("cursor position simulated", i, hwnd, parent,
                          link_notify_tests[i].msg, link_notify_tests[i].wParam, link_notify_tests[i].lParam,
@@ -6878,7 +6950,7 @@ static void test_EN_LINK(void)
     ClientToScreen(hwnd, &cursor_screen_pos);
     SetCursorPos(cursor_screen_pos.x, cursor_screen_pos.y);
 
-    for (i = 0; i < sizeof(link_notify_tests)/sizeof(link_notify_tests[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(link_notify_tests); i++)
     {
         link_notify_test("cursor position set", i, hwnd, parent,
                          link_notify_tests[i].msg, link_notify_tests[i].wParam, link_notify_tests[i].lParam,
@@ -6900,6 +6972,7 @@ static void test_undo_coalescing(void)
     hwnd = CreateWindowExA(0, "RichEdit20W", NULL, WS_POPUP|ES_MULTILINE,
                            0, 0, 200, 60, 0, 0, 0, 0);
     ok(hwnd != 0, "CreateWindowExA error %u\n", GetLastError());
+    disable_beep( hwnd );
 
     result = SendMessageA(hwnd, EM_CANUNDO, 0, 0);
     ok (result == FALSE, "Can undo after window creation.\n");
@@ -7410,12 +7483,25 @@ static void test_format_rect(void)
     ok(EqualRect(&rc, &expected), "rect %s != %s\n", wine_dbgstr_rect(&rc),
        wine_dbgstr_rect(&expected));
 
+    /* reset back to client rect and now try adding selection bar */
+    SendMessageA(hwnd, EM_SETRECT, 0, 0);
+    expected = clientRect;
+    InflateRect(&expected, -1, 0);
+    SendMessageA(hwnd, EM_GETRECT, 0, (LPARAM)&rc);
+    ok(EqualRect(&rc, &expected), "rect %s != %s\n", wine_dbgstr_rect(&rc),
+       wine_dbgstr_rect(&expected));
+    SendMessageA(hwnd, EM_SETOPTIONS, ECOOP_OR, ECO_SELECTIONBAR);
+    SendMessageA(hwnd, EM_GETRECT, 0, (LPARAM)&rc);
+    ok(EqualRect(&rc, &expected), "rect %s != %s\n", wine_dbgstr_rect(&rc),
+       wine_dbgstr_rect(&expected));
+    SendMessageA(hwnd, EM_SETOPTIONS, ECOOP_AND, ~ECO_SELECTIONBAR);
+
     /* Set the absolute value of the formatting rectangle. */
     rc = clientRect;
     SendMessageA(hwnd, EM_SETRECT, 0, (LPARAM)&rc);
     expected = clientRect;
     SendMessageA(hwnd, EM_GETRECT, 0, (LPARAM)&rc);
-    ok(EqualRect(&rc, &expected), "[n=%d] rect %s != %s\n", n, wine_dbgstr_rect(&rc),
+    ok(EqualRect(&rc, &expected), "rect %s != %s\n", wine_dbgstr_rect(&rc),
        wine_dbgstr_rect(&expected));
 
     /* MSDN documents the EM_SETRECT message as using the rectangle provided in
@@ -8178,7 +8264,7 @@ static void test_EM_FINDWORDBREAK_W(void)
     int i;
     HWND hwndRichEdit = new_richeditW(NULL);
     ok(IsWindowUnicode(hwndRichEdit), "window should be unicode\n");
-    for (i = 0; i < sizeof(delimiter_tests)/sizeof(delimiter_tests[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(delimiter_tests); i++)
     {
         WCHAR wbuf[2];
         int result;
@@ -8212,7 +8298,7 @@ static void test_EM_FINDWORDBREAK_A(void)
     HWND hwndRichEdit = new_richedit(NULL);
 
     ok(!IsWindowUnicode(hwndRichEdit), "window should not be unicode\n");
-    for (i = 0; i < sizeof(delimiter_tests)/sizeof(delimiter_tests[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(delimiter_tests); i++)
     {
         int result;
         char buf[2];
@@ -8228,12 +8314,21 @@ static void test_EM_FINDWORDBREAK_A(void)
     DestroyWindow(hwndRichEdit);
 }
 
+static void format_test_result(char *target, const char *src)
+{
+    int i;
+    for (i = 0; i < strlen(src); i++)
+        sprintf(target + 2*i, "%02x", src[i] & 0xFF);
+    target[2*i] = 0;
+}
+
 /*
  * This test attempts to show the effect of enter on a richedit
  * control v1.0 inserts CRLF whereas for higher versions it only
  * inserts CR. If shows that EM_GETTEXTEX with GT_USECRLF == WM_GETTEXT
  * and also shows that GT_USECRLF has no effect in richedit 1.0, but
  * does for higher. The same test is cloned in riched32 and riched20.
+ * Also shows the difference between WM_CHAR/WM_KEYDOWN in v1.0 and higher versions
  */
 static void test_enter(void)
 {
@@ -8254,15 +8349,14 @@ static void test_enter(void)
   char expectedbuf[1024];
   char resultbuf[1024];
   HWND hwndRichEdit = new_richedit(NULL);
-  UINT i,j;
+  UINT i;
+  char buf[1024] = {0};
+  GETTEXTEX getText = {sizeof(buf)};
+  LRESULT result;
+  const char *expected;
 
-  for (i = 0; i < sizeof(testenteritems)/sizeof(testenteritems[0]); i++) {
-
-    char buf[1024] = {0};
-    LRESULT result;
-    GETTEXTEX getText;
-    const char *expected;
-
+  for (i = 0; i < ARRAY_SIZE(testenteritems); i++)
+  {
     /* Set the text to the initial text */
     result = SendMessageA(hwndRichEdit, WM_SETTEXT, 0, (LPARAM)testenteritems[i].initialtext);
     ok (result == 1, "[%d] WM_SETTEXT returned %ld instead of 1\n", i, result);
@@ -8276,12 +8370,8 @@ static void test_enter(void)
     result = SendMessageA(hwndRichEdit, WM_GETTEXT, 1024, (LPARAM)buf);
     expected = testenteritems[i].expectedwmtext;
 
-    resultbuf[0]=0x00;
-    for (j = 0; j < (UINT)result; j++)
-      sprintf(resultbuf+strlen(resultbuf), "%02x", buf[j] & 0xFF);
-    expectedbuf[0] = '\0';
-    for (j = 0; j < strlen(expected); j++)
-      sprintf(expectedbuf+strlen(expectedbuf), "%02x", expected[j] & 0xFF);
+    format_test_result(resultbuf, buf);
+    format_test_result(expectedbuf, expected);
 
     result = strcmp(expected, buf);
     ok (result == 0,
@@ -8289,21 +8379,14 @@ static void test_enter(void)
         i, resultbuf, expectedbuf);
 
     /* 2. Retrieve with EM_GETTEXTEX, GT_DEFAULT */
-    getText.cb = sizeof(buf);
     getText.flags = GT_DEFAULT;
-    getText.codepage      = CP_ACP;
-    getText.lpDefaultChar = NULL;
-    getText.lpUsedDefChar = NULL;
+    getText.codepage = CP_ACP;
     buf[0] = 0x00;
     result = SendMessageA(hwndRichEdit, EM_GETTEXTEX, (WPARAM)&getText, (LPARAM)buf);
     expected = testenteritems[i].expectedemtext;
 
-    resultbuf[0]=0x00;
-    for (j = 0; j < (UINT)result; j++)
-      sprintf(resultbuf+strlen(resultbuf), "%02x", buf[j] & 0xFF);
-    expectedbuf[0] = '\0';
-    for (j = 0; j < strlen(expected); j++)
-      sprintf(expectedbuf+strlen(expectedbuf), "%02x", expected[j] & 0xFF);
+    format_test_result(resultbuf, buf);
+    format_test_result(expectedbuf, expected);
 
     result = strcmp(expected, buf);
     ok (result == 0,
@@ -8311,27 +8394,48 @@ static void test_enter(void)
         i, resultbuf, expectedbuf);
 
     /* 3. Retrieve with EM_GETTEXTEX, GT_USECRLF */
-    getText.cb = sizeof(buf);
     getText.flags = GT_USECRLF;
-    getText.codepage      = CP_ACP;
-    getText.lpDefaultChar = NULL;
-    getText.lpUsedDefChar = NULL;
+    getText.codepage = CP_ACP;
     buf[0] = 0x00;
     result = SendMessageA(hwndRichEdit, EM_GETTEXTEX, (WPARAM)&getText, (LPARAM)buf);
     expected = testenteritems[i].expectedemtextcrlf;
 
-    resultbuf[0]=0x00;
-    for (j = 0; j < (UINT)result; j++)
-      sprintf(resultbuf+strlen(resultbuf), "%02x", buf[j] & 0xFF);
-    expectedbuf[0] = '\0';
-    for (j = 0; j < strlen(expected); j++)
-      sprintf(expectedbuf+strlen(expectedbuf), "%02x", expected[j] & 0xFF);
+    format_test_result(resultbuf, buf);
+    format_test_result(expectedbuf, expected);
 
     result = strcmp(expected, buf);
     ok (result == 0,
         "[%d] EM_GETTEXTEX, GT_USECRLF unexpected '%s', expected '%s'\n",
         i, resultbuf, expectedbuf);
   }
+
+  /* Show that WM_CHAR is handled differently from WM_KEYDOWN */
+  getText.flags    = GT_DEFAULT;
+  getText.codepage = CP_ACP;
+
+  result = SendMessageA(hwndRichEdit, WM_SETTEXT, 0, (LPARAM)"");
+  ok (result == 1, "[%d] WM_SETTEXT returned %ld instead of 1\n", i, result);
+  SendMessageW(hwndRichEdit, WM_CHAR, 'T', 0);
+  SendMessageW(hwndRichEdit, WM_KEYDOWN, VK_RETURN, 0);
+
+  result = SendMessageA(hwndRichEdit, EM_GETTEXTEX, (WPARAM)&getText, (LPARAM)buf);
+  ok(result == 2, "Got %d\n", (int)result);
+  format_test_result(resultbuf, buf);
+  format_test_result(expectedbuf, "T\r");
+  result = strcmp(resultbuf, expectedbuf);
+  ok (result == 0, "[%d] EM_GETTEXTEX, GT_DEFAULT unexpected '%s', expected '%s'\n", i, resultbuf, expectedbuf);
+
+  result = SendMessageA(hwndRichEdit, WM_SETTEXT, 0, (LPARAM)"");
+  ok (result == 1, "[%d] WM_SETTEXT returned %ld instead of 1\n", i, result);
+  SendMessageW(hwndRichEdit, WM_CHAR, 'T', 0);
+  SendMessageW(hwndRichEdit, WM_CHAR, '\r', 0);
+
+  result = SendMessageA(hwndRichEdit, EM_GETTEXTEX, (WPARAM)&getText, (LPARAM)buf);
+  ok(result == 1, "Got %d\n", (int)result);
+  format_test_result(resultbuf, buf);
+  format_test_result(expectedbuf, "T");
+  result = strcmp(resultbuf, expectedbuf);
+  ok (result == 0, "[%d] EM_GETTEXTEX, GT_DEFAULT unexpected '%s', expected '%s'\n", i, resultbuf, expectedbuf);
 
   DestroyWindow(hwndRichEdit);
 }
@@ -8538,7 +8642,7 @@ static void test_alignment_style(void)
     EDITSTREAM es;
     int i;
 
-    for (i = 0; i < sizeof(align_style) / sizeof(align_style[0]); i++)
+    for (i = 0; i < ARRAY_SIZE(align_style); i++)
     {
         DWORD dwStyle, new_align;
 
@@ -8572,6 +8676,35 @@ static void test_alignment_style(void)
 
         SendMessageW(richedit, EM_GETPARAFORMAT, 0, (LPARAM)&pf);
         ok(pf.wAlignment == align_mask[i], "got %d expect %d\n", pf.wAlignment, align_mask[i]);
+
+        /* Test out of bounds tab count */
+        pf.dwMask = PFM_TABSTOPS;
+        pf.cTabCount = -25000;
+        SendMessageW(richedit, EM_SETPARAFORMAT, 0, (LPARAM)&pf);
+        ok(pf.cTabCount == -25000, "Got %d\n", pf.cTabCount);
+        SendMessageW(richedit, EM_GETPARAFORMAT, 0, (LPARAM)&pf);
+        ok(pf.cTabCount == 0, "Got %d\n", pf.cTabCount);
+        pf.dwMask = PFM_TABSTOPS;
+        pf.cTabCount = 25000;
+        SendMessageW(richedit, EM_SETPARAFORMAT, 0, (LPARAM)&pf);
+        ok(pf.cTabCount == 25000, "Got %d\n", pf.cTabCount);
+        SendMessageW(richedit, EM_GETPARAFORMAT, 0, (LPARAM)&pf);
+        ok(pf.cTabCount == 32, "Got %d\n", pf.cTabCount);
+        pf.dwMask = PFM_TABSTOPS;
+        pf.cTabCount = 32;
+        SendMessageW(richedit, EM_SETPARAFORMAT, 0, (LPARAM)&pf);
+        SendMessageW(richedit, EM_GETPARAFORMAT, 0, (LPARAM)&pf);
+        ok(pf.cTabCount == 32, "Got %d\n", pf.cTabCount);
+        pf.dwMask = PFM_TABSTOPS;
+        pf.cTabCount = 33;
+        SendMessageW(richedit, EM_SETPARAFORMAT, 0, (LPARAM)&pf);
+        SendMessageW(richedit, EM_GETPARAFORMAT, 0, (LPARAM)&pf);
+        ok(pf.cTabCount == 32, "Got %d\n", pf.cTabCount);
+        pf.dwMask = PFM_TABSTOPS;
+        pf.cTabCount = 1;
+        SendMessageW(richedit, EM_SETPARAFORMAT, 0, (LPARAM)&pf);
+        SendMessageW(richedit, EM_GETPARAFORMAT, 0, (LPARAM)&pf);
+        ok(pf.cTabCount == 1, "Got %d\n", pf.cTabCount);
 
         DestroyWindow(richedit);
     }
@@ -8646,8 +8779,8 @@ static void test_rtf(void)
     result = SendMessageA( edit, EM_STREAMIN, SF_RTF, (LPARAM)&es );
     ok( result == 11, "got %ld\n", result );
 
-    result = SendMessageW( edit, WM_GETTEXT, sizeof(buf)/sizeof(buf[0]), (LPARAM)buf );
-    ok( result == sizeof(expect_specials)/sizeof(expect_specials[0]), "got %ld\n", result );
+    result = SendMessageW( edit, WM_GETTEXT, ARRAY_SIZE(buf), (LPARAM)buf );
+    ok( result == ARRAY_SIZE(expect_specials), "got %ld\n", result );
     ok( !memcmp( buf, expect_specials, sizeof(expect_specials) ), "got %s\n", wine_dbgstr_w(buf) );
 
     /* Show that \rtlpar propagates to the second paragraph and is
@@ -8928,7 +9061,7 @@ START_TEST( editor )
    * RICHED20.DLL, so the linker doesn't actually link to it. */
   hmoduleRichEdit = LoadLibraryA("riched20.dll");
   ok(hmoduleRichEdit != NULL, "error: %d\n", (int) GetLastError());
-  is_lang_japanese = (PRIMARYLANGID(GetUserDefaultLangID()) == LANG_JAPANESE);
+  is_lang_japanese = (PRIMARYLANGID(GetSystemDefaultLangID()) == LANG_JAPANESE);
 
   test_window_classes();
   test_WM_CHAR();

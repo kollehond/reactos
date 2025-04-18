@@ -93,8 +93,11 @@ WINE_DEFAULT_DEBUG_CHANNEL(button);
 typedef struct _BUTTON_INFO
 {
     HWND        hwnd;
+    HWND        parent;
     LONG        state;
     HFONT       font;
+    WCHAR      *note;
+    INT         note_length;
     union
     {
         HICON   icon;
@@ -254,6 +257,14 @@ HRGN set_control_clipping( HDC hdc, const RECT *rect )
     }
     IntersectClipRect( hdc, rc.left, rc.top, rc.right, rc.bottom );
     return hrgn;
+}
+
+static WCHAR *heap_strndupW(const WCHAR *src, size_t length)
+{
+    size_t size = (length + 1) * sizeof(WCHAR);
+    WCHAR *dst = heap_alloc(size);
+    if (dst) memcpy(dst, src, size);
+    return dst;
 }
 
 /**********************************************************************
@@ -642,6 +653,7 @@ static LRESULT CALLBACK BUTTON_WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
 
     case WM_NCDESTROY:
         SetWindowLongPtrW( hWnd, 0, 0 );
+        heap_free(infoPtr->note);
         heap_free(infoPtr);
         break;
 
@@ -785,7 +797,11 @@ static LRESULT CALLBACK BUTTON_WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
                 SendMessageW( hWnd, BM_SETCHECK, !(infoPtr->state & BST_CHECKED), 0 );
                 break;
             case BS_AUTORADIOBUTTON:
+#ifdef __REACTOS__
+                BUTTON_CheckAutoRadioButton( hWnd );
+#else
                 SendMessageW( hWnd, BM_SETCHECK, TRUE, 0 );
+#endif
                 break;
             case BS_AUTO3STATE:
                 SendMessageW( hWnd, BM_SETCHECK, (infoPtr->state & BST_INDETERMINATE) ? 0 :
@@ -838,7 +854,9 @@ static LRESULT CALLBACK BUTTON_WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
             nmhotitem.dwFlags      = HICF_ENTERING;
             SendMessageW(GetParent(hWnd), WM_NOTIFY, nmhotitem.hdr.idFrom, (LPARAM)&nmhotitem);
 
-            InvalidateRect(hWnd, NULL, TRUE);
+            theme = GetWindowTheme( hWnd );
+            if (theme)
+                InvalidateRect(hWnd, NULL, TRUE);
         }
 
         if(!TrackMouseEvent(&mouse_event) || !(mouse_event.dwFlags&TME_LEAVE))
@@ -848,7 +866,6 @@ static LRESULT CALLBACK BUTTON_WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
             mouse_event.dwHoverTime = 1;
             TrackMouseEvent(&mouse_event);
         }
-        break;
 #else
 
         if (!TrackMouseEvent(&mouse_event) || !(mouse_event.dwFlags & (TME_HOVER | TME_LEAVE)))
@@ -858,6 +875,7 @@ static LRESULT CALLBACK BUTTON_WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
             mouse_event.dwHoverTime = 1;
             TrackMouseEvent(&mouse_event);
         }
+#endif
 
         if ((wParam & MK_LBUTTON) && GetCapture() == hWnd)
         {
@@ -865,7 +883,6 @@ static LRESULT CALLBACK BUTTON_WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
             SendMessageW( hWnd, BM_SETSTATE, PtInRect(&rect, pt), 0 );
         }
         break;
-#endif
     }
 
 #ifndef __REACTOS__
@@ -892,7 +909,9 @@ static LRESULT CALLBACK BUTTON_WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
             nmhotitem.dwFlags      = HICF_LEAVING;
             SendMessageW(GetParent(hWnd), WM_NOTIFY, nmhotitem.hdr.idFrom, (LPARAM)&nmhotitem);
 
-            InvalidateRect(hWnd, NULL, TRUE);
+            theme = GetWindowTheme( hWnd );
+            if (theme)
+                InvalidateRect(hWnd, NULL, TRUE);
         }
         break;
 #else
@@ -940,6 +959,11 @@ static LRESULT CALLBACK BUTTON_WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
         HTHEME theme = GetWindowTheme(hWnd);
         BOOL ret = FALSE;
         SIZE* pSize = (SIZE*)lParam;
+
+        if (!pSize)
+        {
+            return FALSE;
+        }
 
         if (btn_type == BS_PUSHBUTTON || 
             btn_type == BS_DEFPUSHBUTTON ||
@@ -1012,6 +1036,81 @@ static LRESULT CALLBACK BUTTON_WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
         return 1; /* success. FIXME: check text length */
     }
 
+    case BCM_SETNOTE:
+    {
+        WCHAR *note = (WCHAR *)lParam;
+        if (btn_type != BS_COMMANDLINK && btn_type != BS_DEFCOMMANDLINK)
+        {
+            SetLastError(ERROR_NOT_SUPPORTED);
+            return FALSE;
+        }
+
+        heap_free(infoPtr->note);
+        if (note)
+        {
+            infoPtr->note_length = lstrlenW(note);
+            infoPtr->note = heap_strndupW(note, infoPtr->note_length);
+        }
+
+        if (!note || !infoPtr->note)
+        {
+            infoPtr->note_length = 0;
+            infoPtr->note = heap_alloc_zero(sizeof(WCHAR));
+        }
+
+        SetLastError(NO_ERROR);
+        return TRUE;
+    }
+
+    case BCM_GETNOTE:
+    {
+        DWORD *size = (DWORD *)wParam;
+        WCHAR *buffer = (WCHAR *)lParam;
+        INT length = 0;
+
+        if (btn_type != BS_COMMANDLINK && btn_type != BS_DEFCOMMANDLINK)
+        {
+            SetLastError(ERROR_NOT_SUPPORTED);
+            return FALSE;
+        }
+
+        if (!buffer || !size || !infoPtr->note)
+        {
+            SetLastError(ERROR_INVALID_PARAMETER);
+            return FALSE;
+        }
+
+        if (*size > 0)
+        {
+            length = min(*size - 1, infoPtr->note_length);
+            memcpy(buffer, infoPtr->note, length * sizeof(WCHAR));
+            buffer[length] = '\0';
+        }
+
+        if (*size < infoPtr->note_length + 1)
+        {
+            *size = infoPtr->note_length + 1;
+            SetLastError(ERROR_INSUFFICIENT_BUFFER);
+            return FALSE;
+        }
+        else
+        {
+            SetLastError(NO_ERROR);
+            return TRUE;
+        }
+    }
+
+    case BCM_GETNOTELENGTH:
+    {
+        if (btn_type != BS_COMMANDLINK && btn_type != BS_DEFCOMMANDLINK)
+        {
+            SetLastError(ERROR_NOT_SUPPORTED);
+            return 0;
+        }
+
+        return infoPtr->note_length;
+    }
+
     case WM_SETFONT:
         infoPtr->font = (HFONT)wParam;
         if (lParam) InvalidateRect(hWnd, NULL, TRUE);
@@ -1031,6 +1130,13 @@ static LRESULT CALLBACK BUTTON_WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
         paint_button( infoPtr, btn_type, ODA_FOCUS );
         if (style & BS_NOTIFY)
             BUTTON_NOTIFY_PARENT(hWnd, BN_SETFOCUS);
+#ifdef __REACTOS__
+        if (((btn_type == BS_RADIOBUTTON) || (btn_type == BS_AUTORADIOBUTTON)) &&
+            !(infoPtr->state & BST_CHECKED))
+        {
+            BUTTON_NOTIFY_PARENT(hWnd, BN_CLICKED);
+        }
+#endif
         break;
 
     case WM_KILLFOCUS:
@@ -1113,8 +1219,10 @@ static LRESULT CALLBACK BUTTON_WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, L
             infoPtr->state = (infoPtr->state & ~3) | wParam;
             InvalidateRect( hWnd, NULL, FALSE );
         }
+#ifndef __REACTOS__
         if ((btn_type == BS_AUTORADIOBUTTON) && (wParam == BST_CHECKED) && (style & WS_CHILD))
             BUTTON_CheckAutoRadioButton( hWnd );
+#endif
         break;
 
     case BM_GETSTATE:
@@ -1196,7 +1304,11 @@ static UINT BUTTON_CalcLabelRect(const BUTTON_INFO *infoPtr, HDC hdc, RECT *rc)
           }
 
           if ((hFont = infoPtr->font)) hPrevFont = SelectObject( hdc, hFont );
+#ifdef __REACTOS__
+          DrawTextW(hdc, text, -1, &r, ((dtStyle | DT_CALCRECT) & ~(DT_VCENTER | DT_BOTTOM)));
+#else
           DrawTextW(hdc, text, -1, &r, dtStyle | DT_CALCRECT);
+#endif
           if (hPrevFont) SelectObject( hdc, hPrevFont );
           heap_free( text );
 #ifdef __REACTOS__
@@ -1640,13 +1752,22 @@ static void BUTTON_CheckAutoRadioButton( HWND hwnd )
 
     parent = GetParent(hwnd);
     /* make sure that starting control is not disabled or invisible */
+#ifdef __REACTOS__
+    start = sibling = hwnd;
+#else
     start = sibling = GetNextDlgGroupItem( parent, hwnd, TRUE );
+#endif
     do
     {
         if (!sibling) break;
+#ifdef __REACTOS__
+        if ((SendMessageW(sibling, WM_GETDLGCODE, 0, 0) & (DLGC_BUTTON | DLGC_RADIOBUTTON)) == (DLGC_BUTTON | DLGC_RADIOBUTTON))
+            SendMessageW( sibling, BM_SETCHECK, sibling == hwnd ? BST_CHECKED : BST_UNCHECKED, 0 );
+#else
         if ((hwnd != sibling) &&
             ((GetWindowLongW( sibling, GWL_STYLE) & BS_TYPEMASK) == BS_AUTORADIOBUTTON))
             SendMessageW( sibling, BM_SETCHECK, BST_UNCHECKED, 0 );
+#endif
         sibling = GetNextDlgGroupItem( parent, sibling, FALSE );
     } while (sibling != start);
 }
@@ -1841,6 +1962,9 @@ static void PB_ThemedPaint(HTHEME theme, const BUTTON_INFO *infoPtr, HDC hDC, Bu
     {
         DrawThemeText(theme, hDC, BP_PUSHBUTTON, state, text, lstrlenW(text), dtFlags, 0, &textRect);
         heap_free(text);
+#ifdef __REACTOS__
+        text = NULL;
+#endif
     }
 
     if (focused)
@@ -1862,6 +1986,7 @@ static void PB_ThemedPaint(HTHEME theme, const BUTTON_INFO *infoPtr, HDC hDC, Bu
     if (cdrf == CDRF_NOTIFYPOSTPAINT)
         BUTTON_SendCustomDraw(infoPtr, hDC, CDDS_POSTPAINT, &bgRect);
 cleanup:
+    if (text) heap_free(text);
 #endif
     if (hPrevFont) SelectObject(hDC, hPrevFont);
 }
@@ -1874,15 +1999,15 @@ static void CB_ThemedPaint(HTHEME theme, const BUTTON_INFO *infoPtr, HDC hDC, Bu
 {
     static const int cb_states[3][5] =
     {
-        { CBS_UNCHECKEDNORMAL, CBS_UNCHECKEDHOT, CBS_UNCHECKEDPRESSED, CBS_UNCHECKEDDISABLED, CBS_UNCHECKEDNORMAL },
-        { CBS_CHECKEDNORMAL, CBS_CHECKEDHOT, CBS_CHECKEDPRESSED, CBS_CHECKEDDISABLED, CBS_CHECKEDNORMAL },
-        { CBS_MIXEDNORMAL, CBS_MIXEDHOT, CBS_MIXEDPRESSED, CBS_MIXEDDISABLED, CBS_MIXEDNORMAL }
+        { CBS_UNCHECKEDNORMAL, CBS_UNCHECKEDDISABLED, CBS_UNCHECKEDHOT, CBS_UNCHECKEDPRESSED, CBS_UNCHECKEDNORMAL },
+        { CBS_CHECKEDNORMAL, CBS_CHECKEDDISABLED, CBS_CHECKEDHOT, CBS_CHECKEDPRESSED, CBS_CHECKEDNORMAL },
+        { CBS_MIXEDNORMAL, CBS_MIXEDDISABLED, CBS_MIXEDHOT, CBS_MIXEDPRESSED, CBS_MIXEDNORMAL }
     };
 
     static const int rb_states[2][5] =
     {
-        { RBS_UNCHECKEDNORMAL, RBS_UNCHECKEDHOT, RBS_UNCHECKEDPRESSED, RBS_UNCHECKEDDISABLED, RBS_UNCHECKEDNORMAL },
-        { RBS_CHECKEDNORMAL, RBS_CHECKEDHOT, RBS_CHECKEDPRESSED, RBS_CHECKEDDISABLED, RBS_CHECKEDNORMAL }
+        { RBS_UNCHECKEDNORMAL, RBS_UNCHECKEDDISABLED, RBS_UNCHECKEDHOT, RBS_UNCHECKEDPRESSED, RBS_UNCHECKEDNORMAL },
+        { RBS_CHECKEDNORMAL, RBS_CHECKEDDISABLED, RBS_CHECKEDHOT, RBS_CHECKEDPRESSED, RBS_CHECKEDNORMAL }
     };
 
     SIZE sz;
@@ -1991,12 +2116,16 @@ static void CB_ThemedPaint(HTHEME theme, const BUTTON_INFO *infoPtr, HDC hDC, Bu
         }
 
         heap_free(text);
+#ifdef __REACTOS__
+        text = NULL;
+#endif
     }
 
 #ifdef __REACTOS__
     if (cdrf == CDRF_NOTIFYPOSTPAINT)
         BUTTON_SendCustomDraw(infoPtr, hDC, CDDS_POSTPAINT, &bgRect);
 cleanup:
+    if (text) heap_free(text);
 #endif
     if (created_font) DeleteObject(font);
     if (hPrevFont) SelectObject(hDC, hPrevFont);

@@ -376,7 +376,7 @@ void PerformLookup( PCHAR pAddr )
         case RCODE_NXDOMAIN:
             _tprintf( _T("*** %s can't find %s: Non-existant domain\n"), State.DefaultServer, pAddr );
             break;
-            
+
         case RCODE_REFUSED:
             _tprintf( _T("*** %s can't find %s: Query refused\n"), State.DefaultServer, pAddr );
             break;
@@ -384,7 +384,7 @@ void PerformLookup( PCHAR pAddr )
         default:
             _tprintf( _T("*** %s can't find %s: Unknown RCODE\n"), State.DefaultServer, pAddr );
         }
-            
+
         goto cleanup;
     }
 
@@ -761,6 +761,7 @@ int main( int argc, char* argv[] )
     PFIXED_INFO pNetInfo = NULL;
     ULONG NetBufLen = 0;
     WSADATA wsaData;
+    int ret;
 
     ProcessHeap = GetProcessHeap();
     RequestID = 1;
@@ -792,26 +793,31 @@ int main( int argc, char* argv[] )
     /* We don't know how long of a buffer it will want to return. So we'll
        pass an empty one now and let it fail only once, instead of guessing. */
     Status = GetNetworkParams( pNetInfo, &NetBufLen );
-    if( Status == ERROR_BUFFER_OVERFLOW )
+
+    if( Status != ERROR_BUFFER_OVERFLOW )
     {
-        pNetInfo = (PFIXED_INFO)HeapAlloc( ProcessHeap, 0, NetBufLen );
-        if( pNetInfo == NULL )
-        {
-            _tprintf( _T("ERROR: Out of memory\n") );
+        _tprintf( _T("Error in GetNetworkParams call\n") );
 
-            return -1;
-        }
+        return -2;
+    }
 
-        /* For real this time. */
-        Status = GetNetworkParams( pNetInfo, &NetBufLen );
-        if( Status != NO_ERROR )
-        {
-            _tprintf( _T("Error in GetNetworkParams call\n") );
+    pNetInfo = (PFIXED_INFO)HeapAlloc( ProcessHeap, 0, NetBufLen );
+    if( pNetInfo == NULL )
+    {
+        _tprintf( _T("ERROR: Out of memory\n") );
 
-            HeapFree( ProcessHeap, 0, pNetInfo );
+        return -1;
+    }
 
-            return -2;
-        }
+    /* For real this time. */
+    Status = GetNetworkParams( pNetInfo, &NetBufLen );
+    if( Status != NO_ERROR )
+    {
+        _tprintf( _T("Error in GetNetworkParams call\n") );
+
+        HeapFree( ProcessHeap, 0, pNetInfo );
+
+        return -2;
     }
 
     strncpy( State.domain, pNetInfo->DomainName, 255 );
@@ -822,7 +828,12 @@ int main( int argc, char* argv[] )
 
     HeapFree( ProcessHeap, 0, pNetInfo );
 
-    WSAStartup( MAKEWORD(2,2), &wsaData );
+    ret = WSAStartup( MAKEWORD(2, 2), &wsaData );
+    if (ret != 0)
+    {
+        _tprintf( _T("Winsock initialization failed: %d\n"), ret );
+        return ret;
+    }
 
     switch( ParseCommandLine( argc, argv ) )
     {

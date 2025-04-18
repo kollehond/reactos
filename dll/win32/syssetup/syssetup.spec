@@ -53,7 +53,7 @@
 @ stub SetupGetProductType
 @ stub SetupGetSetupInfo
 @ stub SetupGetValidEula
-@ stub SetupInfObjectInstallActionW
+@ stdcall SetupInfObjectInstallActionW() SETUPAPI.InstallHinfSectionW
 @ stub SetupInstallCatalog
 @ stub SetupMapTapiToIso
 @ stub SetupOobeBnk
@@ -62,7 +62,7 @@
 @ stub SetupOobeInitPostServices
 @ stub SetupOobeInitPreServices
 @ stub SetupPidGen3
-@ stub SetupQueryRegisteredOsComponent
+@ stdcall -stub SetupQueryRegisteredOsComponent(ptr ptr ptr)
 @ stub SetupQueryRegisteredOsComponentsOrder
 @ stub SetupReadPhoneList
 @ stub SetupSetAdminPassword

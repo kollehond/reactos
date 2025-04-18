@@ -658,7 +658,7 @@ static HRESULT WINAPI DocObjectService_FireBeforeNavigate2(
     VARIANT_BOOL cancel = VARIANT_FALSE;
     SAFEARRAY *post_data;
     WCHAR file_path[MAX_PATH];
-    DWORD file_path_len = sizeof(file_path) / sizeof(*file_path);
+    DWORD file_path_len = ARRAY_SIZE(file_path);
 
     TRACE("%p %p %s %x %s %p %d %s %d %p\n", This, pDispatch, debugstr_w(lpszUrl),
             dwFlags, debugstr_w(lpszFrameName), pPostData, cbPostData,
@@ -786,7 +786,6 @@ static HRESULT WINAPI DocObjectService_FireNavigateComplete2(
 
     SysFreeString(url);
 
-    This->doc_host->busy = VARIANT_FALSE;
     IShellBrowser_Release(&This->IShellBrowser_iface);
     return S_OK;
 }
@@ -850,8 +849,6 @@ static HRESULT WINAPI DocObjectService_FireDocumentComplete(
     TRACE("<<<\n");
 
     SysFreeString(url);
-    if(This->doc_host)
-        This->doc_host->busy = VARIANT_FALSE;
 
     IShellBrowser_Release(&This->IShellBrowser_iface);
     return S_OK;

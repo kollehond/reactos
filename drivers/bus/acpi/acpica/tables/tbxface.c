@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2017, Intel Corp.
+ * Copyright (C) 2000 - 2022, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
  * NO WARRANTY
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
  * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
@@ -155,7 +155,7 @@ AcpiInitializeTables (
     /*
      * Get the root table (RSDT or XSDT) and extract all entries to the local
      * Root Table Array. This array contains the information of the RSDT/XSDT
-     * in a common, more useable format.
+     * in a common, more usable format.
      */
     Status = AcpiTbParseRootTable (RsdpAddress);
     return_ACPI_STATUS (Status);
@@ -192,10 +192,13 @@ AcpiReallocateRootTable (
 
 
     /*
-     * Only reallocate the root table if the host provided a static buffer
-     * for the table array in the call to AcpiInitializeTables.
+     * If there are tables unverified, it is required to reallocate the
+     * root table list to clean up invalid table entries. Otherwise only
+     * reallocate the root table list if the host provided a static buffer
+     * for the table array in the call to AcpiInitializeTables().
      */
-    if (AcpiGbl_RootTableList.Flags & ACPI_ROOT_ORIGIN_ALLOCATED)
+    if ((AcpiGbl_RootTableList.Flags & ACPI_ROOT_ORIGIN_ALLOCATED) &&
+        AcpiGbl_EnableTableValidation)
     {
         return_ACPI_STATUS (AE_SUPPORT);
     }
@@ -223,7 +226,7 @@ AcpiReallocateRootTable (
     {
         /*
          * Now it's safe to do full table validation. We can do deferred
-         * table initilization here once the flag is set.
+         * table initialization here once the flag is set.
          */
         AcpiGbl_EnableTableValidation = TRUE;
         for (i = 0; i < AcpiGbl_RootTableList.CurrentTableCount; ++i)
@@ -257,14 +260,14 @@ ACPI_EXPORT_SYMBOL_INIT (AcpiReallocateRootTable)
  *
  * PARAMETERS:  Signature           - ACPI signature of needed table
  *              Instance            - Which instance (for SSDTs)
- *              OutTableHeader      - The pointer to the table header to fill
+ *              OutTableHeader      - The pointer to the where the table header
+ *                                    is returned
  *
- * RETURN:      Status and pointer to mapped table header
+ * RETURN:      Status and a copy of the table header
  *
- * DESCRIPTION: Finds an ACPI table header.
- *
- * NOTE:        Caller is responsible in unmapping the header with
- *              AcpiOsUnmapMemory
+ * DESCRIPTION: Finds and returns an ACPI table header. Caller provides the
+ *              memory where a copy of the header is to be returned
+ *              (fixed length).
  *
  ******************************************************************************/
 
@@ -290,7 +293,7 @@ AcpiGetTableHeader (
 
     for (i = 0, j = 0; i < AcpiGbl_RootTableList.CurrentTableCount; i++)
     {
-        if (!ACPI_COMPARE_NAME (
+        if (!ACPI_COMPARE_NAMESEG (
                 &(AcpiGbl_RootTableList.Tables[i].Signature), Signature))
         {
             continue;
@@ -393,7 +396,7 @@ AcpiGetTable (
     {
         TableDesc = &AcpiGbl_RootTableList.Tables[i];
 
-        if (!ACPI_COMPARE_NAME (&TableDesc->Signature, Signature))
+        if (!ACPI_COMPARE_NAMESEG (&TableDesc->Signature, Signature))
         {
             continue;
         }

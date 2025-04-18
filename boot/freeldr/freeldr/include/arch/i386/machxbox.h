@@ -22,9 +22,9 @@
 #include "mm.h"
 #endif
 
-extern UCHAR XboxFont8x16[256 * 16];
+#include <drivers/xbox/xgpu.h>
 
-VOID XboxMachInit(const char *CmdLine);
+extern UCHAR BitmapFont8x16[256 * 16];
 
 VOID XboxConsPutChar(int Ch);
 BOOLEAN XboxConsKbHit(VOID);
@@ -35,6 +35,7 @@ VOID XboxVideoClearScreen(UCHAR Attr);
 VIDEODISPLAYMODE XboxVideoSetDisplayMode(char *DisplayModem, BOOLEAN Init);
 VOID XboxVideoGetDisplaySize(PULONG Width, PULONG Height, PULONG Depth);
 ULONG XboxVideoGetBufferSize(VOID);
+VOID XboxVideoGetFontsFromFirmware(PULONG RomFontPointers);
 VOID XboxVideoSetTextCursorPosition(UCHAR X, UCHAR Y);
 VOID XboxVideoHideShowTextCursor(BOOLEAN Show);
 VOID XboxVideoPutChar(int Ch, UCHAR Attr, unsigned X, unsigned Y);
@@ -43,21 +44,23 @@ BOOLEAN XboxVideoIsPaletteFixed(VOID);
 VOID XboxVideoSetPaletteColor(UCHAR Color, UCHAR Red, UCHAR Green, UCHAR Blue);
 VOID XboxVideoGetPaletteColor(UCHAR Color, UCHAR* Red, UCHAR* Green, UCHAR* Blue);
 VOID XboxVideoSync(VOID);
-VOID XboxVideoPrepareForReactOS(IN BOOLEAN Setup);
-VOID XboxPrepareForReactOS(IN BOOLEAN Setup);
+VOID XboxVideoPrepareForReactOS(VOID);
+VOID XboxVideoScrollUp(VOID);
+VOID XboxPrepareForReactOS(VOID);
 
 VOID XboxMemInit(VOID);
-PVOID XboxMemReserveMemory(ULONG MbToReserve);
 PFREELDR_MEMORY_DESCRIPTOR XboxMemGetMemoryMap(ULONG *MemoryMapSize);
 
 BOOLEAN XboxDiskReadLogicalSectors(UCHAR DriveNumber, ULONGLONG SectorNumber, ULONG SectorCount, PVOID Buffer);
-BOOLEAN XboxDiskGetPartitionEntry(UCHAR DriveNumber, ULONG PartitionNumber, PPARTITION_TABLE_ENTRY PartitionTableEntry);
 BOOLEAN XboxDiskGetDriveGeometry(UCHAR DriveNumber, PGEOMETRY DriveGeometry);
 ULONG XboxDiskGetCacheableBlockCount(UCHAR DriveNumber);
 
 TIMEINFO* XboxGetTime(VOID);
 
-PCONFIGURATION_COMPONENT_DATA XboxHwDetect(VOID);
+PCONFIGURATION_COMPONENT_DATA
+XboxHwDetect(
+    _In_opt_ PCSTR Options);
+
 VOID XboxHwIdle(VOID);
 
 VOID XboxSetLED(PCSTR Pattern);

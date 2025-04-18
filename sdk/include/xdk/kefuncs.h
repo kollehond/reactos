@@ -14,6 +14,8 @@ $include(ppc/ke.h)
 $include(mips/ke.h)
 #elif defined(_M_ARM)
 $include(arm/ke.h)
+#elif defined(_M_ARM64)
+$include(arm64/ke.h)
 #else
 #error Unknown Architecture
 #endif
@@ -44,19 +46,6 @@ KeInvalidateRangeAllCaches(
   _In_ PVOID BaseAddress,
   _In_ ULONG Length);
 $endif (_NTDDK_)
-$if (_NTIFS_)
-
-NTSTATUS
-NTAPI
-KeGetProcessorNumberFromIndex(
-  _In_ ULONG ProcIndex,
-  _Out_ PPROCESSOR_NUMBER ProcNumber);
-
-ULONG
-NTAPI
-KeGetProcessorIndexFromNumber(
-  _In_ PPROCESSOR_NUMBER ProcNumber);
-$endif (_NTIFS_)
 
 #if (NTDDI_VERSION >= NTDDI_WIN2K)
 
@@ -150,21 +139,9 @@ VOID
 NTAPI
 KeSetSystemAffinityThread(
   _In_ KAFFINITY Affinity);
-
-NTKERNELAPI
-VOID
-NTAPI
-KeSetTargetProcessorDpc(
-  _Inout_ PRKDPC Dpc,
-  _In_ CCHAR Number);
-
-NTKERNELAPI
-KAFFINITY
-NTAPI
-KeQueryActiveProcessors(VOID);
 $endif (_WDMDDK_)
-$if (_NTDDK_)
 
+$if (_WDMDDK_ || _NTDDK_)
 NTKERNELAPI
 VOID
 NTAPI
@@ -176,8 +153,6 @@ NTKERNELAPI
 KAFFINITY
 NTAPI
 KeQueryActiveProcessors(VOID);
-$endif (_NTDDK_)
-$if (_WDMDDK_ || _NTDDK_)
 #endif /* defined(SINGLE_GROUP_LEGACY_API) */
 $endif (_WDMDDK_ || _NTDDK_)
 
@@ -1141,7 +1116,7 @@ NTAPI
 KeRevertToUserAffinityThreadEx(
   _In_ KAFFINITY Affinity);
 
-NTKERNELAPI
+NTKRNLVISTAAPI
 ULONG
 NTAPI
 KeQueryActiveProcessorCount(
@@ -1153,7 +1128,7 @@ NTAPI
 KeQueryMaximumProcessorCount(VOID);
 $endif (_WDMDDK_)
 $if (_NTDDK_)
-NTKERNELAPI
+NTKRNLVISTAAPI
 ULONG
 NTAPI
 KeQueryActiveProcessorCount(
@@ -1213,6 +1188,75 @@ KeDeregisterProcessorChangeCallback(
 $endif (_WDMDDK_)
 $if (_WDMDDK_ || _NTDDK_)
 #if (NTDDI_VERSION >= NTDDI_WIN7)
+
+NTKERNELAPI
+ULONG
+NTAPI
+KeQueryActiveProcessorCountEx(
+  _In_ USHORT GroupNumber);
+
+NTKERNELAPI
+ULONG
+NTAPI
+KeQueryMaximumProcessorCountEx(
+  _In_ USHORT GroupNumber);
+
+NTKERNELAPI
+USHORT
+NTAPI
+KeQueryActiveGroupCount(VOID);
+
+NTKERNELAPI
+USHORT
+NTAPI
+KeQueryMaximumGroupCount(VOID);
+
+NTKERNELAPI
+KAFFINITY
+NTAPI
+KeQueryGroupAffinity(
+  _In_ USHORT GroupNumber);
+
+NTKERNELAPI
+ULONG
+NTAPI
+KeGetCurrentProcessorNumberEx(
+  _Out_opt_ PPROCESSOR_NUMBER ProcNumber);
+
+NTKERNELAPI
+VOID
+NTAPI
+KeQueryNodeActiveAffinity(
+  _In_ USHORT NodeNumber,
+  _Out_opt_ PGROUP_AFFINITY Affinity,
+  _Out_opt_ PUSHORT Count);
+
+NTKERNELAPI
+USHORT
+NTAPI
+KeQueryNodeMaximumProcessorCount(
+  _In_ USHORT NodeNumber);
+
+NTKRNLVISTAAPI
+USHORT
+NTAPI
+KeQueryHighestNodeNumber(VOID);
+
+NTKRNLVISTAAPI
+USHORT
+NTAPI
+KeGetCurrentNodeNumber(VOID);
+
+_IRQL_requires_max_(DISPATCH_LEVEL)
+NTKERNELAPI
+NTSTATUS
+NTAPI
+KeQueryLogicalProcessorRelationship(
+  _In_opt_ PPROCESSOR_NUMBER ProcessorNumber OPTIONAL,
+  _In_ LOGICAL_PROCESSOR_RELATIONSHIP RelationshipType,
+  _Out_writes_bytes_opt_(*Length) PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX Information,
+  _Inout_ PULONG Length);
+
 $endif (_WDMDDK_ || _NTDDK_)
 
 $if (_WDMDDK_)
@@ -1260,7 +1304,7 @@ KeRevertToUserGroupAffinityThread(
   _In_ PGROUP_AFFINITY PreviousAffinity);
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
-NTKERNELAPI
+NTKRNLVISTAAPI
 BOOLEAN
 NTAPI
 KeSetCoalescableTimer(
@@ -1274,74 +1318,6 @@ NTKERNELAPI
 ULONGLONG
 NTAPI
 KeQueryUnbiasedInterruptTime(VOID);
-
-NTKERNELAPI
-ULONG
-NTAPI
-KeQueryActiveProcessorCountEx(
-  _In_ USHORT GroupNumber);
-
-NTKERNELAPI
-ULONG
-NTAPI
-KeQueryMaximumProcessorCountEx(
-  _In_ USHORT GroupNumber);
-
-NTKERNELAPI
-USHORT
-NTAPI
-KeQueryActiveGroupCount(VOID);
-
-NTKERNELAPI
-USHORT
-NTAPI
-KeQueryMaximumGroupCount(VOID);
-
-NTKERNELAPI
-KAFFINITY
-NTAPI
-KeQueryGroupAffinity(
-  _In_ USHORT GroupNumber);
-
-NTKERNELAPI
-ULONG
-NTAPI
-KeGetCurrentProcessorNumberEx(
-  _Out_opt_ PPROCESSOR_NUMBER ProcNumber);
-
-NTKERNELAPI
-VOID
-NTAPI
-KeQueryNodeActiveAffinity(
-  _In_ USHORT NodeNumber,
-  _Out_opt_ PGROUP_AFFINITY Affinity,
-  _Out_opt_ PUSHORT Count);
-
-NTKERNELAPI
-USHORT
-NTAPI
-KeQueryNodeMaximumProcessorCount(
-  _In_ USHORT NodeNumber);
-
-NTKERNELAPI
-USHORT
-NTAPI
-KeQueryHighestNodeNumber(VOID);
-
-NTKERNELAPI
-USHORT
-NTAPI
-KeGetCurrentNodeNumber(VOID);
-
-_IRQL_requires_max_(DISPATCH_LEVEL)
-NTKERNELAPI
-NTSTATUS
-NTAPI
-KeQueryLogicalProcessorRelationship(
-  _In_opt_ PPROCESSOR_NUMBER ProcessorNumber OPTIONAL,
-  _In_ LOGICAL_PROCESSOR_RELATIONSHIP RelationshipType,
-  _Out_writes_bytes_opt_(*Length) PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX Information,
-  _Inout_ PULONG Length);
 
 _Must_inspect_result_
 _IRQL_requires_max_(DISPATCH_LEVEL)
@@ -1376,74 +1352,6 @@ KeGetProcessorIndexFromNumber(
   _In_ PPROCESSOR_NUMBER ProcNumber);
 $endif (_WDMDDK_)
 $if (_NTDDK_)
-NTKERNELAPI
-ULONG
-NTAPI
-KeQueryActiveProcessorCountEx(
-  _In_ USHORT GroupNumber);
-
-NTKERNELAPI
-ULONG
-NTAPI
-KeQueryMaximumProcessorCountEx(
-  _In_ USHORT GroupNumber);
-
-NTKERNELAPI
-USHORT
-NTAPI
-KeQueryActiveGroupCount(VOID);
-
-NTKERNELAPI
-USHORT
-NTAPI
-KeQueryMaximumGroupCount(VOID);
-
-NTKERNELAPI
-KAFFINITY
-NTAPI
-KeQueryGroupAffinity(
-  _In_ USHORT GroupNumber);
-
-NTKERNELAPI
-ULONG
-NTAPI
-KeGetCurrentProcessorNumberEx(
-  _Out_opt_ PPROCESSOR_NUMBER ProcNumber);
-
-NTKERNELAPI
-VOID
-NTAPI
-KeQueryNodeActiveAffinity(
-  _In_ USHORT NodeNumber,
-  _Out_opt_ PGROUP_AFFINITY Affinity,
-  _Out_opt_ PUSHORT Count);
-
-NTKERNELAPI
-USHORT
-NTAPI
-KeQueryNodeMaximumProcessorCount(
-  _In_ USHORT NodeNumber);
-
-NTKERNELAPI
-USHORT
-NTAPI
-KeQueryHighestNodeNumber(VOID);
-
-NTKERNELAPI
-USHORT
-NTAPI
-KeGetCurrentNodeNumber(VOID);
-
-_IRQL_requires_max_(DISPATCH_LEVEL)
-NTKERNELAPI
-NTSTATUS
-NTAPI
-KeQueryLogicalProcessorRelationship(
-  _In_opt_ PPROCESSOR_NUMBER ProcessorNumber,
-  _In_ LOGICAL_PROCESSOR_RELATIONSHIP RelationshipType,
-  _Out_writes_bytes_opt_(*Length) PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX Information,
-  _Inout_ PULONG Length);
-
 _IRQL_requires_max_(APC_LEVEL)
 NTKERNELAPI
 NTSTATUS
@@ -1477,7 +1385,7 @@ KeFlushWriteBuffer(VOID);
  *   IN PKBUGCHECK_CALLBACK_RECORD  CallbackRecord)
  */
 #define KeInitializeCallbackRecord(CallbackRecord) \
-  CallbackRecord->State = BufferEmpty;
+  (CallbackRecord)->State = BufferEmpty;
 
 #if defined(_PREFAST_)
 

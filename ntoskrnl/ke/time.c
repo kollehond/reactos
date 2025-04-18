@@ -31,8 +31,8 @@ KiWriteSystemTime(volatile KSYSTEM_TIME *SystemTime, ULARGE_INTEGER NewTime)
     /* Update in 3 steps, so that a reader can recognize partial updates */
     SystemTime->High1Time = NewTime.HighPart;
     SystemTime->LowPart = NewTime.LowPart;
-    SystemTime->High2Time = NewTime.HighPart;
 #endif
+    SystemTime->High2Time = NewTime.HighPart;
 }
 
 FORCEINLINE
@@ -77,7 +77,10 @@ KeUpdateSystemTime(IN PKTRAP_FRAME TrapFrame,
 
         /* Increase interrupt count and end the interrupt */
         Prcb->InterruptCount++;
+
+#ifdef _M_IX86 // x86 optimization
         KiEndInterrupt(Irql, TrapFrame);
+#endif
 
         /* Note: non-x86 return back to the caller! */
         return;
@@ -131,8 +134,10 @@ KeUpdateSystemTime(IN PKTRAP_FRAME TrapFrame,
         Prcb->InterruptCount++;
     }
 
+#ifdef _M_IX86 // x86 optimization
     /* Disable interrupts and end the interrupt */
     KiEndInterrupt(Irql, TrapFrame);
+#endif
 }
 
 VOID

@@ -10,37 +10,31 @@ include_directories(
     ${REACTOS_SOURCE_DIR}/sdk/include/reactos/drivers)
 
 list(APPEND SOURCE
-    bootsup.c
-    cabinet.c
-    chkdsk.c
+    spapisup/cabinet.c
+    spapisup/fileqsup.c
+    spapisup/infsupp.c
     cmdcons.c
     console.c
     consup.c
     devinst.c
-    drivesup.c
-    filesup.c
-    filequeue.c
-    format.c
+    fmtchk.c
     fslist.c
     genlist.c
-    inffile.c
     keytrans.c
     mui.c
     partlist.c
     progress.c
-    registry.c
-    settings.c
     usetup.c
     usetup.h)
 
 add_executable(usetup ${SOURCE} usetup.rc)
 
-if(USE_CLANG_CL)
-    add_target_compile_flags(usetup "-Wno-invalid-source-encoding")
+if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(usetup PRIVATE "-Wno-invalid-source-encoding")
 endif()
 
 add_pch(usetup usetup.h SOURCE)
 set_module_type(usetup nativecui)
-target_link_libraries(usetup inflib setuplib zlib_solo ext2lib vfatlib btrfslib)
-add_importlibs(usetup ntdll)
+target_link_libraries(usetup inflib zlib_solo chkstk)
+add_importlibs(usetup setuplib ntdll)
 add_cd_file(TARGET usetup DESTINATION reactos/system32 NO_CAB NAME_ON_CD smss.exe FOR bootcd regtest)

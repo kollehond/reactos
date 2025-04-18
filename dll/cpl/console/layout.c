@@ -39,7 +39,7 @@ RegisterWinPrevClass(
     WndClass.style = 0;
     WndClass.hInstance = hInstance;
     WndClass.hIcon = NULL;
-    WndClass.hCursor = LoadCursorW(NULL, MAKEINTRESOURCEW(IDC_ARROW));
+    WndClass.hCursor = LoadCursorW(NULL, IDC_ARROW);
     WndClass.hbrBackground =  (HBRUSH)(COLOR_BACKGROUND + 1);
     WndClass.lpszMenuName = NULL;
     WndClass.cbClsExtra = 0;
@@ -203,10 +203,13 @@ WinPrev_OnDraw(
      * Compute the console window layout
      */
 
+    if (FontPreview.hFont == NULL)
+        RefreshFontPreview(&FontPreview, pConInfo);
+
     /* We start with the console client area, rescaled for the preview */
     SetRect(&rcWin, 0, 0,
-            pConInfo->WindowSize.X * pConInfo->FontSize.X,
-            pConInfo->WindowSize.Y * pConInfo->FontSize.Y);
+            pConInfo->WindowSize.X * FontPreview.CharWidth,
+            pConInfo->WindowSize.Y * FontPreview.CharHeight);
     RescaleRect(pData, rcWin);
 
     /* Add the scrollbars if needed (does not account for any frame) */
@@ -387,8 +390,8 @@ WinPrev_OnDraw(
 
     /* Draw the console background */
     hBrush = CreateSolidBrush(pConInfo->ColorTable[BkgdAttribFromAttrib(pConInfo->ScreenAttributes)]);
-    FillRect(hDC, &rcWin, hBrush);
-    DeleteObject(hBrush);
+    FillRect(hDC, &rcWin, hBrush ? hBrush : GetStockObject(BLACK_BRUSH));
+    if (hBrush) DeleteObject(hBrush);
 }
 
 static LRESULT CALLBACK
@@ -455,7 +458,7 @@ WinPrevProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 /* CONSOLE TEXT PREVIEW *******************************************************/
 
 const WCHAR szPreviewText[] =
-    L"C:\\ReactOS> dir                       \n" \
+    L"C:\\ReactOS>dir\n"                         \
     L"SYSTEM       <DIR>      13-04-15  5:00a\n" \
     L"SYSTEM32     <DIR>      13-04-15  5:00a\n" \
     L"readme   txt       1739 13-04-15  5:00a\n" \
@@ -486,17 +489,21 @@ PaintText(
     nbkColor = pConInfo->ColorTable[BkgdAttribFromAttrib(CurrentAttrib)];
     ntColor  = pConInfo->ColorTable[TextAttribFromAttrib(CurrentAttrib)];
 
+    /* Draw the console background */
     hBrush = CreateSolidBrush(nbkColor);
-    if (!hBrush) return;
+    FillRect(drawItem->hDC, &drawItem->rcItem, hBrush ? hBrush : GetStockObject(BLACK_BRUSH));
+    if (hBrush) DeleteObject(hBrush);
 
-    hOldFont = SelectObject(drawItem->hDC, hCurrentFont);
-    //if (hOldFont == NULL)
-    //{
-    //    DeleteObject(hBrush);
-    //    return;
-    //}
+    /* Refresh the font preview, getting a new font if necessary */
+    if (FontPreview.hFont == NULL)
+        RefreshFontPreview(&FontPreview, pConInfo);
+    /* Recheck hFont since RefreshFontPreview() may not have updated it */
+    if (FontPreview.hFont == NULL)
+        return;
 
-    FillRect(drawItem->hDC, &drawItem->rcItem, hBrush);
+    /* Draw the preview text using the current font */
+    hOldFont = SelectObject(drawItem->hDC, FontPreview.hFont);
+    // if (!hOldFont) return;
 
     /* Add a few space between the preview window border and the text sample */
     InflateRect(&drawItem->rcItem, -2, -2);
@@ -508,7 +515,6 @@ PaintText(
     SetBkColor(drawItem->hDC, pbkColor);
 
     SelectObject(drawItem->hDC, hOldFont);
-    DeleteObject(hBrush);
 }
 
 

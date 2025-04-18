@@ -14,35 +14,43 @@
 #include <winuser.h>
 #include <mmsystem.h>
 #include <cpl.h>
-#include <tchar.h>
 #include <setupapi.h>
-#include <stdlib.h> 
+#include <stdlib.h>
+#include <strsafe.h>
 
 #include "resource.h"
+
+#define CONST_STR_LEN(str) (_countof(str) - 1)
 
 //typedef LONG (CALLBACK *APPLET_PROC)(VOID);
 
 typedef struct _APPLET
 {
-  UINT idIcon;
-  UINT idName;
-  UINT idDescription;
-  APPLET_PROC AppletProc;
+    UINT idIcon;
+    UINT idName;
+    UINT idDescription;
+    APPLET_PROC AppletProc;
 } APPLET, *PAPPLET;
 
 extern HINSTANCE hApplet;
 
 
 #define DRVM_MAPPER 0x2000
-#define DRVM_MAPPER_PREFERRED_GET (DRVM_MAPPER+21)
-#define DRVM_MAPPER_PREFERRED_SET (DRVM_MAPPER+22)
+#define DRVM_MAPPER_PREFERRED_GET (DRVM_MAPPER + 21)
+#define DRVM_MAPPER_PREFERRED_SET (DRVM_MAPPER + 22)
+
+#define VOLUME_MIN        0
+#define VOLUME_MAX      500
+#define VOLUME_TICFREQ   50
+#define VOLUME_PAGESIZE 100
 
 /* main.c */
 
 VOID
-InitPropSheetPage(PROPSHEETPAGE *psp,
-		  WORD idDlg,
-		  DLGPROC DlgProc);
+InitPropSheetPage(
+    PROPSHEETPAGEW *psp,
+    WORD idDlg,
+    DLGPROC DlgProc);
 
 LONG APIENTRY
 MmSysApplet(HWND hwnd,
@@ -55,17 +63,17 @@ MmSysApplet(HWND hwnd,
 INT_PTR
 CALLBACK
 SoundsDlgProc(HWND hwndDlg,
-	        UINT uMsg,
-	        WPARAM wParam,
-	        LPARAM lParam);
+              UINT uMsg,
+              WPARAM wParam,
+              LPARAM lParam);
 
 /* volume.c */
 
 INT_PTR CALLBACK
 VolumeDlgProc(HWND hwndDlg,
-	        UINT uMsg,
-	        WPARAM wParam,
-	        LPARAM lParam);
+              UINT uMsg,
+              WPARAM wParam,
+              LPARAM lParam);
 
 /* voice.c */
 
@@ -82,5 +90,10 @@ AudioDlgProc(HWND hwndDlg,
              UINT uMsg,
              WPARAM wParam,
              LPARAM lParam);
+
+/* speakervolume.c */
+
+INT_PTR
+SpeakerVolume(HWND hwndDlg);
 
 #endif /* _MMSYS_H */

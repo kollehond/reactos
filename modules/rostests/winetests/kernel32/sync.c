@@ -18,9 +18,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef __REACTOS__
-#define _WIN32_WINNT 0x500
-#endif
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -778,6 +775,7 @@ static void test_iocp_callback(void)
 static void CALLBACK timer_queue_cb1(PVOID p, BOOLEAN timedOut)
 {
     int *pn = p;
+    disable_success_count
     ok(timedOut, "Timer callbacks should always time out\n");
     ++*pn;
 }
@@ -2571,12 +2569,14 @@ static DWORD WINAPI apc_deadlock_thread(void *param)
         size = 0x1000;
         status = pNtAllocateVirtualMemory(pi->hProcess, &base, 0, &size,
                                           MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        disable_success_count
         ok(!status, "expected STATUS_SUCCESS, got %08x\n", status);
         ok(base != NULL, "expected base != NULL, got %p\n", base);
         SetEvent(info->event);
 
         size = 0;
         status = pNtFreeVirtualMemory(pi->hProcess, &base, &size, MEM_RELEASE);
+        disable_success_count
         ok(!status, "expected STATUS_SUCCESS, got %08x\n", status);
         SetEvent(info->event);
     }
@@ -2596,6 +2596,14 @@ static void test_apc_deadlock(void)
     char **argv;
     int i;
 
+#if defined(__REACTOS__) && defined(_M_AMD64)
+    if (!winetest_interactive)
+    {
+        skip("ROSTESTS-371: Skipping kernel32_winetest:sync test_apc_deadlock because it fails on Windows Server 2003 x64-Testbot. Set winetest_interactive to run it anyway.\n");
+        return;
+    }
+#endif
+
     winetest_get_mainargs(&argv);
     sprintf(cmdline, "\"%s\" sync apc_deadlock", argv[0]);
     success = CreateProcessA(argv[0], cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
@@ -2613,6 +2621,7 @@ static void test_apc_deadlock(void)
     result = WaitForSingleObject(event, 1000);
     ok(result == WAIT_OBJECT_0, "expected WAIT_OBJECT_0, got %u\n", result);
 
+    disable_success_count
     for (i = 0; i < 1000; i++)
     {
         result = SuspendThread(pi.hThread);
@@ -2644,6 +2653,9 @@ START_TEST(sync)
     int argc;
     HMODULE hdll = GetModuleHandleA("kernel32.dll");
     HMODULE hntdll = GetModuleHandleA("ntdll.dll");
+#ifdef __REACTOS__
+    HMODULE hdll_vista = GetModuleHandleA("kernel32_vista.dll");
+#endif
 
     pInitOnceInitialize = (void *)GetProcAddress(hdll, "InitOnceInitialize");
     pInitOnceExecuteOnce = (void *)GetProcAddress(hdll, "InitOnceExecuteOnce");
@@ -2667,6 +2679,28 @@ START_TEST(sync)
     pNtWaitForMultipleObjects = (void *)GetProcAddress(hntdll, "NtWaitForMultipleObjects");
     pRtlInterlockedPushListSList = (void *)GetProcAddress(hntdll, "RtlInterlockedPushListSList");
     pRtlInterlockedPushListSListEx = (void *)GetProcAddress(hntdll, "RtlInterlockedPushListSListEx");
+
+#ifdef __REACTOS__
+    if (!pInitializeConditionVariable)
+    {
+        pInitializeConditionVariable = (void *)GetProcAddress(hdll_vista, "InitializeConditionVariable");
+        pSleepConditionVariableCS = (void *)GetProcAddress(hdll_vista, "SleepConditionVariableCS");
+        pSleepConditionVariableSRW = (void *)GetProcAddress(hdll_vista, "SleepConditionVariableSRW");
+        pWakeAllConditionVariable = (void *)GetProcAddress(hdll_vista, "WakeAllConditionVariable");
+        pWakeConditionVariable = (void *)GetProcAddress(hdll_vista, "WakeConditionVariable");
+    }
+
+    if (!pInitializeSRWLock)
+    {
+        pInitializeSRWLock = (void *)GetProcAddress(hdll_vista, "InitializeSRWLock");
+        pAcquireSRWLockExclusive = (void *)GetProcAddress(hdll_vista, "AcquireSRWLockExclusive");
+        pAcquireSRWLockShared = (void *)GetProcAddress(hdll_vista, "AcquireSRWLockShared");
+        pReleaseSRWLockExclusive = (void *)GetProcAddress(hdll_vista, "ReleaseSRWLockExclusive");
+        pReleaseSRWLockShared = (void *)GetProcAddress(hdll_vista, "ReleaseSRWLockShared");
+        pTryAcquireSRWLockExclusive = (void *)GetProcAddress(hdll_vista, "TryAcquireSRWLockExclusive");
+        pTryAcquireSRWLockShared = (void *)GetProcAddress(hdll_vista, "TryAcquireSRWLockShared");
+    }
+#endif
 
     argc = winetest_get_mainargs( &argv );
     if (argc >= 3)

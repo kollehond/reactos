@@ -28,7 +28,6 @@
 #include <iphlpapi.h>
 #include <winsock2.h>
 #include <udmihelp.h>
-#include <dmilib.h>
 
 #include "resource.h"
 
@@ -78,7 +77,7 @@ RegGetSZ(HKEY hKey, LPCWSTR lpSubKey, LPCWSTR lpValueName, LPWSTR lpBuf, DWORD c
 
     /* NULL-terminate string */
     lpBuf[min(cchBuf-1, cChars)] = L'\0';
-    
+
     /* Don't count NULL characters */
     while(cChars && !lpBuf[cChars-1])
         --cChars;
@@ -177,6 +176,50 @@ FormatDateTime(time_t Time, LPWSTR lpBuf)
     i += swprintf(lpBuf + i, L", ");
 
     GetTimeFormatW(LOCALE_SYSTEM_DEFAULT, 0, &SysTime, NULL, lpBuf + i, BUFFER_SIZE - i);
+}
+
+ULONGLONG GetSecondsQPC(VOID)
+{
+    LARGE_INTEGER Counter, Frequency;
+
+    QueryPerformanceCounter(&Counter);
+    QueryPerformanceFrequency(&Frequency);
+
+    return Counter.QuadPart / Frequency.QuadPart;
+}
+
+ULONGLONG GetSeconds(VOID)
+{
+    ULONGLONG (WINAPI * pGetTickCount64)(VOID);
+    ULONGLONG Ticks64;
+    HMODULE hModule = GetModuleHandleW(L"kernel32.dll");
+
+    pGetTickCount64 = (PVOID)GetProcAddress(hModule, "GetTickCount64");
+    if (pGetTickCount64)
+    {
+        return pGetTickCount64() / 1000;
+    }
+
+    hModule = LoadLibraryW(L"kernel32_vista.dll");
+
+    if (!hModule)
+    {
+        return GetSecondsQPC();
+    }
+
+    pGetTickCount64 = (PVOID)GetProcAddress(hModule, "GetTickCount64");
+
+    if (pGetTickCount64)
+    {
+        Ticks64 = pGetTickCount64() / 1000;
+    }
+    else
+    {
+        Ticks64 = GetSecondsQPC();
+    }
+
+    FreeLibrary(hModule);
+    return Ticks64;
 }
 
 /* Show usage */
@@ -317,7 +360,7 @@ AllSysInfo(VOID)
     RegCloseKey(hKey);
 
     //getting System Up Time
-    cSeconds = GetTickCount() / 1000;
+    cSeconds = GetSeconds();
     if (!LoadStringW(GetModuleHandle(NULL), IDS_UP_TIME_FORMAT, Tmp, BUFFER_SIZE))
         Tmp[0] = L'\0';
     swprintf(Buf, Tmp, cSeconds / (60*60*24), (cSeconds / (60*60)) % 24, (cSeconds / 60) % 60, cSeconds % 60);
@@ -380,12 +423,12 @@ AllSysInfo(VOID)
     {
         swprintf(Tmp, L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\%u", i);
         j = swprintf(Buf, L"[%02u]: ", i + 1);
-        
+
         j += RegGetSZ(HKEY_LOCAL_MACHINE, Tmp, L"Identifier", Buf + j, BUFFER_SIZE - j);
         if(j + 1 < BUFFER_SIZE)
             Buf[j++] = L' ';
         RegGetSZ(HKEY_LOCAL_MACHINE, Tmp, L"VendorIdentifier", Buf + j, BUFFER_SIZE - j);
-        
+
         PrintRow(0, FALSE, L"%s", Buf);
     }
 
@@ -585,7 +628,7 @@ AllSysInfo(VOID)
                 ++cAdapters;
             pCurrentAdapter = pCurrentAdapter->Next;
         }
-            
+
 
         /* Print adapters count */
         if (!LoadStringW(GetModuleHandle(NULL), IDS_NETWORK_CARDS_FORMAT, Tmp, BUFFER_SIZE))

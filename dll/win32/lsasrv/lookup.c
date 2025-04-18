@@ -96,8 +96,17 @@ LsapCreateSid(PSID_IDENTIFIER_AUTHORITY IdentifierAuthority,
               PSID *SidPtr)
 {
     PWELL_KNOWN_SID SidEntry;
+    SIZE_T AccountNameLength, DomainNameLength;
     PULONG p;
     ULONG i;
+
+    AccountNameLength = wcslen(AccountName);
+    DomainNameLength = wcslen(DomainName);
+    if ((AccountNameLength > UNICODE_STRING_MAX_CHARS) ||
+        (DomainNameLength > UNICODE_STRING_MAX_CHARS))
+    {
+        return FALSE;
+    }
 
     SidEntry = RtlAllocateHeap(RtlGetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(WELL_KNOWN_SID));
     if (SidEntry == NULL)
@@ -126,7 +135,7 @@ LsapCreateSid(PSID_IDENTIFIER_AUTHORITY IdentifierAuthority,
 
 //    RtlInitUnicodeString(&SidEntry->AccountName,
 //                         AccountName);
-    SidEntry->AccountName.Length = wcslen(AccountName) * sizeof(WCHAR);
+    SidEntry->AccountName.Length = (USHORT)AccountNameLength * sizeof(WCHAR);
     SidEntry->AccountName.MaximumLength = SidEntry->AccountName.Length + sizeof(WCHAR);
     SidEntry->AccountName.Buffer = RtlAllocateHeap(RtlGetProcessHeap(), 0,
                                                    SidEntry->AccountName.MaximumLength);
@@ -142,7 +151,7 @@ LsapCreateSid(PSID_IDENTIFIER_AUTHORITY IdentifierAuthority,
 
 //    RtlInitUnicodeString(&SidEntry->DomainName,
 //                         DomainName);
-    SidEntry->DomainName.Length = wcslen(DomainName) * sizeof(WCHAR);
+    SidEntry->DomainName.Length = (USHORT)DomainNameLength * sizeof(WCHAR);
     SidEntry->DomainName.MaximumLength = SidEntry->DomainName.Length + sizeof(WCHAR);
     SidEntry->DomainName.Buffer = RtlAllocateHeap(RtlGetProcessHeap(), 0,
                                                   SidEntry->DomainName.MaximumLength);
@@ -932,6 +941,57 @@ LsapAddDomainToDomainsList(PLSAPR_REFERENCED_DOMAIN_LIST ReferencedDomains,
     RtlCopyMemory(ReferencedDomains->Domains[i].Name.Buffer,
                   Name->Buffer,
                   Name->MaximumLength);
+
+    ReferencedDomains->Entries++;
+    *Index = i;
+
+    return STATUS_SUCCESS;
+}
+
+
+static NTSTATUS
+LsapAddAuthorityToDomainsList(
+    PLSAPR_REFERENCED_DOMAIN_LIST ReferencedDomains,
+    PSID Sid,
+    PULONG Index)
+{
+    SID AuthoritySid;
+    ULONG i;
+
+    RtlInitializeSid(&AuthoritySid,
+                     RtlIdentifierAuthoritySid(Sid),
+                     0);
+
+    i = 0;
+    while (i < ReferencedDomains->Entries &&
+           ReferencedDomains->Domains[i].Sid != NULL)
+    {
+        if (RtlEqualSid(&AuthoritySid, ReferencedDomains->Domains[i].Sid))
+        {
+            *Index = i;
+            return STATUS_SUCCESS;
+        }
+
+        i++;
+    }
+
+    ReferencedDomains->Domains[i].Sid = MIDL_user_allocate(RtlLengthSid(&AuthoritySid));
+    if (ReferencedDomains->Domains[i].Sid == NULL)
+        return STATUS_INSUFFICIENT_RESOURCES;
+
+    RtlCopySid(RtlLengthSid(&AuthoritySid), ReferencedDomains->Domains[i].Sid, &AuthoritySid);
+
+    ReferencedDomains->Domains[i].Name.Length = 0;
+    ReferencedDomains->Domains[i].Name.MaximumLength = sizeof(WCHAR);
+    ReferencedDomains->Domains[i].Name.Buffer = MIDL_user_allocate(sizeof(WCHAR));
+    if (ReferencedDomains->Domains[i].Name.Buffer == NULL)
+    {
+        MIDL_user_free(ReferencedDomains->Domains[i].Sid);
+        ReferencedDomains->Domains[i].Sid = NULL;
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    ReferencedDomains->Domains[i].Name.Buffer[0] = UNICODE_NULL;
 
     ReferencedDomains->Entries++;
     *Index = i;
@@ -2033,17 +2093,30 @@ LsapLookupWellKnownSids(PLSAPR_SID_ENUM_BUFFER SidEnumBuffer,
 
             RtlCopyMemory(NamesBuffer[i].Name.Buffer, ptr->AccountName.Buffer, ptr->AccountName.MaximumLength);
 
-            ptr2= LsapLookupIsolatedWellKnownName(&ptr->DomainName);
-            if (ptr2 != NULL)
+            if (ptr->DomainName.Length == 0)
             {
-                Status = LsapAddDomainToDomainsList(DomainsBuffer,
-                                                    &ptr2->AccountName,
-                                                    ptr2->Sid,
-                                                    &DomainIndex);
+                Status = LsapAddAuthorityToDomainsList(DomainsBuffer,
+                                                       SidEnumBuffer->SidInfo[i].Sid,
+                                                       &DomainIndex);
                 if (!NT_SUCCESS(Status))
                     goto done;
 
                 NamesBuffer[i].DomainIndex = DomainIndex;
+            }
+            else
+            {
+                ptr2= LsapLookupIsolatedWellKnownName(&ptr->DomainName);
+                if (ptr2 != NULL)
+                {
+                    Status = LsapAddDomainToDomainsList(DomainsBuffer,
+                                                        &ptr2->AccountName,
+                                                        ptr2->Sid,
+                                                        &DomainIndex);
+                    if (!NT_SUCCESS(Status))
+                        goto done;
+
+                    NamesBuffer[i].DomainIndex = DomainIndex;
+                }
             }
 
             TRACE("Mapped to: %wZ\n", &NamesBuffer[i].Name);

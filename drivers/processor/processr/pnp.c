@@ -105,7 +105,7 @@ ProcessorSetFriendlyName(
     PWSTR KeyNameBuffer = NULL;
     PWSTR DeviceId = NULL;
     PWSTR InstanceId = NULL;
-    PWSTR pszPrefix = L"\\Registry\\Machine\\System\\CurrentcontrolSet\\Enum";
+    PWSTR pszPrefix = L"\\Registry\\Machine\\System\\CurrentControlSet\\Enum";
 
     RtlInitUnicodeString(&HardwareKeyName,
                          L"\\Registry\\Machine\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0");
@@ -263,6 +263,7 @@ ProcessorPnp(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp)
 {
+    PDEVICE_EXTENSION DeviceExtension;
     PIO_STACK_LOCATION IrpSp;
     ULONG_PTR Information = 0;
     NTSTATUS Status = STATUS_NOT_SUPPORTED;
@@ -277,12 +278,18 @@ ProcessorPnp(
             DPRINT("  IRP_MN_START_DEVICE received\n");
 
             /* Call lower driver */
-            Status = ForwardIrpAndWait(DeviceObject, Irp);
-            if (NT_SUCCESS(Status))
+            DeviceExtension = DeviceObject->DeviceExtension;
+            Status = STATUS_UNSUCCESSFUL;
+
+            if (IoForwardIrpSynchronously(DeviceExtension->LowerDevice, Irp))
             {
-                Status = ProcessorStartDevice(DeviceObject,
-                                              IrpSp->Parameters.StartDevice.AllocatedResources,
-                                              IrpSp->Parameters.StartDevice.AllocatedResourcesTranslated);
+                Status = Irp->IoStatus.Status;
+                if (NT_SUCCESS(Status))
+                {
+                    Status = ProcessorStartDevice(DeviceObject,
+                        IrpSp->Parameters.StartDevice.AllocatedResources,
+                        IrpSp->Parameters.StartDevice.AllocatedResourcesTranslated);
+                }
             }
             break;
 

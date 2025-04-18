@@ -113,6 +113,13 @@ SOFTWARE.
  * the y-x-banding that's so nice to have...
  */
 
+// X11 sources for ReactOS region processing.
+//
+// libX11/src/PolyReg.c
+// libX11/src/Region.c
+//
+//
+
 #include <win32k.h>
 #include <suppress.h>
 
@@ -244,15 +251,12 @@ typedef struct
     INT incr1, incr2; /* Error increments */
 } BRESINFO;
 
-
 #define BRESINITPGONSTRUCT(dmaj, min1, min2, bres) \
     BRESINITPGON(dmaj, min1, min2, bres.minor_axis, bres.d, \
                      bres.m, bres.m1, bres.incr1, bres.incr2)
 
 #define BRESINCRPGONSTRUCT(bres) \
         BRESINCRPGON(bres.d, bres.minor_axis, bres.m, bres.m1, bres.incr1, bres.incr2)
-
-
 
 /*
  *     These are the data structures needed to scan
@@ -316,7 +320,6 @@ typedef struct _EDGE_TABLE_ENTRY
     INT ClockWise;        /* Flag for winding number rule       */
 } EDGE_TABLE_ENTRY;
 
-
 typedef struct _SCANLINE_LIST
 {
     INT scanline;                /* The scanline represented */
@@ -324,14 +327,12 @@ typedef struct _SCANLINE_LIST
     struct _SCANLINE_LIST *next;  /* Next in the list       */
 } SCANLINE_LIST;
 
-
 typedef struct
 {
     INT ymax;                 /* ymax for the polygon     */
     INT ymin;                 /* ymin for the polygon     */
     SCANLINE_LIST scanlines;   /* Header node              */
 } EDGE_TABLE;
-
 
 /*
  * Here is a struct to help with storage allocation
@@ -345,7 +346,6 @@ typedef struct _SCANLINE_LISTBLOCK
     SCANLINE_LIST SLLs[SLLSPERBLOCK];
     struct _SCANLINE_LISTBLOCK *next;
 } SCANLINE_LISTBLOCK;
-
 
 /*
  *     A few macros for the inner loops of the fill code where
@@ -374,7 +374,6 @@ typedef struct _SCANLINE_LISTBLOCK
    } \
 }
 
-
 /*
  *     Evaluate the given edge at the given scanline.
  *     If the edge has expired, then we leave it and fix up
@@ -402,8 +401,8 @@ typedef struct _SCANLINE_LISTBLOCK
  *
  *************************************************************************/
 
-#define LARGE_COORDINATE  0x7fffffff /* FIXME */
-#define SMALL_COORDINATE  0x80000000
+#define LARGE_COORDINATE  INT_MAX
+#define SMALL_COORDINATE  INT_MIN
 
 static
 BOOL
@@ -509,8 +508,8 @@ REGION_bAddRect(
     return TRUE;
 }
 
-typedef VOID (FASTCALL *overlapProcp)(PREGION, PRECT, PRECT, PRECT, PRECT, INT, INT);
-typedef VOID (FASTCALL *nonOverlapProcp)(PREGION, PRECT, PRECT, INT, INT);
+typedef BOOL (FASTCALL *overlapProcp)(PREGION, PRECT, PRECT, PRECT, PRECT, INT, INT);
+typedef BOOL (FASTCALL *nonOverlapProcp)(PREGION, PRECT, PRECT, INT, INT);
 
 // Number of points to buffer before sending them off to scanlines() :  Must be an even number
 #define NUMPTSTOBUFFER 200
@@ -553,7 +552,6 @@ IntDumpRegion(HRGN hRgn)
 }
 #endif /* Not NDEBUG */
 
-
 INT
 FASTCALL
 REGION_Complexity(PREGION prgn)
@@ -561,7 +559,7 @@ REGION_Complexity(PREGION prgn)
     if (prgn == NULL)
         return NULLREGION;
 
-    DPRINT("Region Complexity -> %lu", prgn->rdh.nCount);
+    DPRINT("Region Complexity: %lu\n", prgn->rdh.nCount);
     switch (prgn->rdh.nCount)
     {
         case 0:
@@ -793,7 +791,6 @@ empty:
     return NULLREGION;
 }
 
-
 /*!
  *      Attempt to merge the rects in the current band with those in the
  *      previous one. Used only by REGION_RegionOp.
@@ -947,7 +944,7 @@ REGION_Coalesce(
  *
  */
 static
-VOID
+BOOL
 FASTCALL
 REGION_RegionOp(
     PREGION newReg, /* Place to store result */
@@ -1001,7 +998,7 @@ REGION_RegionOp(
     if (newReg->Buffer == NULL)
     {
         newReg->rdh.nRgnSize = 0;
-        return;
+        return FALSE;
     }
 
     /* Initialize ybot and ytop.
@@ -1062,7 +1059,7 @@ REGION_RegionOp(
 
             if ((top != bot) && (nonOverlap1Func != NULL))
             {
-                (*nonOverlap1Func)(newReg, r1, r1BandEnd, top, bot);
+                if (!(*nonOverlap1Func)(newReg, r1, r1BandEnd, top, bot)) return FALSE;
             }
 
             ytop = r2->top;
@@ -1074,7 +1071,7 @@ REGION_RegionOp(
 
             if ((top != bot) && (nonOverlap2Func != NULL))
             {
-                (*nonOverlap2Func)(newReg, r2, r2BandEnd, top, bot);
+                if (!(*nonOverlap2Func)(newReg, r2, r2BandEnd, top, bot) ) return FALSE;
             }
 
             ytop = r1->top;
@@ -1099,7 +1096,7 @@ REGION_RegionOp(
         curBand = newReg->rdh.nCount;
         if (ybot > ytop)
         {
-            (*overlapFunc)(newReg, r1, r1BandEnd, r2, r2BandEnd, ytop, ybot);
+            if (!(*overlapFunc)(newReg, r1, r1BandEnd, r2, r2BandEnd, ytop, ybot)) return FALSE;
         }
 
         if (newReg->rdh.nCount != curBand)
@@ -1134,11 +1131,12 @@ REGION_RegionOp(
                     r1BandEnd++;
                 }
 
-                (*nonOverlap1Func)(newReg,
+                if (!(*nonOverlap1Func)(newReg,
                                    r1,
                                    r1BandEnd,
                                    max(r1->top,ybot),
-                                   r1->bottom);
+                                   r1->bottom))
+                    return FALSE;
                 r1 = r1BandEnd;
             }
             while (r1 != r1End);
@@ -1154,11 +1152,12 @@ REGION_RegionOp(
                 r2BandEnd++;
             }
 
-            (*nonOverlap2Func)(newReg,
+            if (!(*nonOverlap2Func)(newReg,
                                r2,
                                r2BandEnd,
                                max(r2->top,ybot),
-                               r2->bottom);
+                               r2->bottom))
+                return FALSE;
             r2 = r2BandEnd;
         }
         while (r2 != r2End);
@@ -1216,7 +1215,7 @@ REGION_RegionOp(
 
     if (oldRects != &newReg->rdh.rcBound)
         ExFreePoolWithTag(oldRects, TAG_REGION);
-    return;
+    return TRUE;
 }
 
 /***********************************************************************
@@ -1235,7 +1234,7 @@ REGION_RegionOp(
  *
  */
 static
-VOID
+BOOL
 FASTCALL
 REGION_IntersectO(
     PREGION pReg,
@@ -1262,7 +1261,7 @@ REGION_IntersectO(
         {
             if (!REGION_bAddRect(pReg, left, top, right, bottom))
             {
-                return;
+                return FALSE;
             }
         }
 
@@ -1284,14 +1283,14 @@ REGION_IntersectO(
         }
     }
 
-    return;
+    return TRUE;
 }
 
 /***********************************************************************
  * REGION_IntersectRegion
  */
 static
-VOID
+BOOL
 FASTCALL
 REGION_IntersectRegion(
     PREGION newReg,
@@ -1307,12 +1306,13 @@ REGION_IntersectRegion(
     }
     else
     {
-        REGION_RegionOp(newReg,
+        if (!REGION_RegionOp(newReg,
                         reg1,
                         reg2,
                         REGION_IntersectO,
                         NULL,
-                        NULL);
+                        NULL))
+            return FALSE;
     }
 
     /* Can't alter newReg's extents before we call miRegionOp because
@@ -1321,6 +1321,7 @@ REGION_IntersectRegion(
      * way there's no checking against rectangles that will be nuked
      * due to coalescing, so we have to examine fewer rectangles. */
     REGION_SetExtents(newReg);
+    return TRUE;
 }
 
 /***********************************************************************
@@ -1341,7 +1342,7 @@ REGION_IntersectRegion(
  *
  */
 static
-VOID
+BOOL
 FASTCALL
 REGION_UnionNonO(
     PREGION pReg,
@@ -1354,7 +1355,7 @@ REGION_UnionNonO(
     {
         if (!REGION_bEnsureBufferSize(pReg, pReg->rdh.nCount + (rEnd - r)))
         {
-            return;
+            return FALSE;
         }
 
         do
@@ -1365,7 +1366,7 @@ REGION_UnionNonO(
         while (r != rEnd);
     }
 
-    return;
+    return TRUE;
 }
 
 static __inline
@@ -1411,7 +1412,7 @@ REGION_bMergeRect(
  *
  */
 static
-VOID
+BOOL
 FASTCALL
 REGION_UnionO (
     PREGION pReg,
@@ -1426,12 +1427,12 @@ REGION_UnionO (
     {
         if (r1->left < r2->left)
         {
-            REGION_bMergeRect(pReg, r1->left, top, r1->right, bottom);
+            if (!REGION_bMergeRect(pReg, r1->left, top, r1->right, bottom)) return FALSE;
             r1++;
         }
         else
         {
-            REGION_bMergeRect(pReg, r2->left, top, r2->right, bottom);
+            if (!REGION_bMergeRect(pReg, r2->left, top, r2->right, bottom)) return FALSE;
             r2++;
         }
     }
@@ -1440,7 +1441,7 @@ REGION_UnionO (
     {
         do
         {
-            REGION_bMergeRect(pReg, r1->left, top, r1->right, bottom);
+            if (!REGION_bMergeRect(pReg, r1->left, top, r1->right, bottom)) return FALSE;
             r1++;
         }
         while (r1 != r1End);
@@ -1449,25 +1450,27 @@ REGION_UnionO (
     {
         while (r2 != r2End)
         {
-            REGION_bMergeRect(pReg, r2->left, top, r2->right, bottom);
+            if (!REGION_bMergeRect(pReg, r2->left, top, r2->right, bottom)) return FALSE;
             r2++;
         }
     }
 
-    return;
+    return TRUE;
 }
 
 /***********************************************************************
  * REGION_UnionRegion
  */
 static
-VOID
+BOOL
 FASTCALL
 REGION_UnionRegion(
     PREGION newReg,
     PREGION reg1,
     PREGION reg2)
 {
+    BOOL ret = TRUE;
+
     /* Checks all the simple cases
      * Region 1 and 2 are the same or region 1 is empty */
     if ((reg1 == reg2) || (reg1->rdh.nCount == 0) ||
@@ -1476,10 +1479,10 @@ REGION_UnionRegion(
     {
         if (newReg != reg2)
         {
-            REGION_CopyRegion(newReg, reg2);
+            ret = REGION_CopyRegion(newReg, reg2);
         }
 
-        return;
+        return ret;
     }
 
     /* If nothing to union (region 2 empty) */
@@ -1489,10 +1492,10 @@ REGION_UnionRegion(
     {
         if (newReg != reg1)
         {
-            REGION_CopyRegion(newReg, reg1);
+            ret = REGION_CopyRegion(newReg, reg1);
         }
 
-        return;
+        return ret;
     }
 
     /* Region 1 completely subsumes region 2 */
@@ -1504,10 +1507,10 @@ REGION_UnionRegion(
     {
         if (newReg != reg1)
         {
-            REGION_CopyRegion(newReg, reg1);
+            ret = REGION_CopyRegion(newReg, reg1);
         }
 
-        return;
+        return ret;
     }
 
     /* Region 2 completely subsumes region 1 */
@@ -1519,23 +1522,25 @@ REGION_UnionRegion(
     {
         if (newReg != reg2)
         {
-            REGION_CopyRegion(newReg, reg2);
+            ret = REGION_CopyRegion(newReg, reg2);
         }
 
-        return;
+        return ret;
     }
 
-    REGION_RegionOp(newReg,
+    if ((ret = REGION_RegionOp(newReg,
                     reg1,
                     reg2,
                     REGION_UnionO,
                     REGION_UnionNonO,
-                    REGION_UnionNonO);
-
+                    REGION_UnionNonO)))
+    {
     newReg->rdh.rcBound.left = min(reg1->rdh.rcBound.left, reg2->rdh.rcBound.left);
     newReg->rdh.rcBound.top = min(reg1->rdh.rcBound.top, reg2->rdh.rcBound.top);
     newReg->rdh.rcBound.right = max(reg1->rdh.rcBound.right, reg2->rdh.rcBound.right);
     newReg->rdh.rcBound.bottom = max(reg1->rdh.rcBound.bottom, reg2->rdh.rcBound.bottom);
+    }
+    return ret;
 }
 
 /***********************************************************************
@@ -1554,7 +1559,7 @@ REGION_UnionRegion(
  *
  */
 static
-VOID
+BOOL
 FASTCALL
 REGION_SubtractNonO1(
     PREGION pReg,
@@ -1567,7 +1572,7 @@ REGION_SubtractNonO1(
     {
         if (!REGION_bEnsureBufferSize(pReg, pReg->rdh.nCount + (rEnd - r)))
         {
-            return;
+            return FALSE;
         }
 
         do
@@ -1578,9 +1583,8 @@ REGION_SubtractNonO1(
         while (r != rEnd);
     }
 
-    return;
+    return TRUE;
 }
-
 
 /*!
  *      Overlapping band subtraction. x1 is the left-most point not yet
@@ -1594,7 +1598,7 @@ REGION_SubtractNonO1(
  *
  */
 static
-VOID
+BOOL
 FASTCALL
 REGION_SubtractO(
     PREGION pReg,
@@ -1641,7 +1645,7 @@ REGION_SubtractO(
              * part of minuend to region and skip to next subtrahend. */
             if (!REGION_bAddRect(pReg, left, top, r2->left, bottom))
             {
-                return;
+                return FALSE;
             }
 
             left = r2->right;
@@ -1665,7 +1669,7 @@ REGION_SubtractO(
             {
                 if (!REGION_bAddRect(pReg, left, top, r1->right, bottom))
                 {
-                    return;
+                    return FALSE;
                 }
             }
 
@@ -1680,7 +1684,7 @@ REGION_SubtractO(
     {
         if (!REGION_bEnsureBufferSize(pReg, pReg->rdh.nCount + (r1End - r1)))
         {
-            return;
+            return FALSE;
         }
 
         /* Add remaining minuend rectangles to region. */
@@ -1696,7 +1700,7 @@ REGION_SubtractO(
         while (r1 != r1End);
     }
 
-    return;
+    return TRUE;
 }
 
 /*!
@@ -1711,7 +1715,7 @@ REGION_SubtractO(
  *
  */
 static
-VOID
+BOOL
 FASTCALL
 REGION_SubtractRegion(
     PREGION regD,
@@ -1723,16 +1727,16 @@ REGION_SubtractRegion(
         (regS->rdh.nCount == 0) ||
         (EXTENTCHECK(&regM->rdh.rcBound, &regS->rdh.rcBound) == 0))
     {
-        REGION_CopyRegion(regD, regM);
-        return;
+        return REGION_CopyRegion(regD, regM);
     }
 
-    REGION_RegionOp(regD,
+    if (!REGION_RegionOp(regD,
                     regM,
                     regS,
                     REGION_SubtractO,
                     REGION_SubtractNonO1,
-                    NULL);
+                    NULL))
+        return FALSE;
 
     /* Can't alter newReg's extents before we call miRegionOp because
      * it might be one of the source regions and miRegionOp depends
@@ -1740,13 +1744,14 @@ REGION_SubtractRegion(
      * way there's no checking against rectangles that will be nuked
      * due to coalescing, so we have to examine fewer rectangles. */
     REGION_SetExtents(regD);
+    return TRUE;
 }
 
 /***********************************************************************
  * REGION_XorRegion
  */
 static
-VOID
+BOOL
 FASTCALL
 REGION_XorRegion(
     PREGION dr,
@@ -1755,12 +1760,13 @@ REGION_XorRegion(
 {
     HRGN htra, htrb;
     PREGION tra, trb;
+    BOOL ret;
 
     // FIXME: Don't use a handle
     tra = REGION_AllocRgnWithHandle(sra->rdh.nCount + 1);
     if (tra == NULL)
     {
-        return;
+        return FALSE;
     }
     htra = tra->BaseObject.hHmgr;
 
@@ -1770,26 +1776,25 @@ REGION_XorRegion(
     {
         REGION_UnlockRgn(tra);
         GreDeleteObject(htra);
-        return;
+        return FALSE;
     }
     htrb = trb->BaseObject.hHmgr;
 
-    REGION_SubtractRegion(tra, sra, srb);
-    REGION_SubtractRegion(trb, srb, sra);
-    REGION_UnionRegion(dr, tra, trb);
+    ret = REGION_SubtractRegion(tra, sra, srb) &&
+          REGION_SubtractRegion(trb, srb, sra) &&
+          REGION_UnionRegion(dr, tra, trb);
     REGION_UnlockRgn(tra);
     REGION_UnlockRgn(trb);
 
     GreDeleteObject(htra);
     GreDeleteObject(htrb);
-    return;
+    return ret;
 }
-
 
 /*!
  * Adds a rectangle to a REGION
  */
-VOID
+BOOL
 FASTCALL
 REGION_UnionRectWithRgn(
     PREGION rgn,
@@ -1801,7 +1806,7 @@ REGION_UnionRectWithRgn(
     region.rdh.nCount = 1;
     region.rdh.nRgnSize = sizeof(RECT);
     region.rdh.rcBound = *rect;
-    REGION_UnionRegion(rgn, rgn, &region);
+    return REGION_UnionRegion(rgn, rgn, &region);
 }
 
 INT
@@ -1819,6 +1824,27 @@ REGION_SubtractRectFromRgn(
     rgnLocal.rdh.rcBound = *prcl;
     REGION_SubtractRegion(prgnDest, prgnSrc, &rgnLocal);
     return REGION_Complexity(prgnDest);
+}
+
+BOOL
+FASTCALL
+REGION_bCopy(
+    PREGION dst,
+    PREGION src)
+{
+    if ( !dst || !src ) return FALSE;
+    return REGION_CopyRegion( dst, src);
+}
+
+BOOL
+FASTCALL
+REGION_bIntersectRegion(
+    PREGION newReg,
+    PREGION reg1,
+    PREGION reg2)
+{
+    if ( !newReg || !reg1 || !reg2 ) return FALSE;
+    return REGION_IntersectRegion( newReg, reg1, reg2);
 }
 
 static
@@ -2045,7 +2071,7 @@ REGION_bXformRgn(
     _In_ PMATRIX pmx)
 {
     XFORMOBJ xo;
-    ULONG i, j, cjSize;
+    ULONG i, cjSize;
     PPOINT ppt;
     PULONG pcPoints;
     RECT rect;
@@ -2098,19 +2124,20 @@ REGION_bXformRgn(
                 RECTL_vMakeWellOrdered(&prgn->Buffer[i]);
 
                 /* Update bounds */
-                RECTL_bUnionRect(&prgn->rdh.rcBound,
+                if (!RECTL_bUnionRect(&prgn->rdh.rcBound,
                                  &prgn->rdh.rcBound,
-                                 &prgn->Buffer[i]);
+                                 &prgn->Buffer[i]))
+                {
+                    DPRINT1("NULL Set in Union Rects\n");
+                    return FALSE;
+                }
             }
 
             /* Loop all rects in the region */
             for (i = 0; i < prgn->rdh.nCount - 1; i++)
             {
-                for (j = i; i < prgn->rdh.nCount; i++)
-                {
-                    NT_ASSERT(prgn->Buffer[i].top < prgn->Buffer[i].bottom);
-                    NT_ASSERT(prgn->Buffer[j].top >= prgn->Buffer[i].top);
-                }
+                NT_ASSERT(prgn->Buffer[i].top <= prgn->Buffer[i].bottom);
+                NT_ASSERT(prgn->Buffer[i + 1].top >= prgn->Buffer[i].top);
             }
 
             return TRUE;
@@ -2170,9 +2197,7 @@ REGION_bXformRgn(
 
         return bResult;
     }
-
 }
-
 
 PREGION
 FASTCALL
@@ -2263,7 +2288,6 @@ REGION_bAllocRgnAttr(
 
     return TRUE;
 }
-
 
 //
 // Allocate User Space Region Handle.
@@ -2469,6 +2493,7 @@ IntGdiCombineRgn(
     PREGION prgnSrc2,
     INT iCombineMode)
 {
+    BOOL Ret = TRUE;
 
     if (prgnDest == NULL)
     {
@@ -2500,20 +2525,20 @@ IntGdiCombineRgn(
     switch (iCombineMode)
     {
         case RGN_AND:
-            REGION_IntersectRegion(prgnDest, prgnSrc1, prgnSrc2);
+            Ret = REGION_IntersectRegion(prgnDest, prgnSrc1, prgnSrc2);
             break;
         case RGN_OR:
-            REGION_UnionRegion(prgnDest, prgnSrc1, prgnSrc2);
+            Ret = REGION_UnionRegion(prgnDest, prgnSrc1, prgnSrc2);
             break;
         case RGN_XOR:
-            REGION_XorRegion(prgnDest, prgnSrc1, prgnSrc2);
+            Ret = REGION_XorRegion(prgnDest, prgnSrc1, prgnSrc2);
             break;
         case RGN_DIFF:
-            REGION_SubtractRegion(prgnDest, prgnSrc1, prgnSrc2);
+            Ret = REGION_SubtractRegion(prgnDest, prgnSrc1, prgnSrc2);
             break;
     }
 
-    return REGION_Complexity(prgnDest);
+    return Ret ? REGION_Complexity(prgnDest) : ERROR;
 }
 
 INT
@@ -2554,7 +2579,6 @@ IntGdiGetRgnBox(
 
     return ret;
 }
-
 
 BOOL
 FASTCALL
@@ -3010,7 +3034,6 @@ REGION_FreeStorage(
     }
 }
 
-
 /***********************************************************************
  *     REGION_PtsToRegion
  *
@@ -3254,6 +3277,7 @@ REGION_SetPolyPolygonRgn(
     POINTBLOCK *tmpPtBlock;
     UINT numFullPtBlocks = 0;
     UINT poly, total;
+    BOOL bResult = FALSE;
 
     /* Check if iMode is valid */
     if ((iMode != ALTERNATE) && (iMode != WINDING))
@@ -3329,8 +3353,7 @@ REGION_SetPolyPolygonRgn(
                     if (tmpPtBlock == NULL)
                     {
                         DPRINT1("Can't alloc tmpPtBlock\n");
-                        ExFreePoolWithTag(pETEs, TAG_REGION);
-                        return FALSE;
+                        goto Cleanup;
                     }
 
                     curPtBlock->next = tmpPtBlock;
@@ -3385,8 +3408,7 @@ REGION_SetPolyPolygonRgn(
                         if (tmpPtBlock == NULL)
                         {
                             DPRINT1("Can't alloc tPB\n");
-                            ExFreePoolWithTag(pETEs, TAG_REGION);
-                            return FALSE;
+                            goto Cleanup;
                         }
                         curPtBlock->next = tmpPtBlock;
                         curPtBlock = tmpPtBlock;
@@ -3411,8 +3433,11 @@ REGION_SetPolyPolygonRgn(
         }
     }
 
-    REGION_FreeStorage(SLLBlock.next);
     REGION_PtsToRegion(numFullPtBlocks, iPts, &FirstPtBlock, prgn);
+    bResult = TRUE;
+
+Cleanup:
+    REGION_FreeStorage(SLLBlock.next);
 
     for (curPtBlock = FirstPtBlock.next; numFullPtBlocks-- > 0;)
     {
@@ -3422,7 +3447,7 @@ REGION_SetPolyPolygonRgn(
     }
 
     ExFreePoolWithTag(pETEs, TAG_REGION);
-    return TRUE;
+    return bResult;
 }
 
 HRGN
@@ -3480,7 +3505,6 @@ IntRectInRegion(
     REGION_UnlockRgn(Rgn);
     return Ret;
 }
-
 
 //
 // NtGdi Exported Functions
@@ -3600,8 +3624,9 @@ NtGdiCreateRoundRectRgn(
 {
     PREGION obj;
     HRGN hrgn;
-    INT asq, bsq, d, xd, yd;
-    RECTL rect;
+    int a, b, i, x, y;
+    INT64 asq, bsq, dx, dy, err;
+    RECT *rects;
 
     /* Make the dimensions sensible */
     if (left > right)
@@ -3618,95 +3643,75 @@ NtGdiCreateRoundRectRgn(
         bottom = tmp;
     }
 
-    ellipse_width = abs(ellipse_width);
-    ellipse_height = abs(ellipse_height);
+    /* the region is for the rectangle interior, but only at right and bottom for some reason */
+    right--;
+    bottom--;
 
-    /* Check parameters */
-    if (ellipse_width > right-left)
-        ellipse_width = right-left;
-    if (ellipse_height > bottom-top)
-        ellipse_height = bottom-top;
+    ellipse_width = min( right - left, abs( ellipse_width ));
+    ellipse_height = min( bottom - top, abs( ellipse_height ));
 
     /* Check if we can do a normal rectangle instead */
+
     if ((ellipse_width < 2) || (ellipse_height < 2))
         return NtGdiCreateRectRgn(left, top, right, bottom);
 
-    /* Create region */
-    d = (ellipse_height < 128) ? ((3 * ellipse_height) >> 2) : 64;
-    obj = REGION_AllocUserRgnWithHandle(d);
+    obj = REGION_AllocUserRgnWithHandle( ellipse_height );
     if (obj == NULL)
         return 0;
 
     hrgn = obj->BaseObject.hHmgr;
 
-    /* Ellipse algorithm, based on an article by K. Porter
-       in DDJ Graphics Programming Column, 8/89 */
-    asq = ellipse_width * ellipse_width / 4;        /* a^2 */
-    bsq = ellipse_height * ellipse_height / 4;      /* b^2 */
-    d = bsq - asq * ellipse_height / 2 + asq / 4;   /* b^2 - a^2b + a^2/4 */
-    xd = 0;
-    yd = asq * ellipse_height;                      /* 2a^2b */
+    obj->rdh.rcBound.left   = left;
+    obj->rdh.rcBound.top    = top;
+    obj->rdh.rcBound.right  = right;
+    obj->rdh.rcBound.bottom = bottom;
+    rects = obj->Buffer;
 
-    rect.left   = left + ellipse_width / 2;
-    rect.right  = right - ellipse_width / 2;
+    /* based on an algorithm by Alois Zingl */
 
-    /* Loop to draw first half of quadrant */
-    while (xd < yd)
+    a = ellipse_width - 1;
+    b = ellipse_height - 1;
+    asq = (INT64)8 * a * a;
+    bsq = (INT64)8 * b * b;
+    dx  = (INT64)4 * b * b * (1 - a);
+    dy  = (INT64)4 * a * a * (1 + (b % 2));
+    err = dx + dy + a * a * (b % 2);
+
+    x = 0;
+    y = ellipse_height / 2;
+
+    rects[y].left = left;
+    rects[y].right = right;
+
+    while (x <= ellipse_width / 2)
     {
-        /* If nearest pixel is toward the center */
-        if (d > 0)
+        INT64 e2 = 2 * err;
+        if (e2 >= dx)
         {
-            /* Move toward center */
-            rect.top = top++;
-            rect.bottom = rect.top + 1;
-            REGION_UnionRectWithRgn(obj, &rect);
-            rect.top = --bottom;
-            rect.bottom = rect.top + 1;
-            REGION_UnionRectWithRgn(obj, &rect);
-            yd -= 2*asq;
-            d  -= yd;
+            x++;
+            err += dx += bsq;
         }
-
-        /* Next horiz point */
-        rect.left--;
-        rect.right++;
-        xd += 2*bsq;
-        d  += bsq + xd;
-    }
-
-    /* Loop to draw second half of quadrant */
-    d += (3 * (asq-bsq) / 2 - (xd+yd)) / 2;
-    while (yd >= 0)
-    {
-        /* next vertical point */
-        rect.top = top++;
-        rect.bottom = rect.top + 1;
-        REGION_UnionRectWithRgn(obj, &rect);
-        rect.top = --bottom;
-        rect.bottom = rect.top + 1;
-        REGION_UnionRectWithRgn(obj, &rect);
-
-        /* If nearest pixel is outside ellipse */
-        if (d < 0)
+        if (e2 <= dy)
         {
-            /* Move away from center */
-            rect.left--;
-            rect.right++;
-            xd += 2*bsq;
-            d  += xd;
+            y++;
+            err += dy += asq;
+            rects[y].left = left + x;
+            rects[y].right = right - x;
         }
-
-        yd -= 2*asq;
-        d  += asq - yd;
     }
-
-    /* Add the inside rectangle */
-    if (top <= bottom)
+    for (i = 0; i < ellipse_height / 2; i++)
     {
-        rect.top = top;
-        rect.bottom = bottom;
-        REGION_UnionRectWithRgn(obj, &rect);
+        rects[i].left = rects[b - i].left;
+        rects[i].right = rects[b - i].right;
+        rects[i].top = top + i;
+        rects[i].bottom = rects[i].top + 1;
     }
+    for (; i < ellipse_height; i++)
+    {
+        rects[i].top = bottom - ellipse_height + i;
+        rects[i].bottom = rects[i].top + 1;
+    }
+    rects[ellipse_height / 2].top = top + ellipse_height / 2;  /* extend to top of rectangle */
 
     REGION_UnlockRgn(obj);
     return hrgn;
@@ -3858,7 +3863,16 @@ NtGdiExtCreateRegion(
         /* Insert the rectangles one by one */
         for(i=0; i<nCount; i++)
         {
-            REGION_UnionRectWithRgn(Region, &rects[i]);
+            if ( rects[i].left < rects[i].right && rects[i].top < rects[i].bottom )
+            {
+                if (!REGION_UnionRectWithRgn(Region, &rects[i]))
+                {
+                   REGION_UnlockRgn(Region);
+                   GreDeleteObject(hRgn);
+                   hRgn = NULL;
+                   _SEH2_LEAVE;
+                }
+            }
         }
 
         if (Xform != NULL)
@@ -3898,7 +3912,7 @@ NtGdiExtCreateRegion(
         return NULL;
     }
 
-    REGION_UnlockRgn(Region);
+    if (hRgn) REGION_UnlockRgn(Region);
 
     return hRgn;
 }

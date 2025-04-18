@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 2002-2014 Alexandr A. Telyatnikov (Alter)
+Copyright (c) 2002-2018 Alexandr A. Telyatnikov (Alter)
 
 Module Name:
     bsmaster.h
@@ -93,6 +93,9 @@ Licence:
 // Hitachi 1 Tb HDD didn't allow LBA28 with BCount > 1 beyond this LBA
 #define ATA_MAX_IOLBA28                 DEF_U64(0x0fffff80)
 #define ATA_MAX_LBA28                   DEF_U64(0x0fffffff)
+
+#define ATA_MAX_IOLBA32                 DEF_U64(0xffffff80)
+#define ATA_MAX_LBA32                   DEF_U64(0xffffffff)
 
 #define ATA_DMA_ENTRIES			256     /* PAGESIZE/2/sizeof(BM_DMA_ENTRY)*/
 #define ATA_DMA_EOT			0x80000000
@@ -706,6 +709,7 @@ typedef struct _IDE_AHCI_PORT_REGISTERS {
 #define         ATA_AHCI_P_CMD_HPCP     0x00040000
 #define         ATA_AHCI_P_CMD_ISP      0x00080000
 #define         ATA_AHCI_P_CMD_CPD      0x00100000
+#define         ATA_AHCI_P_CMD_ESP      0x00200000
 #define         ATA_AHCI_P_CMD_ATAPI    0x01000000
 #define         ATA_AHCI_P_CMD_DLAE     0x02000000
 #define         ATA_AHCI_P_CMD_ALPE     0x04000000
@@ -999,7 +1003,11 @@ struct _HW_LU_EXTENSION;
 
 typedef struct _IORES {
     union {
+#ifdef __REACTOS__
+        ULONG_PTR Addr;      /* Base address*/
+#else
         ULONG Addr;          /* Base address*/
+#endif
         PVOID pAddr;         /* Base address in pointer form */
     };
     ULONG MemIo:1;       /* Memory mapping (1) vs IO ports (0) */
@@ -1090,7 +1098,7 @@ typedef struct _HW_CHANNEL {
 
     PUCHAR  DmaBuffer;
 
-    // 
+    //
     PIDE_AHCI_CHANNEL_CTL_BLOCK       AhciCtlBlock0; // unaligned
     PIDE_AHCI_CHANNEL_CTL_BLOCK       AhciCtlBlock;  // 128-byte aligned
     ULONGLONG                         AHCI_CTL_PhAddr;
@@ -1101,7 +1109,7 @@ typedef struct _HW_CHANNEL {
     ULONG                             AhciLastSError;
     //PVOID                    AHCI_FIS;  // is not actually used by UniATA now, but is required by AHCI controller
     //ULONGLONG                AHCI_FIS_PhAddr;
-    // Note: in contrast to FBSD, we keep PRD and CMD item in AtaReq structure 
+    // Note: in contrast to FBSD, we keep PRD and CMD item in AtaReq structure
     PATA_REQ                          AhciInternalAtaReq;
     PSCSI_REQUEST_BLOCK               AhciInternalSrb;
 
@@ -1204,7 +1212,7 @@ typedef struct _HW_LU_EXTENSION {
            mainly for mapping SATA ports to compatible PATA registers
            Treated as PHYSICAL port number, regardless of logical mapping.
          */
-        ULONG          SATA_lun_map; 
+        ULONG          SATA_lun_map;
     };
 
     struct _HW_DEVICE_EXTENSION* DeviceExtension;
@@ -1588,11 +1596,7 @@ AtapiChipInit(
     IN ULONG c
     );
 
-#ifdef __REACTOS__
-extern ULONG_PTR
-#else
-extern ULONG
-#endif
+extern ULONGIO_PTR
 NTAPI
 AtapiGetIoRange(
     IN PVOID HwDeviceExtension,

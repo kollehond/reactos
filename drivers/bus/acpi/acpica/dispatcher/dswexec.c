@@ -6,7 +6,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2017, Intel Corp.
+ * Copyright (C) 2000 - 2022, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,7 +31,7 @@
  * NO WARRANTY
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
  * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
@@ -50,7 +50,9 @@
 #include "acinterp.h"
 #include "acnamesp.h"
 #include "acdebug.h"
-
+#ifdef ACPI_EXEC_APP
+#include "aecommon.h"
+#endif
 
 #define _COMPONENT          ACPI_DISPATCHER
         ACPI_MODULE_NAME    ("dswexec")
@@ -63,7 +65,7 @@ static ACPI_EXECUTE_OP      AcpiGbl_OpTypeDispatch [] =
     AcpiExOpcode_0A_0T_1R,
     AcpiExOpcode_1A_0T_0R,
     AcpiExOpcode_1A_0T_1R,
-    AcpiExOpcode_1A_1T_0R,
+    NULL,   /* Was: AcpiExOpcode_1A_0T_0R (Was for Load operator) */
     AcpiExOpcode_1A_1T_1R,
     AcpiExOpcode_2A_0T_0R,
     AcpiExOpcode_2A_0T_1R,
@@ -145,7 +147,7 @@ AcpiDsGetPredicateValue (
      * object. Implicitly convert the argument if necessary.
      */
     Status = AcpiExConvertToInteger (ObjDesc, &LocalObjDesc,
-        ACPI_STRTOUL_BASE16);
+        ACPI_IMPLICIT_CONVERSION);
     if (ACPI_FAILURE (Status))
     {
         goto Cleanup;
@@ -396,7 +398,10 @@ AcpiDsExecEndOp (
     UINT32                  OpClass;
     ACPI_PARSE_OBJECT       *NextOp;
     ACPI_PARSE_OBJECT       *FirstArg;
-
+#ifdef ACPI_EXEC_APP
+    char                    *Namepath;
+    ACPI_OPERAND_OBJECT     *ObjDesc;
+#endif
 
     ACPI_FUNCTION_TRACE_PTR (DsExecEndOp, WalkState);
 
@@ -609,14 +614,37 @@ AcpiDsExecEndOp (
             }
 
             Status = AcpiDsEvalBufferFieldOperands (WalkState, Op);
+            if (ACPI_FAILURE (Status))
+            {
+                break;
+            }
+
+#ifdef ACPI_EXEC_APP
+            /*
+             * AcpiExec support for namespace initialization file (initialize
+             * BufferFields in this code.)
+             */
+            Namepath = AcpiNsGetExternalPathname (Op->Common.Node);
+            Status = AeLookupInitFileEntry (Namepath, &ObjDesc);
+            if (ACPI_SUCCESS (Status))
+            {
+                Status = AcpiExWriteDataToField (ObjDesc, Op->Common.Node->Object, NULL);
+                if (ACPI_FAILURE (Status))
+                {
+                    ACPI_EXCEPTION ((AE_INFO, Status, "While writing to buffer field"));
+                }
+            }
+            ACPI_FREE (Namepath);
+            Status = AE_OK;
+#endif
             break;
 
 
         case AML_TYPE_CREATE_OBJECT:
 
             ACPI_DEBUG_PRINT ((ACPI_DB_EXEC,
-                "Executing CreateObject (Buffer/Package) Op=%p AMLPtr=%p\n",
-                Op, Op->Named.Data));
+                "Executing CreateObject (Buffer/Package) Op=%p Child=%p ParentOpcode=%4.4X\n",
+                Op, Op->Named.Value.Arg, Op->Common.Parent->Common.AmlOpcode));
 
             switch (Op->Common.Parent->Common.AmlOpcode)
             {
@@ -636,8 +664,7 @@ AcpiDsExecEndOp (
                     break;
                 }
 
-                /* Fall through */
-                /*lint -fallthrough */
+                ACPI_FALLTHROUGH;
 
             case AML_INT_EVAL_SUBTREE_OP:
 

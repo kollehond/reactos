@@ -329,17 +329,20 @@ StartScreenSaver(
     StartupInfo.cb = sizeof(STARTUPINFOW);
     StartupInfo.dwFlags = STARTF_SCREENSAVER;
 
-    /* FIXME: run the screen saver on the screen saver desktop */
-    ret = CreateProcessW(szApplicationName,
-                         szCommandLine,
-                         NULL,
-                         NULL,
-                         FALSE,
-                         0,
-                         NULL,
-                         NULL,
-                         &StartupInfo,
-                         &ProcessInformation);
+    /* FIXME: Run the screen saver on the secure screen saver desktop if required */
+    StartupInfo.lpDesktop = L"WinSta0\\Default";
+
+    ret = CreateProcessAsUserW(Session->UserToken,
+                               szApplicationName,
+                               szCommandLine,
+                               NULL,
+                               NULL,
+                               FALSE,
+                               IDLE_PRIORITY_CLASS,
+                               NULL,
+                               NULL,
+                               &StartupInfo,
+                               &ProcessInformation);
     if (!ret)
     {
         ERR("WL: Unable to start %S, error %lu\n", szApplicationName, GetLastError());

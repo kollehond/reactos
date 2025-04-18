@@ -4,7 +4,7 @@
  * FILE:            ntoskrnl/po/power.c
  * PURPOSE:         Power Manager
  * PROGRAMMERS:     Casper S. Hornstrup (chorns@users.sourceforge.net)
- *                  Hervé Poussineau (hpoussin@reactos.com)
+ *                  HervÃ© Poussineau (hpoussin@reactos.com)
  */
 
 /* INCLUDES ******************************************************************/
@@ -26,15 +26,113 @@ PDEVICE_NODE PopSystemPowerDeviceNode = NULL;
 BOOLEAN PopAcpiPresent = FALSE;
 POP_POWER_ACTION PopAction;
 WORK_QUEUE_ITEM PopShutdownWorkItem;
+SYSTEM_POWER_CAPABILITIES PopCapabilities;
 
 /* PRIVATE FUNCTIONS *********************************************************/
+
+static WORKER_THREAD_ROUTINE PopPassivePowerCall;
+_Use_decl_annotations_
+static
+VOID
+NTAPI
+PopPassivePowerCall(
+    PVOID Parameter)
+{
+    PIRP Irp = Parameter;
+    PIO_STACK_LOCATION IoStack;
+
+    ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
+
+    _Analysis_assume_(Irp != NULL);
+    IoStack = IoGetNextIrpStackLocation(Irp);
+
+    (VOID)IoCallDriver(IoStack->DeviceObject, Irp);
+}
+
+_IRQL_requires_max_(DISPATCH_LEVEL)
+_IRQL_requires_same_
+static
+NTSTATUS
+PopPresentIrp(
+    _In_ PIO_STACK_LOCATION NextStack,
+    _In_ PIRP Irp)
+{
+    NTSTATUS Status;
+    BOOLEAN CallAtPassiveLevel;
+    PDEVICE_OBJECT DeviceObject;
+    PWORK_QUEUE_ITEM WorkQueueItem;
+
+    ASSERT(NextStack->MajorFunction == IRP_MJ_POWER);
+
+    DeviceObject = NextStack->DeviceObject;
+
+    /* Determine whether the IRP must be handled at PASSIVE_LEVEL.
+     * Only SET_POWER to working state can happen at raised IRQL. */
+    CallAtPassiveLevel = TRUE;
+    if ((NextStack->MinorFunction == IRP_MN_SET_POWER) &&
+        !(DeviceObject->Flags & DO_POWER_PAGABLE))
+    {
+        if (NextStack->Parameters.Power.Type == DevicePowerState &&
+            NextStack->Parameters.Power.State.DeviceState == PowerDeviceD0)
+        {
+            CallAtPassiveLevel = FALSE;
+        }
+        if (NextStack->Parameters.Power.Type == SystemPowerState &&
+            NextStack->Parameters.Power.State.SystemState == PowerSystemWorking)
+        {
+            CallAtPassiveLevel = FALSE;
+        }
+    }
+
+    if (CallAtPassiveLevel)
+    {
+        /* We need to fit a work item into the DriverContext below */
+        C_ASSERT(sizeof(Irp->Tail.Overlay.DriverContext) >= sizeof(WORK_QUEUE_ITEM));
+
+        if (KeGetCurrentIrql() == PASSIVE_LEVEL)
+        {
+            /* Already at passive, call next driver directly */
+            return IoCallDriver(DeviceObject, Irp);
+        }
+
+        /* Need to schedule a work item and return pending */
+        NextStack->Control |= SL_PENDING_RETURNED;
+
+        WorkQueueItem = (PWORK_QUEUE_ITEM)&Irp->Tail.Overlay.DriverContext;
+        ExInitializeWorkItem(WorkQueueItem,
+                             PopPassivePowerCall,
+                             Irp);
+        ExQueueWorkItem(WorkQueueItem, DelayedWorkQueue);
+
+        return STATUS_PENDING;
+    }
+
+    /* Direct call. Raise IRQL in debug to catch invalid paged memory access. */
+#if DBG
+    {
+    KIRQL OldIrql;
+    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
+#endif
+
+    Status = IoCallDriver(DeviceObject, Irp);
+
+#if DBG
+    KeLowerIrql(OldIrql);
+    }
+#endif
+
+    return Status;
+}
+
+static IO_COMPLETION_ROUTINE PopRequestPowerIrpCompletion;
 
 static
 NTSTATUS
 NTAPI
-PopRequestPowerIrpCompletion(IN PDEVICE_OBJECT DeviceObject,
-                             IN PIRP Irp,
-                             IN PVOID Context)
+PopRequestPowerIrpCompletion(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ PIRP Irp,
+    _In_reads_opt_(_Inexpressible_("varies")) PVOID Context)
 {
     PIO_STACK_LOCATION Stack;
     PREQUEST_POWER_COMPLETE CompletionRoutine;
@@ -44,11 +142,15 @@ PopRequestPowerIrpCompletion(IN PDEVICE_OBJECT DeviceObject,
     CompletionRoutine = Context;
 
     PowerState.DeviceState = (ULONG_PTR)Stack->Parameters.Others.Argument3;
-    CompletionRoutine(Stack->Parameters.Others.Argument1,
-                      (UCHAR)(ULONG_PTR)Stack->Parameters.Others.Argument2,
-                      PowerState,
-                      Stack->Parameters.Others.Argument4,
-                      &Irp->IoStatus);
+
+    if (CompletionRoutine)
+    {
+        CompletionRoutine(Stack->Parameters.Others.Argument1,
+                          (UCHAR)(ULONG_PTR)Stack->Parameters.Others.Argument2,
+                          PowerState,
+                          Stack->Parameters.Others.Argument4,
+                          &Irp->IoStatus);
+    }
 
     IoSkipCurrentIrpStackLocation(Irp);
     IoFreeIrp(Irp);
@@ -289,9 +391,9 @@ PopSetSystemPowerState(SYSTEM_POWER_STATE PowerState, POWER_ACTION PowerAction)
     return Status;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 PoInitSystem(IN ULONG BootPhase)
 {
     PVOID NotificationEntry;
@@ -301,27 +403,43 @@ PoInitSystem(IN ULONG BootPhase)
     /* Check if this is phase 1 init */
     if (BootPhase == 1)
     {
+        NTSTATUS Status;
         /* Register power button notification */
-        IoRegisterPlugPlayNotification(EventCategoryDeviceInterfaceChange,
-                                       PNPNOTIFY_DEVICE_INTERFACE_INCLUDE_EXISTING_INTERFACES,
-                                       (PVOID)&GUID_DEVICE_SYS_BUTTON,
-                                       IopRootDeviceNode->
-                                       PhysicalDeviceObject->DriverObject,
-                                       PopAddRemoveSysCapsCallback,
-                                       NULL,
-                                       &NotificationEntry);
+        Status = IoRegisterPlugPlayNotification(EventCategoryDeviceInterfaceChange,
+                                                PNPNOTIFY_DEVICE_INTERFACE_INCLUDE_EXISTING_INTERFACES,
+                                                (PVOID)&GUID_DEVICE_SYS_BUTTON,
+                                                IopRootDeviceNode->PhysicalDeviceObject->DriverObject,
+                                                PopAddRemoveSysCapsCallback,
+                                                (PVOID)(ULONG_PTR)PolicyDeviceSystemButton,
+                                                &NotificationEntry);
+        if (!NT_SUCCESS(Status))
+            return FALSE;
 
         /* Register lid notification */
-        IoRegisterPlugPlayNotification(EventCategoryDeviceInterfaceChange,
-                                       PNPNOTIFY_DEVICE_INTERFACE_INCLUDE_EXISTING_INTERFACES,
-                                       (PVOID)&GUID_DEVICE_LID,
-                                       IopRootDeviceNode->
-                                       PhysicalDeviceObject->DriverObject,
-                                       PopAddRemoveSysCapsCallback,
-                                       NULL,
-                                       &NotificationEntry);
-        return TRUE;
+        Status = IoRegisterPlugPlayNotification(EventCategoryDeviceInterfaceChange,
+                                                PNPNOTIFY_DEVICE_INTERFACE_INCLUDE_EXISTING_INTERFACES,
+                                                (PVOID)&GUID_DEVICE_LID,
+                                                IopRootDeviceNode->PhysicalDeviceObject->DriverObject,
+                                                PopAddRemoveSysCapsCallback,
+                                                (PVOID)(ULONG_PTR)PolicyDeviceSystemButton,
+                                                &NotificationEntry);
+        if (!NT_SUCCESS(Status))
+            return FALSE;
+
+        /* Register battery notification */
+        Status = IoRegisterPlugPlayNotification(EventCategoryDeviceInterfaceChange,
+                                                PNPNOTIFY_DEVICE_INTERFACE_INCLUDE_EXISTING_INTERFACES,
+                                                (PVOID)&GUID_DEVICE_BATTERY,
+                                                IopRootDeviceNode->PhysicalDeviceObject->DriverObject,
+                                                PopAddRemoveSysCapsCallback,
+                                                (PVOID)(ULONG_PTR)PolicyDeviceBattery,
+                                                &NotificationEntry);
+
+        return NT_SUCCESS(Status);
     }
+
+    /* Initialize the power capabilities */
+    RtlZeroMemory(&PopCapabilities, sizeof(SYSTEM_POWER_CAPABILITIES));
 
     /* Get the Command Line */
     CommandLine = KeLoaderBlock->LoadOptions;
@@ -343,6 +461,9 @@ PoInitSystem(IN ULONG BootPhase)
         PopAcpiPresent = KeLoaderBlock->Extension->AcpiTable != NULL ? TRUE : FALSE;
     }
 
+    /* Enable shutdown by power button */
+    if (PopAcpiPresent)
+        PopCapabilities.SystemS5 = TRUE;
 
     /* Initialize volume support */
     InitializeListHead(&PopVolumeDevices);
@@ -383,9 +504,9 @@ PopIdle0(IN PPROCESSOR_POWER_STATE PowerState)
     HalProcessorIdle();
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 PoInitializePrcb(IN PKPRCB Prcb)
 {
     /* Initialize the Power State */
@@ -473,18 +594,35 @@ PoSetHiberRange(IN PVOID HiberContext,
 /*
  * @implemented
  */
+_IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS
 NTAPI
-PoCallDriver(IN PDEVICE_OBJECT DeviceObject,
-             IN OUT PIRP Irp)
+PoCallDriver(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _Inout_ __drv_aliasesMem PIRP Irp)
 {
-    NTSTATUS Status;
+    PIO_STACK_LOCATION NextStack;
 
-    /* Forward to Io -- FIXME! */
-    Status = IoCallDriver(DeviceObject, Irp);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
-    /* Return status */
-    return Status;
+    ASSERT(DeviceObject);
+    ASSERT(Irp);
+
+    NextStack = IoGetNextIrpStackLocation(Irp);
+    ASSERT(NextStack->MajorFunction == IRP_MJ_POWER);
+
+    /* Set DeviceObject for PopPresentIrp */
+    NextStack->DeviceObject = DeviceObject;
+
+    /* Only QUERY_POWER and SET_POWER use special handling */
+    if (NextStack->MinorFunction != IRP_MN_SET_POWER &&
+        NextStack->MinorFunction != IRP_MN_QUERY_POWER)
+    {
+        return IoCallDriver(DeviceObject, Irp);
+    }
+
+    /* Call the next driver, either directly or at PASSIVE_LEVEL */
+    return PopPresentIrp(NextStack, Irp);
 }
 
 /*
@@ -518,12 +656,13 @@ PoRegisterSystemState(IN PVOID StateHandle,
  */
 NTSTATUS
 NTAPI
-PoRequestPowerIrp(IN PDEVICE_OBJECT DeviceObject,
-                  IN UCHAR MinorFunction,
-                  IN POWER_STATE PowerState,
-                  IN PREQUEST_POWER_COMPLETE CompletionFunction,
-                  IN PVOID Context,
-                  OUT PIRP *pIrp OPTIONAL)
+PoRequestPowerIrp(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ UCHAR MinorFunction,
+    _In_ POWER_STATE PowerState,
+    _In_opt_ PREQUEST_POWER_COMPLETE CompletionFunction,
+    _In_opt_ __drv_aliasesMem PVOID Context,
+    _Outptr_opt_ PIRP *pIrp)
 {
     PDEVICE_OBJECT TopDeviceObject;
     PIO_STACK_LOCATION Stack;
@@ -618,7 +757,7 @@ VOID
 NTAPI
 PoStartNextPowerIrp(IN PIRP Irp)
 {
-    UNIMPLEMENTED;
+    UNIMPLEMENTED_ONCE;
 }
 
 /*
@@ -694,9 +833,13 @@ NtPowerInformation(IN POWER_INFORMATION_LEVEL PowerInformationLevel,
 
             _SEH2_TRY
             {
-                /* Just zero the struct (and thus set BatteryState->BatteryPresent = FALSE) */
-                RtlZeroMemory(BatteryState, sizeof(SYSTEM_BATTERY_STATE));
+                /* Just zero the struct */
+                RtlZeroMemory(BatteryState, sizeof(*BatteryState));
                 BatteryState->EstimatedTime = MAXULONG;
+                BatteryState->BatteryPresent = PopCapabilities.SystemBatteriesPresent;
+//                BatteryState->AcOnLine = TRUE;
+//                BatteryState->MaxCapacity = ;
+//                BatteryState->RemainingCapacity = ;
 
                 Status = STATUS_SUCCESS;
             }
@@ -720,9 +863,9 @@ NtPowerInformation(IN POWER_INFORMATION_LEVEL PowerInformationLevel,
 
             _SEH2_TRY
             {
-                /* Just zero the struct (and thus set PowerCapabilities->SystemBatteriesPresent = FALSE) */
-                RtlZeroMemory(PowerCapabilities, sizeof(SYSTEM_POWER_CAPABILITIES));
-                //PowerCapabilities->SystemBatteriesPresent = 0;
+                RtlCopyMemory(PowerCapabilities,
+                              &PopCapabilities,
+                              sizeof(SYSTEM_POWER_CAPABILITIES));
 
                 Status = STATUS_SUCCESS;
             }
@@ -744,11 +887,14 @@ NtPowerInformation(IN POWER_INFORMATION_LEVEL PowerInformationLevel,
             if (OutputBufferLength < sizeof(PROCESSOR_POWER_INFORMATION))
                 return STATUS_BUFFER_TOO_SMALL;
 
+            /* FIXME: return structures for all processors */
+
             _SEH2_TRY
             {
+                /* FIXME: some values are hardcoded */
                 PowerInformation->Number = 0;
                 PowerInformation->MaxMhz = 1000;
-                PowerInformation->CurrentMhz = 1000;
+                PowerInformation->CurrentMhz = KeGetCurrentPrcb()->MHz;
                 PowerInformation->MhzLimit = 1000;
                 PowerInformation->MaxIdleState = 0;
                 PowerInformation->CurrentIdleState = 0;
@@ -950,17 +1096,18 @@ NtSetSystemPowerState(IN POWER_ACTION SystemAction,
         /* Check if we're still in an invalid status */
         if (!NT_SUCCESS(Status)) break;
 
+        /* Flush all volumes and the registry */
+        DPRINT("Flushing volumes\n");
+        PopFlushVolumes(PopAction.Shutdown);
+
 #ifndef NEWCC
         /* Flush dirty cache pages */
         /* XXX: Is that still mandatory? As now we'll wait on lazy writer to complete? */
-        CcRosFlushDirtyPages(-1, &Dummy, FALSE, FALSE); //HACK: We really should wait here!
+        CcRosFlushDirtyPages(MAXULONG, &Dummy, TRUE, FALSE);
+        DPRINT("Cache flushed %lu pages\n", Dummy);
 #else
         Dummy = 0;
 #endif
-
-        /* Flush all volumes and the registry */
-        DPRINT("Flushing volumes, cache flushed %lu pages\n", Dummy);
-        PopFlushVolumes(PopAction.Shutdown);
 
         /* Set IRP for drivers */
         PopAction.IrpMinor = IRP_MN_SET_POWER;

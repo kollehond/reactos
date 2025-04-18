@@ -3,16 +3,18 @@
  * LICENSE:         GPL - See COPYING in the top level directory
  * FILE:            boot/freeldr/freeldr/disk/scsiport.c
  * PURPOSE:         Interface for SCSI Emulation
- * PROGRAMMERS:     Hervé Poussineau  <hpoussin@reactos.org>
+ * PROGRAMMERS:     HervÃ© Poussineau  <hpoussin@reactos.org>
  */
 
 /* INCLUDES *******************************************************************/
 
 #include <freeldr.h>
 
+#include <debug.h>
+DBG_DEFAULT_CHANNEL(SCSIPORT);
+
 #define _SCSIPORT_
 
-#include <ntddk.h>
 #include <srb.h>
 #include <scsi.h>
 #include <ntddscsi.h>
@@ -48,14 +50,10 @@
 #undef ScsiPortReadRegisterUlong
 #undef ScsiPortReadRegisterUshort
 
-#include <debug.h>
-
 #define SCSI_PORT_NEXT_REQUEST_READY  0x0008
 
 #define TAG_SCSI_DEVEXT 'DscS'
 #define TAG_SCSI_ACCESS_RANGES 'AscS'
-
-DBG_DEFAULT_CHANNEL(SCSIPORT);
 
 /* GLOBALS ********************************************************************/
 
@@ -140,7 +138,11 @@ SpiSendSynchronousSrb(
     while (!(DeviceExtension->InterruptFlags & SCSI_PORT_NEXT_REQUEST_READY))
     {
         KeStallExecutionProcessor(100 * 1000);
-        DeviceExtension->HwInterrupt(DeviceExtension->MiniPortDeviceExtension);
+        if (!DeviceExtension->HwInterrupt(DeviceExtension->MiniPortDeviceExtension))
+        {
+            ExFreePool(Srb);
+            return FALSE;
+        }
     }
 
     DeviceExtension->InterruptFlags &= ~SCSI_PORT_NEXT_REQUEST_READY;
@@ -158,7 +160,11 @@ SpiSendSynchronousSrb(
     while (Srb->SrbFlags & SRB_FLAGS_IS_ACTIVE)
     {
         KeStallExecutionProcessor(100 * 1000);
-        DeviceExtension->HwInterrupt(DeviceExtension->MiniPortDeviceExtension);
+        if (!DeviceExtension->HwInterrupt(DeviceExtension->MiniPortDeviceExtension))
+        {
+            ExFreePool(Srb);
+            return FALSE;
+        }
     }
 
     ret = SRB_STATUS(Srb->SrbStatus) == SRB_STATUS_SUCCESS;
@@ -170,7 +176,6 @@ SpiSendSynchronousSrb(
 static ARC_STATUS DiskClose(ULONG FileId)
 {
     DISKCONTEXT* Context = FsGetDeviceSpecific(FileId);
-
     ExFreePool(Context);
     return ESUCCESS;
 }
@@ -179,9 +184,17 @@ static ARC_STATUS DiskGetFileInformation(ULONG FileId, FILEINFORMATION* Informat
 {
     DISKCONTEXT* Context = FsGetDeviceSpecific(FileId);
 
-    RtlZeroMemory(Information, sizeof(FILEINFORMATION));
-    Information->EndingAddress.QuadPart = Context->SectorCount * Context->SectorSize;
-    Information->CurrentAddress.QuadPart = Context->SectorNumber * Context->SectorSize;
+    RtlZeroMemory(Information, sizeof(*Information));
+
+    /*
+     * The ARC specification mentions that for partitions, StartingAddress and
+     * EndingAddress are the start and end positions of the partition in terms
+     * of byte offsets from the start of the disk.
+     * CurrentAddress is the current offset into (i.e. relative to) the partition.
+     */
+    Information->StartingAddress.QuadPart = Context->SectorOffset * Context->SectorSize;
+    Information->EndingAddress.QuadPart   = (Context->SectorOffset + Context->SectorCount) * Context->SectorSize;
+    Information->CurrentAddress.QuadPart  = Context->SectorNumber * Context->SectorSize;
 
     return ESUCCESS;
 }
@@ -278,7 +291,7 @@ static ARC_STATUS DiskRead(ULONG FileId, VOID* Buffer, ULONG N, ULONG* Count)
 
     /* Read full sectors */
     ASSERT(Context->SectorNumber < 0xFFFFFFFF);
-    Lba = (ULONG)Context->SectorNumber;
+    Lba = (ULONG)(Context->SectorOffset + Context->SectorNumber);
     if (FullSectors > 0)
     {
         Srb = ExAllocatePool(PagedPool, sizeof(SCSI_REQUEST_BLOCK));
@@ -312,6 +325,7 @@ static ARC_STATUS DiskRead(ULONG FileId, VOID* Buffer, ULONG N, ULONG* Count)
         Buffer = (PUCHAR)Buffer + FullSectors * Context->SectorSize;
         N -= FullSectors * Context->SectorSize;
         *Count += FullSectors * Context->SectorSize;
+        Context->SectorNumber += FullSectors;
         Lba += FullSectors;
     }
 
@@ -358,6 +372,7 @@ static ARC_STATUS DiskRead(ULONG FileId, VOID* Buffer, ULONG N, ULONG* Count)
         }
         RtlCopyMemory(Buffer, Sector, N);
         *Count += N;
+        /* Context->SectorNumber remains untouched (incomplete sector read) */
         ExFreePool(Sector);
     }
 
@@ -367,17 +382,34 @@ static ARC_STATUS DiskRead(ULONG FileId, VOID* Buffer, ULONG N, ULONG* Count)
 static ARC_STATUS DiskSeek(ULONG FileId, LARGE_INTEGER* Position, SEEKMODE SeekMode)
 {
     DISKCONTEXT* Context = FsGetDeviceSpecific(FileId);
+    LARGE_INTEGER NewPosition = *Position;
 
-    if (SeekMode != SeekAbsolute)
-        return EINVAL;
-    if (Position->QuadPart & (Context->SectorSize - 1))
+    switch (SeekMode)
+    {
+        case SeekAbsolute:
+            break;
+        case SeekRelative:
+            NewPosition.QuadPart += (Context->SectorNumber * Context->SectorSize);
+            break;
+        default:
+            ASSERT(FALSE);
+            return EINVAL;
+    }
+
+    if (NewPosition.QuadPart & (Context->SectorSize - 1))
         return EINVAL;
 
-    Context->SectorNumber = Position->QuadPart / Context->SectorSize;
+    /* Convert in number of sectors */
+    NewPosition.QuadPart /= Context->SectorSize;
+    if (NewPosition.QuadPart >= Context->SectorCount)
+        return EINVAL;
+
+    Context->SectorNumber = NewPosition.QuadPart;
     return ESUCCESS;
 }
 
-static const DEVVTBL DiskVtbl = {
+static const DEVVTBL DiskVtbl =
+{
     DiskClose,
     DiskGetFileInformation,
     DiskOpen,
@@ -423,8 +455,10 @@ SpiCreatePortConfig(
         ConfigInfo->AtdiskSecondaryClaimed = FALSE; // FIXME
 
         /* Initiator bus id is not set */
-        for (Bus = 0; Bus < 8; Bus++)
+        for (Bus = 0; Bus < RTL_NUMBER_OF(ConfigInfo->InitiatorBusId); Bus++)
+        {
             ConfigInfo->InitiatorBusId[Bus] = (CCHAR)SP_UNINITIALIZED_VALUE;
+        }
     }
 
     ConfigInfo->NumberOfPhysicalBreaks = 17;
@@ -557,11 +591,17 @@ ScsiPortGetDeviceBase(
 
     /* I/O space */
     if (AddressSpace != 0)
-        return (PVOID)TranslatedAddress.u.LowPart;
+        return (PVOID)(ULONG_PTR)TranslatedAddress.u.LowPart;
 
     // FIXME
+#if 0
+    return MmMapIoSpace(TranslatedAddress,
+                        NumberOfBytes,
+                        FALSE);
+#else
     UNIMPLEMENTED;
-    return (PVOID)IoAddress.LowPart;
+    return (PVOID)(ULONG_PTR)IoAddress.LowPart;
+#endif
 }
 
 PVOID
@@ -606,7 +646,7 @@ ScsiPortGetPhysicalAddress(
     else
     {
         /* Nothing */
-        PhysicalAddress.QuadPart = (LONGLONG)(SP_UNINITIALIZED_VALUE);
+        PhysicalAddress.QuadPart = (LONGLONG)SP_UNINITIALIZED_VALUE;
     }
 
     *Length = BufferLength;
@@ -803,22 +843,26 @@ SpiScanDevice(
     CHAR PartitionName[64];
 
     /* Register device with partition(0) suffix */
-    sprintf(PartitionName, "%spartition(0)", ArcName);
+    RtlStringCbPrintfA(PartitionName, sizeof(PartitionName), "%spartition(0)", ArcName);
     FsRegisterDevice(PartitionName, &DiskVtbl);
 
     /* Read device partition table */
     Status = ArcOpen(PartitionName, OpenReadOnly, &FileId);
     if (Status == ESUCCESS)
     {
-        ret = HALDISPATCH->HalIoReadPartitionTable((PDEVICE_OBJECT)FileId, 512, FALSE, &PartitionBuffer);
+        ret = HALDISPATCH->HalIoReadPartitionTable((PDEVICE_OBJECT)(ULONG_PTR)FileId,
+                                                   512, FALSE, &PartitionBuffer);
         if (NT_SUCCESS(ret))
         {
             for (i = 0; i < PartitionBuffer->PartitionCount; i++)
             {
                 if (PartitionBuffer->PartitionEntry[i].PartitionType != PARTITION_ENTRY_UNUSED)
                 {
-                    sprintf(PartitionName, "%spartition(%lu)",
-                            ArcName, PartitionBuffer->PartitionEntry[i].PartitionNumber);
+                    RtlStringCbPrintfA(PartitionName,
+                                       sizeof(PartitionName),
+                                       "%spartition(%lu)",
+                                       ArcName,
+                                       PartitionBuffer->PartitionEntry[i].PartitionNumber);
                     FsRegisterDevice(PartitionName, &DiskVtbl);
                 }
             }
@@ -1590,11 +1634,7 @@ extern char __ImageBase;
 ULONG
 LoadBootDeviceDriver(VOID)
 {
-    PIMAGE_NT_HEADERS NtHeaders;
-    LIST_ENTRY ModuleListHead;
-    PIMAGE_IMPORT_DESCRIPTOR ImportTable;
-    ULONG ImportTableSize;
-    PLDR_DATA_TABLE_ENTRY BootDdDTE, FreeldrDTE;
+    PLDR_DATA_TABLE_ENTRY BootDdDTE;
     CHAR NtBootDdPath[MAX_PATH];
     PVOID ImageBase = NULL;
     ULONG (NTAPI *EntryPoint)(IN PVOID DriverObject, IN PVOID RegistryPath);
@@ -1606,73 +1646,20 @@ LoadBootDeviceDriver(VOID)
     HalpInitBusHandler();
 #endif
 
-    /* Initialize the loaded module list */
-    InitializeListHead(&ModuleListHead);
-
     /* Create full ntbootdd.sys path */
-    MachDiskGetBootPath(NtBootDdPath, sizeof(NtBootDdPath));
+    strcpy(NtBootDdPath, FrLdrGetBootPath());
     strcat(NtBootDdPath, "\\NTBOOTDD.SYS");
 
-    /* Load file */
-    Success = WinLdrLoadImage(NtBootDdPath, LoaderBootDriver, &ImageBase);
+    /* Load ntbootdd.sys */
+    Success = PeLdrLoadBootImage(NtBootDdPath,
+                                 "ntbootdd.sys",
+                                 ImageBase,
+                                 &BootDdDTE);
     if (!Success)
     {
-        /* That's OK. File simply doesn't exist */
+        /* That's OK, file simply doesn't exist */
         return ESUCCESS;
     }
-
-    /* Allocate a DTE for ntbootdd */
-    Success = WinLdrAllocateDataTableEntry(&ModuleListHead, "ntbootdd.sys",
-        "NTBOOTDD.SYS", ImageBase, &BootDdDTE);
-    if (!Success)
-        return EIO;
-
-    /* Add the PE part of freeldr.sys to the list of loaded executables, it
-       contains Scsiport* exports, imported by ntbootdd.sys */
-    Success = WinLdrAllocateDataTableEntry(&ModuleListHead, "scsiport.sys",
-        "FREELDR.SYS", &__ImageBase, &FreeldrDTE);
-    if (!Success)
-    {
-        RemoveEntryList(&BootDdDTE->InLoadOrderLinks);
-        return EIO;
-    }
-
-    /* Fix imports */
-    Success = WinLdrScanImportDescriptorTable(&ModuleListHead, "", BootDdDTE);
-
-    /* Now unlinkt the DTEs, they won't be valid later */
-    RemoveEntryList(&BootDdDTE->InLoadOrderLinks);
-    RemoveEntryList(&FreeldrDTE->InLoadOrderLinks);
-
-    if (!Success)
-        return EIO;
-
-    /* Change imports to PA */
-    ImportTable = (PIMAGE_IMPORT_DESCRIPTOR)RtlImageDirectoryEntryToData(VaToPa(BootDdDTE->DllBase),
-        TRUE, IMAGE_DIRECTORY_ENTRY_IMPORT, &ImportTableSize);
-    for (;(ImportTable->Name != 0) && (ImportTable->FirstThunk != 0);ImportTable++)
-    {
-        PIMAGE_THUNK_DATA ThunkData = (PIMAGE_THUNK_DATA)VaToPa(RVA(BootDdDTE->DllBase, ImportTable->FirstThunk));
-
-        while (((PIMAGE_THUNK_DATA)ThunkData)->u1.AddressOfData != 0)
-        {
-            ThunkData->u1.Function = (ULONG)VaToPa((PVOID)ThunkData->u1.Function);
-            ThunkData++;
-        }
-    }
-
-    /* Relocate image to PA */
-    NtHeaders = RtlImageNtHeader(VaToPa(BootDdDTE->DllBase));
-    if (!NtHeaders)
-        return EIO;
-    Success = (BOOLEAN)LdrRelocateImageWithBias(VaToPa(BootDdDTE->DllBase),
-                                                NtHeaders->OptionalHeader.ImageBase - (ULONG_PTR)BootDdDTE->DllBase,
-                                                "FreeLdr",
-                                                TRUE,
-                                                TRUE, /* in case of conflict still return success */
-                                                FALSE);
-    if (!Success)
-        return EIO;
 
     /* Call the entrypoint */
     EntryPoint = VaToPa(BootDdDTE->EntryPoint);

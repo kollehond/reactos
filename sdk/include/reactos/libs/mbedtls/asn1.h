@@ -2,9 +2,33 @@
  * \file asn1.h
  *
  * \brief Generic ASN.1 parsing
+ */
+/*
+ *  Copyright The Mbed TLS Contributors
+ *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
+ *  This file is provided under the Apache License 2.0, or the
+ *  GNU General Public License v2.0 or later.
+ *
+ *  **********
+ *  Apache License 2.0:
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *  not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ *  **********
+ *
+ *  **********
+ *  GNU General Public License v2.0 or later:
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,7 +44,7 @@
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ *  **********
  */
 #ifndef MBEDTLS_ASN1_H
 #define MBEDTLS_ASN1_H
@@ -61,7 +85,7 @@
 
 /**
  * \name DER constants
- * These constants comply with DER encoded the ANS1 type tags.
+ * These constants comply with the DER encoded ASN.1 type tags.
  * DER encoding uses hexadecimal representation.
  * An example DER sequence is:\n
  * - 0x02 -- tag indicating INTEGER
@@ -89,6 +113,21 @@
 #define MBEDTLS_ASN1_PRIMITIVE               0x00
 #define MBEDTLS_ASN1_CONSTRUCTED             0x20
 #define MBEDTLS_ASN1_CONTEXT_SPECIFIC        0x80
+
+/*
+ * Bit masks for each of the components of an ASN.1 tag as specified in
+ * ITU X.690 (08/2015), section 8.1 "General rules for encoding",
+ * paragraph 8.1.2.2:
+ *
+ * Bit  8     7   6   5          1
+ *     +-------+-----+------------+
+ *     | Class | P/C | Tag number |
+ *     +-------+-----+------------+
+ */
+#define MBEDTLS_ASN1_TAG_CLASS_MASK          0xC0
+#define MBEDTLS_ASN1_TAG_PC_MASK             0x20
+#define MBEDTLS_ASN1_TAG_VALUE_MASK          0x1F
+
 /* \} name */
 /* \} addtogroup asn1_module */
 

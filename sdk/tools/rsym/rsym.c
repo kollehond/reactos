@@ -720,7 +720,8 @@ MergeStabsAndCoffs(ULONG *MergedSymbolCount, PROSSYM_ENTRY *MergedSymbols,
     ULONG StabIndex, j;
     ULONG CoffIndex;
     ULONG_PTR StabFunctionStartAddress;
-    ULONG StabFunctionStringOffset, NewStabFunctionStringOffset;
+    ULONG StabFunctionStringOffset, NewStabFunctionStringOffset, CoffFunctionStringOffset;
+    PROSSYM_ENTRY CoffFunctionSymbol;
 
     *MergedSymbolCount = 0;
     if (StabSymbolsCount == 0)
@@ -737,6 +738,8 @@ MergeStabsAndCoffs(ULONG *MergedSymbolCount, PROSSYM_ENTRY *MergedSymbols,
 
     StabFunctionStartAddress = 0;
     StabFunctionStringOffset = 0;
+    CoffFunctionStringOffset = 0;
+    CoffFunctionSymbol = NULL;
     CoffIndex = 0;
     for (StabIndex = 0; StabIndex < StabSymbolsCount; StabIndex++)
     {
@@ -761,18 +764,22 @@ MergeStabsAndCoffs(ULONG *MergedSymbolCount, PROSSYM_ENTRY *MergedSymbols,
         StabIndex = j - 1;
 
         while (CoffIndex < CoffSymbolsCount &&
-               CoffSymbols[CoffIndex + 1].Address <= (*MergedSymbols)[*MergedSymbolCount].Address)
+               CoffSymbols[CoffIndex].Address <= (*MergedSymbols)[*MergedSymbolCount].Address)
         {
+            if (CoffSymbols[CoffIndex].FunctionOffset != 0)
+            {
+                CoffFunctionSymbol = &CoffSymbols[CoffIndex];
+                CoffFunctionStringOffset = CoffFunctionSymbol->FunctionOffset;
+            }
             CoffIndex++;
         }
         NewStabFunctionStringOffset = (*MergedSymbols)[*MergedSymbolCount].FunctionOffset;
-        if (CoffSymbolsCount > 0 &&
-            CoffSymbols[CoffIndex].Address < (*MergedSymbols)[*MergedSymbolCount].Address &&
-            StabFunctionStartAddress < CoffSymbols[CoffIndex].Address &&
-            CoffSymbols[CoffIndex].FunctionOffset != 0)
+        if (CoffFunctionSymbol &&
+            CoffFunctionSymbol->Address <= (*MergedSymbols)[*MergedSymbolCount].Address &&
+            StabFunctionStartAddress < CoffFunctionSymbol->Address)
         {
-            (*MergedSymbols)[*MergedSymbolCount].FunctionOffset = CoffSymbols[CoffIndex].FunctionOffset;
-            CoffSymbols[CoffIndex].FileOffset = CoffSymbols[CoffIndex].FunctionOffset = 0;
+            (*MergedSymbols)[*MergedSymbolCount].FunctionOffset = CoffFunctionStringOffset;
+            CoffFunctionSymbol->FunctionOffset = 0;
         }
         if (StabFunctionStringOffset != NewStabFunctionStringOffset)
         {
@@ -1350,6 +1357,7 @@ int main(int argc, char* argv[])
         // SYMOPT_LOAD_ANYTHING
         // SYMOPT_LOAD_LINES
         SymSetOptions(0x10000 | 0x800000 | 0x40 | 0x10);
+        SymSetExtendedOption(SYMOPT_EX_WINE_NATIVE_MODULES, TRUE);
         SymInitialize(FileData, ".", 0);
 
         module_base = SymLoadModule(FileData, file, path1, path1, 0, FileSize) & 0xffffffff;

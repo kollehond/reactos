@@ -204,7 +204,7 @@ ClickLockProc(IN HWND hwndDlg,
             pos = (pButtonData->g_ClickLockTime - 200) / 200;
             SendMessage(hDlgCtrl, TBM_SETPOS, (WPARAM)TRUE, (LPARAM)pos);
 
-            hIcon = LoadImage(hApplet, MAKEINTRESOURCE(IDI_LOOK_KEY),
+            hIcon = LoadImage(hApplet, MAKEINTRESOURCE(IDI_LOCK_KEY),
                               IMAGE_ICON, 16, 16, 0);
             SendMessage(hwndDlg, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
             return TRUE;
@@ -382,7 +382,7 @@ ButtonProc(IN HWND hwndDlg,
                 /* Reset swap mouse button setting */
                 SystemParametersInfo(SPI_SETMOUSEBUTTONSWAP, pButtonData->g_OrigSwapMouseButtons, NULL, 0);
 
-                /* Reset double click speed setting */
+                /* Reset double-click speed setting */
                 SystemParametersInfo(SPI_SETDOUBLECLICKTIME, pButtonData->g_OrigDoubleClickSpeed, NULL, 0);
                 //SetDoubleClickTime(pButtonData->g_OrigDoubleClickSpeed);
             }
@@ -1794,6 +1794,23 @@ WheelProc(IN HWND hwndDlg,
     return FALSE;
 }
 
+static int CALLBACK
+PropSheetProc(HWND hwndDlg, UINT uMsg, LPARAM lParam)
+{
+    // NOTE: This callback is needed to set large icon correctly.
+    HICON hIcon;
+    switch (uMsg)
+    {
+        case PSCB_INITIALIZED:
+        {
+            hIcon = LoadIconW(hApplet, MAKEINTRESOURCEW(IDC_CPLICON_1));
+            SendMessageW(hwndDlg, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+            break;
+        }
+    }
+    return 0;
+}
+
 static const struct
 {
     WORD idDlg;
@@ -1814,8 +1831,8 @@ MouseApplet(HWND hwnd, UINT uMsg, LPARAM lParam1, LPARAM lParam2)
     HPROPSHEETPAGE hpsp[MAX_CPL_PAGES];
     PROPSHEETHEADER psh;
     HPSXA hpsxa;
-    TCHAR Caption[256];
     UINT i;
+    INT nPage = 0;
     LONG ret;
 
     UNREFERENCED_PARAMETER(lParam1);
@@ -1823,17 +1840,19 @@ MouseApplet(HWND hwnd, UINT uMsg, LPARAM lParam1, LPARAM lParam2)
     UNREFERENCED_PARAMETER(uMsg);
     UNREFERENCED_PARAMETER(hwnd);
 
-    LoadString(hApplet, IDS_CPLNAME_1, Caption, sizeof(Caption) / sizeof(TCHAR));
+    if (uMsg == CPL_STARTWPARMSW && lParam2 != 0)
+        nPage = _wtoi((PWSTR)lParam2);
 
     ZeroMemory(&psh, sizeof(PROPSHEETHEADER));
     psh.dwSize = sizeof(PROPSHEETHEADER);
-    psh.dwFlags = PSH_PROPTITLE;
+    psh.dwFlags = PSH_PROPTITLE | PSH_USEICONID | PSH_USECALLBACK;
     psh.hwndParent = hwnd;
     psh.hInstance = hApplet;
-    psh.hIcon = LoadIcon(hApplet, MAKEINTRESOURCE(IDC_CPLICON_1));
-    psh.pszCaption = Caption;
+    psh.pszIcon = MAKEINTRESOURCEW(IDC_CPLICON_1);
+    psh.pszCaption = MAKEINTRESOURCEW(IDS_CPLNAME_1);
     psh.nStartPage = 0;
     psh.phpage = hpsp;
+    psh.pfnCallback = PropSheetProc;
 
     /* Load additional pages provided by shell extensions */
     hpsxa = SHCreatePropSheetExtArray(HKEY_LOCAL_MACHINE, REGSTR_PATH_CONTROLSFOLDER TEXT("\\Mouse"), MAX_CPL_PAGES - psh.nPages);
@@ -1854,6 +1873,9 @@ MouseApplet(HWND hwnd, UINT uMsg, LPARAM lParam1, LPARAM lParam2)
 
     if (hpsxa != NULL)
         SHAddFromPropSheetExtArray(hpsxa, PropSheetAddPage, (LPARAM)&psh);
+
+    if (nPage != 0 && nPage <= psh.nPages)
+        psh.nStartPage = nPage;
 
     ret = (LONG)(PropertySheet(&psh) != -1);
 

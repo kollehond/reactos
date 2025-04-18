@@ -18,8 +18,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "cryptuires.h"
-
 LANGUAGE LANG_POLISH, SUBLANG_DEFAULT
 
 STRINGTABLE
@@ -171,6 +169,11 @@ STRINGTABLE
     IDS_EXPORT_PASSWORD_MISMATCH "Niezgodność haseł."
     IDS_EXPORT_PRIVATE_KEY_UNAVAILABLE "Uwaga: Nie można otworzyć klucza prywatnego dla tego certyfikatu."
     IDS_EXPORT_PRIVATE_KEY_NON_EXPORTABLE "Uwaga: Klucz prywatny dla tego certyfikatu jest oznaczony jako nie do eksportu."
+    IDS_INTENDED_USE_COLUMN "Przeznaczenie"
+    IDS_LOCATION_COLUMN "Lokalizacja"
+    IDS_SELECT_CERT_TITLE "Wybierz certyfikat"
+    IDS_SELECT_CERT "Wybierz certyfikat, którego chcesz użyć"
+    IDS_NO_IMPL "Jeszcze nie zaimplementowane"
 }
 
 IDD_GENERAL DIALOGEX 0, 0, 255, 236
@@ -281,9 +284,7 @@ STYLE DS_SHELLFONT | WS_VISIBLE | DS_MODALFRAME
 FONT 8, "MS Shell Dlg"
 BEGIN
   LTEXT "Witamy w kreatorze importu certyfikatów", IDC_IMPORT_TITLE, 115,7,195,30
-  LTEXT "Asystent ten pomaga tobie importować certyfikaty, listy odwołania certyfikatów, i listy zaufania certyfikatów z pliku do magazynu certyfikatów.\n\n\
-Certyfikat może zostać użyty do identyfikacji ciebie lub komputer, z którym się komunikujesz. Może on również zostać wykorzystany do uwierzytelnienia i do podpisywania wiadomości. Magazyny certyfikatów są zbiorem certyfikatów, list odwołań certyfikatów oraz list zaufań certyfikatów.\n\n\
-Aby kontynuować, naciśnij Dalej.",
+  LTEXT "Ten kreator pomaga importować certyfikaty, listy odwołanych certyfikatów i listy zaufanych certyfikatów z pliku do magazynu certyfikatów.\n\nKomputery mogą używać certyfikatów do identyfikacji i podpisywania.",
     -1, 115,40,195,120
 END
 
@@ -377,9 +378,7 @@ STYLE DS_SHELLFONT | WS_VISIBLE | DS_MODALFRAME
 FONT 8, "MS Shell Dlg"
 BEGIN
   LTEXT "Witamy w kreatorze eksportu certyfikatów", IDC_EXPORT_TITLE, 115,7,195,30
-  LTEXT "Asystent ten pomaga tobie eksportować certyfikaty, listy odwołania certyfikatów, i listy zaufania certyfikatów z magazynu certyfikatów do pliku.\n\n\
-Certyfikat może zostać użyty do identyfikacji ciebie lub komputer, z którym się komunikujesz. Może on również zostać wykorzystany do uwierzytelnienia i do podpisywania wiadomości. Magazyny certyfikatów są zbiorem certyfikatów, list odwołań certyfikatów oraz list zaufań certyfikatów.\n\n\
-Aby kontynuować, naciśnij Dalej.",
+  LTEXT "Ten kreator pomaga eksportować certyfikaty, listy odwołanych certyfikatów i listy zaufanych certyfikatów z pliku do magazynu certyfikatów.\n\nKomputery mogą używać certyfikatów do identyfikacji i podpisywania.",
     -1, 115,40,195,120
 END
 
@@ -456,4 +455,16 @@ BEGIN
   CONTROL "", IDC_EXPORT_SETTINGS, "SysListView32",
     LVS_REPORT|LVS_NOCOLUMNHEADER|LVS_SINGLESEL|WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_BORDER,
     115,67,174,100
+END
+
+IDD_SELECT_CERT DIALOG 0,0,278,157
+CAPTION "Wybierz certyfikat"
+FONT 8, "MS Shell Dlg"
+BEGIN
+  LTEXT "Wybierz certyfikat, którego chcesz użyć", IDC_SELECT_DISPLAY_STRING, 7,7,264,26
+  CONTROL "", IDC_SELECT_CERTS, "SysListView32",
+    LVS_REPORT|LVS_SINGLESEL|WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_BORDER, 7,40,264,89
+  PUSHBUTTON "OK", IDOK, 91,136,51,14, BS_DEFPUSHBUTTON
+  PUSHBUTTON "Anuluj", IDCANCEL, 149,136,51,14
+  PUSHBUTTON "&Wyświetl certyfikat", IDC_SELECT_VIEW_CERT, 207,136,65,14, WS_DISABLED
 END

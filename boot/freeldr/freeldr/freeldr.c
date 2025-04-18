@@ -20,25 +20,90 @@
 /* INCLUDES *******************************************************************/
 
 #include <freeldr.h>
-#include <debug.h>
 
+#include <debug.h>
 DBG_DEFAULT_CHANNEL(WARNING);
+
+/* GLOBALS ********************************************************************/
+
+CCHAR FrLdrBootPath[MAX_PATH] = "";
 
 /* FUNCTIONS ******************************************************************/
 
+static
+BOOLEAN
+LoadRosload(
+    _In_ PCSTR RosloadPath,
+    _Out_ PVOID* ImageBase,
+    _Out_ PLDR_DATA_TABLE_ENTRY* DataTableEntry)
+{
+    CHAR FullPath[MAX_PATH];
+    BOOLEAN Success;
+
+    /* Create full rosload.exe path */
+    RtlStringCbPrintfA(FullPath,
+                       sizeof(FullPath),
+                       "%s\\%s",
+                       FrLdrBootPath,
+                       RosloadPath);
+
+    TRACE("Loading second stage loader '%s'\n", FullPath);
+
+    /* Load rosload.exe as a bootloader image. The base name is "scsiport.sys",
+       because it exports ScsiPort* functions for ntbootdd.sys */
+    Success = PeLdrLoadBootImage(FullPath,
+                                 "scsiport.sys",
+                                 ImageBase,
+                                 DataTableEntry);
+    if (!Success)
+    {
+        WARN("Failed to load second stage loader '%s'\n", FullPath);
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+static
+ULONG
+LaunchSecondStageLoader(VOID)
+{
+    PLDR_DATA_TABLE_ENTRY RosloadDTE;
+    PVOID ImageBase;
+    LONG (*EntryPoint)(VOID);
+
+    /* Load the second stage loader */
+    if (!LoadRosload("rosload.exe", &ImageBase, &RosloadDTE))
+    {
+        /* Try in loader directory */
+        if (!LoadRosload("loader\\rosload.exe", &ImageBase, &RosloadDTE))
+        {
+            return ENOENT;
+        }
+    }
+
+    /* Call the entrypoint */
+    printf("Launching rosload.exe...\n");
+    EntryPoint = VaToPa(RosloadDTE->EntryPoint);
+    return (*EntryPoint)();
+}
+
 VOID __cdecl BootMain(IN PCCH CmdLine)
 {
-    CmdLineParse(CmdLine);
+    /* Load the default settings from the command-line */
+    LoadSettings(CmdLine);
 
     /* Debugger pre-initialization */
-    DebugInit(FALSE);
-
-    TRACE("BootMain() called.\n");
+    DebugInit(BootMgrInfo.DebugString);
 
     MachInit(CmdLine);
 
+    TRACE("BootMain() called.\n");
+
+#ifndef UEFIBOOT
     /* Check if the CPU is new enough */
     FrLdrCheckCpuCompatibility(); // FIXME: Should be done inside MachInit!
+#endif
 
     /* UI pre-initialization */
     if (!UiInitialize(FALSE))
@@ -57,13 +122,27 @@ VOID __cdecl BootMain(IN PCCH CmdLine)
     /* Initialize I/O subsystem */
     FsInit();
 
-    RunLoader();
+    /* Initialize the module list */
+    if (!PeLdrInitializeModuleList())
+    {
+        UiMessageBoxCritical("Unable to initialize module list.");
+        goto Quit;
+    }
+
+    if (!MachInitializeBootDevices())
+    {
+        UiMessageBoxCritical("Error when detecting hardware.");
+        goto Quit;
+    }
+
+    /* Launch second stage loader */
+    if (LaunchSecondStageLoader() != ESUCCESS)
+    {
+        UiMessageBoxCritical("Unable to load second stage loader.");
+    }
 
 Quit:
     /* If we reach this point, something went wrong before, therefore reboot */
-#if defined(__i386__) || defined(_M_AMD64)
-    DiskStopFloppyMotor();
-#endif
     Reboot();
 }
 
@@ -86,4 +165,45 @@ int __cdecl mbtowc(wchar_t *wchar, const char *mbchar, size_t count)
 int __cdecl iswctype(wint_t wc, wctype_t wctypeFlags)
 {
     return _isctype((char)wc, wctypeFlags);
+}
+
+#ifdef _MSC_VER
+#pragma warning(disable:4164)
+#pragma function(pow)
+#pragma function(log)
+#pragma function(log10)
+#endif
+
+// Stubs to avoid pulling in data from CRT
+double pow(double x, double y)
+{
+    __debugbreak();
+    return 0.0;
+}
+
+double log(double x)
+{
+    __debugbreak();
+    return 0.0;
+}
+
+double log10(double x)
+{
+    __debugbreak();
+    return 0.0;
+}
+
+PCCHAR FrLdrGetBootPath(VOID)
+{
+    return FrLdrBootPath;
+}
+
+UCHAR FrldrGetBootDrive(VOID)
+{
+    return FrldrBootDrive;
+}
+
+ULONG FrldrGetBootPartition(VOID)
+{
+    return FrldrBootPartition;
 }

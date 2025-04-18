@@ -1,34 +1,71 @@
 /*
  * PROJECT:         ReactOS On-Screen Keyboard
  * LICENSE:         GPL - See COPYING in the top level directory
- * FILE:            base/applications/osk/osk_res.h
- * PURPOSE:         On screen keyboard.
- * PROGRAMMERS:     Denis ROBERT
+ * PURPOSE:         On-Screen Keyboard resource identifiers
+ * COPYRIGHT:       Denis ROBERT
  */
 
-#define MAIN_DIALOG             2000
+#define IDI_SOUNDCLICK                      50
 
-#define IDC_LED_NUM             100
-#define IDC_LED_CAPS            101
-#define IDC_LED_SCROLL          102
+#define IDC_LED_NUM                         100
+#define IDC_LED_CAPS                        101
+#define IDC_LED_SCROLL                      102
+#define IDC_SHOWWARNINGCHECK                103
 
-#define IDI_OSK                 200
-#define IDI_BACK                201
-#define IDI_TAB                 202
-#define IDI_CAPS_LOCK           203
-#define IDI_RETURN              204
-#define IDI_SHIFT               205
-#define IDI_REACTOS             206
-#define IDI_MENU                207
-#define IDI_HOME                208
-#define IDI_PG_UP               209
-#define IDI_PG_DOWN             210
-#define IDI_LEFT                211
-#define IDI_TOP                 212
-#define IDI_RIGHT               213
-#define IDI_BOTTOM              214
+#define IDI_OSK                             200
+#define IDI_BACK                            201
+#define IDI_TAB                             202
+#define IDI_CAPS_LOCK                       203
+#define IDI_RETURN                          204
+#define IDI_SHIFT                           205
+#define IDI_REACTOS                         206
+#define IDI_MENU                            207
+#define IDI_HOME                            208
+#define IDI_PG_UP                           209
+#define IDI_PG_DOWN                         210
+#define IDI_LEFT                            211
+#define IDI_TOP                             212
+#define IDI_RIGHT                           213
+#define IDI_BOTTOM                          214
 
-#define IDC_STATIC              -1
+#define IDR_OSK_MENU                        600
+#define IDM_EXIT                            601
+#define IDM_STANDARD_KB                     602
+#define IDM_ENHANCED_KB                     603
+#define IDM_REG_LAYOUT                      604
+#define IDM_BLOCK_LAYOUT                    605
+#define IDM_101_KEYS                        606
+#define IDM_102_KEYS                        607
+#define IDM_106_KEYS                        608
+#define IDM_ON_TOP                          609
+#define IDM_CLICK_SOUND                     610
+#define IDM_TYPE_MODE                       611
+#define IDM_FONT                            612
+#define IDM_HELP_TOPICS                     613
+#define IDM_ABOUT                           614
+
+#define IDD_WARNINGDIALOG_OSK               215
+
+#define IDS_OSK                             500
+#define IDS_AUTHORS                         501
+
+#define IDS_NUMLOCK                         502
+#define IDS_CAPSLOCK                        503
+#define IDS_SCROLLLOCK                      504
+
+#define IDS_ESCAPE                          505
+#define IDS_PRN                             506
+#define IDS_STOP                            507 /* SCROLL LOCK */
+#define IDS_ATTN                            508 /* PAUSE KEY */
+#define IDS_INSERT                          509
+#define IDS_NUMLOCKKEY                      510
+#define IDS_DELETE                          511
+#define IDS_END                             512
+#define IDS_CTRL                            513
+#define IDS_LEFTALT                         514
+#define IDS_RIGHTALT                        515
+
+#define IDC_STATIC                          -1
 
 
 /* Scan codes by key number */

@@ -18,8 +18,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "cryptuires.h"
-
 LANGUAGE LANG_NORWEGIAN, SUBLANG_DEFAULT
 
 STRINGTABLE
@@ -171,6 +169,11 @@ STRINGTABLE
     IDS_EXPORT_PASSWORD_MISMATCH "Passordene er ikke like."
     IDS_EXPORT_PRIVATE_KEY_UNAVAILABLE "Merk: Klarte ikke åpne den private nøkkelen for dette sertifikatet."
     IDS_EXPORT_PRIVATE_KEY_NON_EXPORTABLE "Merk: Den private nøkkelen for dette sertifikatet kan ikke eksporteres."
+    IDS_INTENDED_USE_COLUMN "Intended Use"
+    IDS_LOCATION_COLUMN "Location"
+    IDS_SELECT_CERT_TITLE "Select Certificate"
+    IDS_SELECT_CERT "Select a certificate"
+    IDS_NO_IMPL "Not yet implemented"
 }
 
 IDD_GENERAL DIALOGEX 0, 0, 255, 236
@@ -281,7 +284,7 @@ STYLE DS_SHELLFONT | WS_VISIBLE | DS_MODALFRAME
 FONT 8, "MS Shell Dlg"
 BEGIN
   LTEXT "Velkommen til veiviseren for import av sertifikater", IDC_IMPORT_TITLE, 115,7,195,30
-  LTEXT "Et sertifikat kan brukes til å identifisere deg eller datamaskinen du kommuniserer med. Det kan også brukes til signering av meldinger eller andre former for godkjenning. Sertifikatlagre er samlinger av sertifikater og lister over tiltrodde eller tilbakekalte sertifikater.",
+  LTEXT "Denne veiviseren hjelper deg med å importere sertifikater, sertifikatopphevelseslister og sertifikatklareringslister fra en fil til et sertifikatlager.\n\nDatamaskiner kan bruke sertifikater for identifikasjon og signering.",
     -1, 115,40,195,120
 END
 
@@ -375,7 +378,7 @@ STYLE DS_SHELLFONT | WS_VISIBLE | DS_MODALFRAME
 FONT 8, "MS Shell Dlg"
 BEGIN
   LTEXT "Velkommen til veiviseren for eksport av sertifikater", IDC_EXPORT_TITLE, 115,7,195,30
-  LTEXT "Et sertifikat kan brukes til å identifisere deg eller datamaskinen du kommuniserer med. Det kan også brukes til signering av meldinger eller andre former for godkjenning. Sertifikatlagre er samlinger av sertifikater og lister over tiltrodde eller tilbakekalte sertifikater.",
+  LTEXT "Denne veiviseren hjelper deg med å eksportere sertifikater, sertifikatopphevelseslister og sertifikatklareringslister fra en fil til et sertifikatlager.\n\nDatamaskiner kan bruke sertifikater for identifikasjon og signering.",
     -1, 115,40,195,120
 END
 
@@ -452,4 +455,16 @@ BEGIN
   CONTROL "", IDC_EXPORT_SETTINGS, "SysListView32",
     LVS_REPORT|LVS_NOCOLUMNHEADER|LVS_SINGLESEL|WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_BORDER,
     115,67,174,100
+END
+
+IDD_SELECT_CERT DIALOG 0,0,278,157
+CAPTION "Select Certificate"
+FONT 8, "MS Shell Dlg"
+BEGIN
+  LTEXT "Select a certificate you want to use", IDC_SELECT_DISPLAY_STRING, 7,7,264,26
+  CONTROL "", IDC_SELECT_CERTS, "SysListView32",
+    LVS_REPORT|LVS_SINGLESEL|WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_BORDER, 7,40,264,89
+  PUSHBUTTON "OK", IDOK, 91,136,51,14, BS_DEFPUSHBUTTON
+  PUSHBUTTON "Cancel", IDCANCEL, 149,136,51,14
+  PUSHBUTTON "&View Certificate", IDC_SELECT_VIEW_CERT, 207,136,65,14, WS_DISABLED
 END

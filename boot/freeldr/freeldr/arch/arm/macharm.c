@@ -18,7 +18,9 @@ ULONG gDiskReadBuffer, gFileSysBuffer;
 BOOLEAN ArmHwDetectRan;
 PCONFIGURATION_COMPONENT_DATA RootNode;
 
+#ifndef UEFIBOOT
 BOOLEAN AcpiPresent = FALSE;
+#endif
 
 ULONG FirstLevelDcacheSize;
 ULONG FirstLevelDcacheFillSize;
@@ -30,7 +32,6 @@ ULONG SecondLevelIcacheSize;
 ULONG SecondLevelIcacheFillSize;
 
 extern ULONG reactos_disk_count;
-extern ARC_DISK_SIGNATURE_EX reactos_arc_disk_info[];
 
 ULONG SizeBits[] =
 {
@@ -60,10 +61,6 @@ ULONG LenBits[] =
 
 /* FUNCTIONS ******************************************************************/
 
-VOID DiskStopFloppyMotor(VOID)
-{
-}
-
 VOID
 FrLdrCheckCpuCompatibility(VOID)
 {
@@ -91,32 +88,20 @@ ArmInit(IN PARM_BOARD_CONFIGURATION_BLOCK BootContext)
 }
 
 VOID
-ArmPrepareForReactOS(IN BOOLEAN Setup)
+ArmPrepareForReactOS(VOID)
 {
     return;
 }
 
-BOOLEAN
-ArmDiskGetBootPath(OUT PCHAR BootPath, IN ULONG Size)
-{
-    PCCH Path = "ramdisk(0)";
-
-    /* Make sure enough space exists */
-    if (Size < sizeof(Path)) return FALSE;
-
-    /* On ARM platforms, the loader is always in RAM */
-    strcpy(BootPath, Path);
-    return TRUE;
-}
-
 PCONFIGURATION_COMPONENT_DATA
-ArmHwDetect(VOID)
+ArmHwDetect(
+    _In_opt_ PCSTR Options)
 {
     ARM_CACHE_REGISTER CacheReg;
 
     /* Create the root node */
     if (ArmHwDetectRan++) return RootNode;
-    FldrCreateSystemKey(&RootNode);
+    FldrCreateSystemKey(&RootNode, "");
 
     /*
      * TODO:
@@ -138,16 +123,11 @@ ArmHwDetect(VOID)
     SecondLevelIcacheSize =
     SecondLevelIcacheFillSize = 0;
 
-    /* Register RAMDISK Device */
-    RamDiskInitialize();
+    /* Initialize the RAMDISK Device */
+    RamDiskInitialize(TRUE, NULL, NULL);
 
     /* Fill out the ARC disk block */
-    reactos_arc_disk_info[reactos_disk_count].DiskSignature.Signature = 0xBADAB00F;
-    reactos_arc_disk_info[reactos_disk_count].DiskSignature.CheckSum = 0xDEADBABE;
-    strcpy(reactos_arc_disk_info[reactos_disk_count].ArcName, "ramdisk(0)");
-    reactos_arc_disk_info[reactos_disk_count].DiskSignature.ArcName =
-        reactos_arc_disk_info[reactos_disk_count].ArcName;
-    reactos_disk_count++;
+    AddReactOSArcDiskInfo("ramdisk(0)", 0xBADAB00F, 0xDEADBABE, TRUE);
     ASSERT(reactos_disk_count == 1);
 
     /* Return the root node */
@@ -158,7 +138,12 @@ BOOLEAN
 ArmInitializeBootDevices(VOID)
 {
     /* Emulate old behavior */
-    return (ArmHwDetect() != NULL);
+    if (ArmHwDetect(NULL) == NULL)
+        return FALSE;
+
+    /* On ARM platforms, the loader is always in RAM */
+    strcpy(FrLdrBootPath, "ramdisk(0)");
+    return TRUE;
 }
 
 FREELDR_MEMORY_DESCRIPTOR ArmMemoryMap[32];
@@ -192,6 +177,7 @@ ArmHwIdle(VOID)
     /* UNIMPLEMENTED */
 }
 
+#ifndef UEFIBOOT
 VOID
 MachInit(IN PCCH CommandLine)
 {
@@ -245,6 +231,6 @@ MachInit(IN PCCH CommandLine)
     MachVtbl.GetMemoryMap = ArmMemGetMemoryMap;
     MachVtbl.InitializeBootDevices = ArmInitializeBootDevices;
     MachVtbl.HwDetect = ArmHwDetect;
-    MachVtbl.DiskGetBootPath = ArmDiskGetBootPath;
     MachVtbl.HwIdle = ArmHwIdle;
 }
+#endif

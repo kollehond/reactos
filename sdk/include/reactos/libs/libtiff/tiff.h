@@ -1,26 +1,24 @@
-/* $Id: tiff.h,v 1.70 2016-01-23 21:20:34 erouault Exp $ */
-
 /*
  * Copyright (c) 1988-1997 Sam Leffler
  * Copyright (c) 1991-1997 Silicon Graphics, Inc.
  *
- * Permission to use, copy, modify, distribute, and sell this software and 
+ * Permission to use, copy, modify, distribute, and sell this software and
  * its documentation for any purpose is hereby granted without fee, provided
  * that (i) the above copyright notices and this permission notice appear in
  * all copies of the software and related documentation, and (ii) the names of
  * Sam Leffler and Silicon Graphics may not be used in any advertising or
  * publicity relating to the software without the specific, prior written
  * permission of Sam Leffler and Silicon Graphics.
- * 
- * THE SOFTWARE IS PROVIDED "AS-IS" AND WITHOUT WARRANTY OF ANY KIND, 
- * EXPRESS, IMPLIED OR OTHERWISE, INCLUDING WITHOUT LIMITATION, ANY 
- * WARRANTY OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.  
- * 
+ *
+ * THE SOFTWARE IS PROVIDED "AS-IS" AND WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS, IMPLIED OR OTHERWISE, INCLUDING WITHOUT LIMITATION, ANY
+ * WARRANTY OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+ *
  * IN NO EVENT SHALL SAM LEFFLER OR SILICON GRAPHICS BE LIABLE FOR
  * ANY SPECIAL, INCIDENTAL, INDIRECT OR CONSEQUENTIAL DAMAGES OF ANY KIND,
  * OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
- * WHETHER OR NOT ADVISED OF THE POSSIBILITY OF DAMAGE, AND ON ANY THEORY OF 
- * LIABILITY, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE 
+ * WHETHER OR NOT ADVISED OF THE POSSIBILITY OF DAMAGE, AND ON ANY THEORY OF
+ * LIABILITY, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
  * OF THIS SOFTWARE.
  */
 
@@ -189,7 +187,11 @@ typedef enum {
 #define     COMPRESSION_SGILOG		34676	/* SGI Log Luminance RLE */
 #define     COMPRESSION_SGILOG24	34677	/* SGI Log 24-bit packed */
 #define     COMPRESSION_JP2000          34712   /* Leadtools JPEG2000 */
+#define     COMPRESSION_LERC            34887   /* ESRI Lerc codec: https://github.com/Esri/lerc */
+/* compression codes 34887-34889 are reserved for ESRI */
 #define	    COMPRESSION_LZMA		34925	/* LZMA2 */
+#define	    COMPRESSION_ZSTD		50000	/* ZSTD: WARNING not registered in Adobe-maintained registry */
+#define	    COMPRESSION_WEBP		50001	/* WEBP: WARNING not registered in Adobe-maintained registry */
 #define	TIFFTAG_PHOTOMETRIC		262	/* photometric interpretation */
 #define	    PHOTOMETRIC_MINISWHITE	0	/* min value is white */
 #define	    PHOTOMETRIC_MINISBLACK	1	/* min value is black */
@@ -386,7 +388,7 @@ typedef enum {
 /* tags 33300-33309 are private tags registered to Pixar */
 /*
  * TIFFTAG_PIXAR_IMAGEFULLWIDTH and TIFFTAG_PIXAR_IMAGEFULLLENGTH
- * are set when an image has been cropped out of a larger image.  
+ * are set when an image has been cropped out of a larger image.
  * They reflect the size of the original uncropped image.
  * The TIFFTAG_XPOSITION and TIFFTAG_YPOSITION can be used
  * to determine the position of the smaller image in the larger one.
@@ -431,7 +433,7 @@ typedef enum {
 /* tags 34232-34236 are private tags registered to Texas Instruments */
 #define TIFFTAG_FRAMECOUNT              34232   /* Sequence Frame Count */
 /* tag 34377 is private tag registered to Adobe for PhotoShop */
-#define TIFFTAG_PHOTOSHOP		34377 
+#define TIFFTAG_PHOTOSHOP		34377
 /* tags 34665, 34853 and 40965 are documented in EXIF specification */
 #define TIFFTAG_EXIFIFD			34665	/* Pointer to EXIF private directory */
 /* tag 34750 is a private tag registered to Adobe? */
@@ -450,6 +452,8 @@ typedef enum {
 /* tag 34929 is a private tag registered to FedEx */
 #define	TIFFTAG_FEDEX_EDR		34929	/* unknown use */
 #define TIFFTAG_INTEROPERABILITYIFD	40965	/* Pointer to Interoperability private directory */
+/* tags 50674 to 50677 are reserved for ESRI */
+#define TIFFTAG_LERC_PARAMETERS         50674   /* Stores LERC version and additional compression method */
 /* Adobe Digital Negative (DNG) format tags */
 #define TIFFTAG_DNGVERSION		50706	/* &DNG version number */
 #define TIFFTAG_DNGBACKWARDVERSION	50707	/* &DNG compatibility version */
@@ -472,7 +476,7 @@ typedef enum {
 #define TIFFTAG_DEFAULTSCALE		50718	/* &default scale factors */
 #define TIFFTAG_DEFAULTCROPORIGIN	50719	/* &origin of the final image
 						   area */
-#define TIFFTAG_DEFAULTCROPSIZE		50720	/* &size of the final image 
+#define TIFFTAG_DEFAULTCROPSIZE		50720	/* &size of the final image
 						   area */
 #define TIFFTAG_COLORMATRIX1		50721	/* &XYZ->reference color space
 						   transformation matrix 1 */
@@ -603,6 +607,16 @@ typedef enum {
 #define TIFFTAG_PERSAMPLE       65563	/* interface for per sample tags */
 #define     PERSAMPLE_MERGED        0	/* present as a single value */
 #define     PERSAMPLE_MULTI         1	/* present as multiple values */
+#define TIFFTAG_ZSTD_LEVEL      65564    /* ZSTD compression level */
+#define TIFFTAG_LERC_VERSION            65565 /* LERC version */
+#define     LERC_VERSION_2_4            4
+#define TIFFTAG_LERC_ADD_COMPRESSION    65566 /* LERC additional compression */
+#define     LERC_ADD_COMPRESSION_NONE    0
+#define     LERC_ADD_COMPRESSION_DEFLATE 1
+#define     LERC_ADD_COMPRESSION_ZSTD    2
+#define TIFFTAG_LERC_MAXZERROR          65567    /* LERC maximum error */
+#define TIFFTAG_WEBP_LEVEL		  65568	/* WebP compression level: WARNING not registered in Adobe-maintained registry */
+#define TIFFTAG_WEBP_LOSSLESS		65569	/* WebP lossless/lossy : WARNING not registered in Adobe-maintained registry */
 
 /*
  * EXIF tags

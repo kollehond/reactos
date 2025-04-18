@@ -134,8 +134,8 @@ static void delnode_test(void)
 
     /* Native DelNode apparently does not support relative paths, so we use
        absolute paths for testing */
-    currDirLen = GetCurrentDirectoryA(sizeof(currDir) / sizeof(CHAR), currDir);
-    assert(currDirLen > 0 && currDirLen < sizeof(currDir) / sizeof(CHAR));
+    currDirLen = GetCurrentDirectoryA(ARRAY_SIZE(currDir), currDir);
+    assert(currDirLen > 0 && currDirLen < ARRAY_SIZE(currDir));
 
     if(currDir[currDirLen - 1] == '\\')
         currDir[--currDirLen] = 0;
@@ -189,14 +189,14 @@ static void delnode_test(void)
     ok (hr == S_OK, "DelNode failed deleting a directory containing multiple files\n");
 }
 
-static void append_str(char **str, const char *data, ...)
+static void WINAPIV append_str(char **str, const char *data, ...)
 {
-    va_list valist;
+    __ms_va_list valist;
 
-    va_start(valist, data);
+    __ms_va_start(valist, data);
     vsprintf(*str, data, valist);
     *str += strlen(*str);
-    va_end(valist);
+    __ms_va_end(valist);
 }
 
 static void create_inf_file(void)

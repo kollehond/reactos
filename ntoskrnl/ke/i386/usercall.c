@@ -51,7 +51,7 @@ KiInitializeUserApc(IN PKEXCEPTION_FRAME ExceptionFrame,
                     IN PVOID SystemArgument1,
                     IN PVOID SystemArgument2)
 {
-    CONTEXT Context;
+    CONTEXT Context = { 0 };
     ULONG_PTR Stack, AlignedEsp;
     ULONG ContextLength;
     EXCEPTION_RECORD SehExceptRecord;
@@ -282,7 +282,15 @@ KiUserModeCallout(PKCALLOUT_FRAME CalloutFrame)
         Status = MmGrowKernelStack((PVOID)InitialStack);
 
         /* Quit if we failed */
-        if (!NT_SUCCESS(Status)) return Status;
+        if (!NT_SUCCESS(Status))
+        {
+            if (Status == STATUS_STACK_OVERFLOW)
+            {
+                DPRINT1("Thread wants too much stack\n");
+            }
+
+            return Status;
+        }
     }
 
     /* Save the current callback stack and initial stack */

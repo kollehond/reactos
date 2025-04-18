@@ -28,8 +28,6 @@
  *   NT-based native rpcrt4's.  Commonly-used transport for self-to-self RPC's.
  */
 
-#include "config.h"
-
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,7 +44,6 @@
 #include "ntsecapi.h"
 #include "iptypes.h"
 #include "iphlpapi.h"
-#include "wine/unicode.h"
 #include "rpc.h"
 
 #include "ole2.h"
@@ -161,6 +158,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 RPC_STATUS WINAPI RpcStringFreeA(RPC_CSTR* String)
 {
   HeapFree( GetProcessHeap(), 0, *String);
+  if (String) *String = NULL;
 
   return RPC_S_OK;
 }
@@ -177,6 +175,7 @@ RPC_STATUS WINAPI RpcStringFreeA(RPC_CSTR* String)
 RPC_STATUS WINAPI RpcStringFreeW(RPC_WSTR* String)
 {
   HeapFree( GetProcessHeap(), 0, *String);
+  if (String) *String = NULL;
 
   return RPC_S_OK;
 }
@@ -618,7 +617,7 @@ RPC_STATUS WINAPI UuidFromStringW(RPC_WSTR s, UUID *uuid)
 
     if (!s) return UuidCreateNil( uuid );
 
-    if (strlenW(s) != 36) return RPC_S_INVALID_STRING_UUID;
+    if (lstrlenW(s) != 36) return RPC_S_INVALID_STRING_UUID;
 
     if ((s[8]!='-') || (s[13]!='-') || (s[18]!='-') || (s[23]!='-'))
         return RPC_S_INVALID_STRING_UUID;
@@ -854,9 +853,10 @@ LONG WINAPI I_RpcMapWin32Status(RPC_STATUS status)
 }
 
 /******************************************************************************
+ * RpcExceptionFilter     (rpcrt4.@)
  * I_RpcExceptionFilter   (rpcrt4.@)
  */
-int WINAPI I_RpcExceptionFilter(ULONG ExceptionCode)
+int WINAPI RpcExceptionFilter(ULONG ExceptionCode)
 {
     TRACE("0x%x\n", ExceptionCode);
     switch (ExceptionCode)

@@ -1,6 +1,7 @@
 
 list(APPEND SOURCE
     capture.c
+    generated.c
     joystick.c
     mci.c
     mcicda.c
@@ -13,8 +14,8 @@ list(APPEND SOURCE
 
 add_executable(winmm_winetest ${SOURCE})
 
-if(USE_CLANG_CL OR (NOT MSVC))
-    add_target_compile_flags(winmm_winetest "-Wno-format")
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(winmm_winetest PRIVATE "-Wno-format")
 endif()
 
 target_link_libraries(winmm_winetest dxguid)

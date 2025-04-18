@@ -15,24 +15,15 @@
 extern EX_WORK_QUEUE ExWorkerQueue[MaximumWorkQueue];
 extern LIST_ENTRY PspReaperListHead;
 
-ULONG KiMask32Array[MAXIMUM_PRIORITY] =
-{
-    0x1,        0x2,       0x4,       0x8,       0x10,       0x20,
-    0x40,       0x80,      0x100,     0x200,     0x400,      0x800,
-    0x1000,     0x2000,    0x4000,    0x8000,    0x10000,    0x20000,
-    0x40000,    0x80000,   0x100000,  0x200000,  0x400000,   0x800000,
-    0x1000000,  0x2000000, 0x4000000, 0x8000000, 0x10000000, 0x20000000,
-    0x40000000, 0x80000000
-};
-
 /* FUNCTIONS *****************************************************************/
 
 UCHAR
 NTAPI
 KeFindNextRightSetAffinity(IN UCHAR Number,
-                           IN ULONG Set)
+                           IN KAFFINITY Set)
 {
-    ULONG Bit, Result;
+    KAFFINITY Bit;
+    ULONG Result;
     ASSERT(Set != 0);
 
     /* Calculate the mask */
@@ -42,7 +33,7 @@ KeFindNextRightSetAffinity(IN UCHAR Number,
     if (!Bit) Bit = Set;
 
     /* Now find the right set and return it */
-    BitScanReverse(&Result, Bit);
+    BitScanReverseAffinity(&Result, Bit);
     return (UCHAR)Result;
 }
 
@@ -138,8 +129,8 @@ KeAlertResumeThread(IN PKTHREAD Thread)
     ASSERT_IRQL_LESS_OR_EQUAL(DISPATCH_LEVEL);
 
     /* Lock the Dispatcher Database and the APC Queue */
-    KiAcquireApcLock(Thread, &ApcLock);
-    KiAcquireDispatcherLockAtDpcLevel();
+    KiAcquireApcLockRaiseToSynch(Thread, &ApcLock);
+    KiAcquireDispatcherLockAtSynchLevel();
 
     /* Return if Thread is already alerted. */
     if (!Thread->Alerted[KernelMode])
@@ -174,8 +165,8 @@ KeAlertResumeThread(IN PKTHREAD Thread)
     }
 
     /* Release Locks and return the Old State */
-    KiReleaseDispatcherLockFromDpcLevel();
-    KiReleaseApcLockFromDpcLevel(&ApcLock);
+    KiReleaseDispatcherLockFromSynchLevel();
+    KiReleaseApcLockFromSynchLevel(&ApcLock);
     KiExitDispatcher(ApcLock.OldIrql);
     return PreviousCount;
 }
@@ -191,8 +182,8 @@ KeAlertThread(IN PKTHREAD Thread,
     ASSERT_IRQL_LESS_OR_EQUAL(DISPATCH_LEVEL);
 
     /* Lock the Dispatcher Database and the APC Queue */
-    KiAcquireApcLock(Thread, &ApcLock);
-    KiAcquireDispatcherLockAtDpcLevel();
+    KiAcquireApcLockRaiseToSynch(Thread, &ApcLock);
+    KiAcquireDispatcherLockAtSynchLevel();
 
     /* Save the Previous State */
     PreviousState = Thread->Alerted[AlertMode];
@@ -216,8 +207,8 @@ KeAlertThread(IN PKTHREAD Thread,
     }
 
     /* Release the Dispatcher Lock */
-    KiReleaseDispatcherLockFromDpcLevel();
-    KiReleaseApcLockFromDpcLevel(&ApcLock);
+    KiReleaseDispatcherLockFromSynchLevel();
+    KiReleaseApcLockFromSynchLevel(&ApcLock);
     KiExitDispatcher(ApcLock.OldIrql);
 
     /* Return the old state */
@@ -281,7 +272,7 @@ KeForceResumeThread(IN PKTHREAD Thread)
     ASSERT_IRQL_LESS_OR_EQUAL(DISPATCH_LEVEL);
 
     /* Lock the APC Queue */
-    KiAcquireApcLock(Thread, &ApcLock);
+    KiAcquireApcLockRaiseToSynch(Thread, &ApcLock);
 
     /* Save the old Suspend Count */
     PreviousCount = Thread->SuspendCount + Thread->FreezeCount;
@@ -294,18 +285,18 @@ KeForceResumeThread(IN PKTHREAD Thread)
         Thread->FreezeCount = 0;
 
         /* Lock the dispatcher */
-        KiAcquireDispatcherLockAtDpcLevel();
+        KiAcquireDispatcherLockAtSynchLevel();
 
         /* Signal and satisfy */
         Thread->SuspendSemaphore.Header.SignalState++;
         KiWaitTest(&Thread->SuspendSemaphore.Header, IO_NO_INCREMENT);
 
         /* Release the dispatcher */
-        KiReleaseDispatcherLockFromDpcLevel();
+        KiReleaseDispatcherLockFromSynchLevel();
     }
 
     /* Release Lock and return the Old State */
-    KiReleaseApcLockFromDpcLevel(&ApcLock);
+    KiReleaseApcLockFromSynchLevel(&ApcLock);
     KiExitDispatcher(ApcLock.OldIrql);
     return PreviousCount;
 }
@@ -322,14 +313,14 @@ KeFreezeAllThreads(VOID)
     ASSERT_IRQL_LESS_OR_EQUAL(DISPATCH_LEVEL);
 
     /* Lock the process */
-    KiAcquireProcessLock(Process, &LockHandle);
+    KiAcquireProcessLockRaiseToSynch(Process, &LockHandle);
 
     /* If someone is already trying to free us, try again */
     while (CurrentThread->FreezeCount)
     {
         /* Release and re-acquire the process lock so the APC will go through */
         KiReleaseProcessLock(&LockHandle);
-        KiAcquireProcessLock(Process, &LockHandle);
+        KiAcquireProcessLockRaiseToSynch(Process, &LockHandle);
     }
 
     /* Enter a critical region */
@@ -344,7 +335,7 @@ KeFreezeAllThreads(VOID)
         Current = CONTAINING_RECORD(NextEntry, KTHREAD, ThreadListEntry);
 
         /* Lock it */
-        KiAcquireApcLockAtDpcLevel(Current, &ApcLock);
+        KiAcquireApcLockAtSynchLevel(Current, &ApcLock);
 
         /* Make sure it's not ours, and check if APCs are enabled */
         if ((Current != CurrentThread) && (Current->ApcQueueable))
@@ -369,26 +360,26 @@ KeFreezeAllThreads(VOID)
                 else
                 {
                     /* Lock the dispatcher */
-                    KiAcquireDispatcherLockAtDpcLevel();
+                    KiAcquireDispatcherLockAtSynchLevel();
 
                     /* Unsignal the semaphore, the APC was already inserted */
                     Current->SuspendSemaphore.Header.SignalState--;
 
                     /* Release the dispatcher */
-                    KiReleaseDispatcherLockFromDpcLevel();
+                    KiReleaseDispatcherLockFromSynchLevel();
                 }
             }
         }
 
         /* Release the APC lock */
-        KiReleaseApcLockFromDpcLevel(&ApcLock);
+        KiReleaseApcLockFromSynchLevel(&ApcLock);
 
         /* Move to the next thread */
         NextEntry = NextEntry->Flink;
     } while (NextEntry != ListHead);
 
     /* Release the process lock and exit the dispatcher */
-    KiReleaseProcessLockFromDpcLevel(&LockHandle);
+    KiReleaseProcessLockFromSynchLevel(&LockHandle);
     KiExitDispatcher(LockHandle.OldIrql);
 }
 
@@ -402,7 +393,7 @@ KeResumeThread(IN PKTHREAD Thread)
     ASSERT_IRQL_LESS_OR_EQUAL(DISPATCH_LEVEL);
 
     /* Lock the APC Queue */
-    KiAcquireApcLock(Thread, &ApcLock);
+    KiAcquireApcLockRaiseToSynch(Thread, &ApcLock);
 
     /* Save the Old Count */
     PreviousCount = Thread->SuspendCount;
@@ -417,19 +408,19 @@ KeResumeThread(IN PKTHREAD Thread)
         if ((!Thread->SuspendCount) && (!Thread->FreezeCount))
         {
             /* Acquire the dispatcher lock */
-            KiAcquireDispatcherLockAtDpcLevel();
+            KiAcquireDispatcherLockAtSynchLevel();
 
             /* Signal the Suspend Semaphore */
             Thread->SuspendSemaphore.Header.SignalState++;
             KiWaitTest(&Thread->SuspendSemaphore.Header, IO_NO_INCREMENT);
 
             /* Release the dispatcher lock */
-            KiReleaseDispatcherLockFromDpcLevel();
+            KiReleaseDispatcherLockFromSynchLevel();
         }
     }
 
     /* Release APC Queue lock and return the Old State */
-    KiReleaseApcLockFromDpcLevel(&ApcLock);
+    KiReleaseApcLockFromSynchLevel(&ApcLock);
     KiExitDispatcher(ApcLock.OldIrql);
     return PreviousCount;
 }
@@ -501,7 +492,7 @@ KeStartThread(IN OUT PKTHREAD Thread)
 #ifdef CONFIG_SMP
     PKNODE Node;
     PKPRCB NodePrcb;
-    ULONG Set, Mask;
+    KAFFINITY Set, Mask;
 #endif
     UCHAR IdealProcessor = 0;
     PKPROCESS Process = Thread->ApcState.Process;
@@ -516,7 +507,7 @@ KeStartThread(IN OUT PKTHREAD Thread)
     Thread->SystemAffinityActive = FALSE;
 
     /* Lock the process */
-    KiAcquireProcessLock(Process, &LockHandle);
+    KiAcquireProcessLockRaiseToSynch(Process, &LockHandle);
 
     /* Setup volatile data */
     Thread->Priority = Process->BasePriority;
@@ -536,7 +527,7 @@ KeStartThread(IN OUT PKTHREAD Thread)
 #else
     Set = ~NodePrcb->MultiThreadProcessorSet;
 #endif
-    Mask = (ULONG)(Node->ProcessorMask & Process->Affinity);
+    Mask = Node->ProcessorMask & Process->Affinity;
     Set &= Mask;
     if (Set) Mask = Set;
 
@@ -553,7 +544,7 @@ KeStartThread(IN OUT PKTHREAD Thread)
     Thread->UserIdealProcessor = IdealProcessor;
 
     /* Lock the Dispatcher Database */
-    KiAcquireDispatcherLockAtDpcLevel();
+    KiAcquireDispatcherLockAtSynchLevel();
 
     /* Insert the thread into the process list */
     InsertTailList(&Process->ThreadListHead, &Thread->ThreadListEntry);
@@ -563,7 +554,7 @@ KeStartThread(IN OUT PKTHREAD Thread)
     Process->StackCount++;
 
     /* Release locks and return */
-    KiReleaseDispatcherLockFromDpcLevel();
+    KiReleaseDispatcherLockFromSynchLevel();
     KiReleaseProcessLock(&LockHandle);
 }
 
@@ -615,7 +606,7 @@ KeSuspendThread(PKTHREAD Thread)
     ASSERT_IRQL_LESS_OR_EQUAL(DISPATCH_LEVEL);
 
     /* Lock the APC Queue */
-    KiAcquireApcLock(Thread, &ApcLock);
+    KiAcquireApcLockRaiseToSynch(Thread, &ApcLock);
 
     /* Save the Old Count */
     PreviousCount = Thread->SuspendCount;
@@ -647,19 +638,19 @@ KeSuspendThread(PKTHREAD Thread)
             else
             {
                 /* Lock the dispatcher */
-                KiAcquireDispatcherLockAtDpcLevel();
+                KiAcquireDispatcherLockAtSynchLevel();
 
                 /* Unsignal the semaphore, the APC was already inserted */
                 Thread->SuspendSemaphore.Header.SignalState--;
 
                 /* Release the dispatcher */
-                KiReleaseDispatcherLockFromDpcLevel();
+                KiReleaseDispatcherLockFromSynchLevel();
             }
         }
     }
 
     /* Release Lock and return the Old State */
-    KiReleaseApcLockFromDpcLevel(&ApcLock);
+    KiReleaseApcLockFromSynchLevel(&ApcLock);
     KiExitDispatcher(ApcLock.OldIrql);
     return PreviousCount;
 }
@@ -676,7 +667,7 @@ KeThawAllThreads(VOID)
     ASSERT_IRQL_LESS_OR_EQUAL(DISPATCH_LEVEL);
 
     /* Lock the process */
-    KiAcquireProcessLock(Process, &LockHandle);
+    KiAcquireProcessLockRaiseToSynch(Process, &LockHandle);
 
     /* Loop the Process's Threads */
     ListHead = &Process->ThreadListHead;
@@ -687,7 +678,7 @@ KeThawAllThreads(VOID)
         Current = CONTAINING_RECORD(NextEntry, KTHREAD, ThreadListEntry);
 
         /* Lock it */
-        KiAcquireApcLockAtDpcLevel(Current, &ApcLock);
+        KiAcquireApcLockAtSynchLevel(Current, &ApcLock);
 
         /* Make sure we are frozen */
         OldCount = Current->FreezeCount;
@@ -700,26 +691,26 @@ KeThawAllThreads(VOID)
             if (!(Current->SuspendCount) && (!Current->FreezeCount))
             {
                 /* Lock the dispatcher */
-                KiAcquireDispatcherLockAtDpcLevel();
+                KiAcquireDispatcherLockAtSynchLevel();
 
                 /* Signal the suspend semaphore and wake it */
                 Current->SuspendSemaphore.Header.SignalState++;
                 KiWaitTest(&Current->SuspendSemaphore, 0);
 
                 /* Unlock the dispatcher */
-                KiReleaseDispatcherLockFromDpcLevel();
+                KiReleaseDispatcherLockFromSynchLevel();
             }
         }
 
         /* Release the APC lock */
-        KiReleaseApcLockFromDpcLevel(&ApcLock);
+        KiReleaseApcLockFromSynchLevel(&ApcLock);
 
         /* Go to the next one */
         NextEntry = NextEntry->Flink;
     } while (NextEntry != ListHead);
 
     /* Release the process lock and exit the dispatcher */
-    KiReleaseProcessLockFromDpcLevel(&LockHandle);
+    KiReleaseProcessLockFromSynchLevel(&LockHandle);
     KiExitDispatcher(LockHandle.OldIrql);
 
     /* Leave the critical region */
@@ -737,7 +728,7 @@ KeTestAlertThread(IN KPROCESSOR_MODE AlertMode)
     ASSERT_IRQL_LESS_OR_EQUAL(DISPATCH_LEVEL);
 
     /* Lock the Dispatcher Database and the APC Queue */
-    KiAcquireApcLock(Thread, &ApcLock);
+    KiAcquireApcLockRaiseToSynch(Thread, &ApcLock);
 
     /* Save the old State */
     OldState = Thread->Alerted[AlertMode];
@@ -1128,28 +1119,10 @@ KeSetSystemAffinityThread(IN KAFFINITY Affinity)
     CurrentThread->Affinity = Affinity;
     CurrentThread->SystemAffinityActive = TRUE;
 
-    /* Check if the ideal processor is part of the affinity */
 #ifdef CONFIG_SMP
-    if (!(Affinity & AFFINITY_MASK(CurrentThread->IdealProcessor)))
-    {
-        ULONG AffinitySet, NodeMask;
-
-        /* It's not! Get the PRCB */
-        Prcb = KiProcessorBlock[CurrentThread->IdealProcessor];
-
-        /* Calculate the affinity set */
-        AffinitySet = KeActiveProcessors & Affinity;
-        NodeMask = Prcb->ParentNode->ProcessorMask & AffinitySet;
-        if (NodeMask)
-        {
-            /* Use the Node set instead */
-            AffinitySet = NodeMask;
-        }
-
-        /* Calculate the ideal CPU from the affinity set */
-        BitScanReverse(&NodeMask, AffinitySet);
-        CurrentThread->IdealProcessor = (UCHAR)NodeMask;
-    }
+    /* Calculate the ideal processor from the affinity set */
+    CurrentThread->IdealProcessor =
+        KiFindIdealProcessor(Affinity, CurrentThread->IdealProcessor);
 #endif
 
     /* Get the current PRCB and check if it doesn't match this affinity */
@@ -1383,7 +1356,7 @@ KeTerminateThread(IN KPRIORITY Increment)
     ASSERT_IRQL_LESS_OR_EQUAL(DISPATCH_LEVEL);
 
     /* Lock the process */
-    KiAcquireProcessLock(Process, &LockHandle);
+    KiAcquireProcessLockRaiseToSynch(Process, &LockHandle);
 
     /* Make sure we won't get Swapped */
     KiSetThreadSwapBusy(Thread);
@@ -1415,7 +1388,7 @@ KeTerminateThread(IN KPRIORITY Increment)
     } while (Entry != SavedEntry);
 
     /* Acquire the dispatcher lock */
-    KiAcquireDispatcherLockAtDpcLevel();
+    KiAcquireDispatcherLockAtSynchLevel();
 
     /* Check if the reaper wasn't active */
     if (!Entry)
@@ -1446,7 +1419,7 @@ KeTerminateThread(IN KPRIORITY Increment)
     RemoveEntryList(&Thread->ThreadListEntry);
 
     /* Release the process lock */
-    KiReleaseProcessLockFromDpcLevel(&LockHandle);
+    KiReleaseProcessLockFromSynchLevel(&LockHandle);
 
     /* Set us as terminated, decrease the Process's stack count */
     Thread->State = Terminated;
@@ -1464,6 +1437,6 @@ KeTerminateThread(IN KPRIORITY Increment)
     KiRundownThread(Thread);
 
     /* Swap to a new thread */
-    KiReleaseDispatcherLockFromDpcLevel();
+    KiReleaseDispatcherLockFromSynchLevel();
     KiSwapThread(Thread, KeGetCurrentPrcb());
 }

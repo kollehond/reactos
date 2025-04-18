@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2017, Intel Corp.
+ * Copyright (C) 2000 - 2022, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
  * NO WARRANTY
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
  * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
@@ -205,6 +205,7 @@ typedef struct acpi_object_region
     union acpi_operand_object       *Next;
     ACPI_PHYSICAL_ADDRESS           Address;
     UINT32                          Length;
+    void                            *Pointer;           /* Only for data table regions */
 
 } ACPI_OBJECT_REGION;
 
@@ -225,8 +226,8 @@ typedef struct acpi_object_method
     } Dispatch;
 
     UINT32                          AmlLength;
-    UINT8                           ThreadCount;
     ACPI_OWNER_ID                   OwnerId;
+    UINT8                           ThreadCount;
 
 } ACPI_OBJECT_METHOD;
 
@@ -345,6 +346,7 @@ typedef struct acpi_object_region_field
     union acpi_operand_object       *RegionObj;         /* Containing OpRegion object */
     UINT8                           *ResourceBuffer;    /* ResourceTemplate for serial regions/fields */
     UINT16                          PinNumberIndex;     /* Index relative to previous Connection/Template */
+    UINT8                           *InternalPccBuffer; /* Internal buffer for fields associated with PCC */
 
 } ACPI_OBJECT_REGION_FIELD;
 
@@ -380,6 +382,7 @@ typedef struct acpi_object_buffer_field
 {
     ACPI_OBJECT_COMMON_HEADER
     ACPI_COMMON_FIELD_INFO
+    BOOLEAN                         IsCreateField;      /* Special case for objects created by CreateField() */
     union acpi_operand_object       *BufferObj;         /* Containing Buffer object */
 
 } ACPI_OBJECT_BUFFER_FIELD;
@@ -411,6 +414,7 @@ typedef struct acpi_object_addr_handler
     ACPI_ADR_SPACE_HANDLER          Handler;
     ACPI_NAMESPACE_NODE             *Node;              /* Parent device */
     void                            *Context;
+    ACPI_MUTEX                      ContextMutex;
     ACPI_ADR_SPACE_SETUP            Setup;
     union acpi_operand_object       *RegionList;        /* Regions using this handler */
     union acpi_operand_object       *Next;

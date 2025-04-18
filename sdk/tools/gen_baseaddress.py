@@ -4,7 +4,22 @@ LICENSE:     MIT (https://spdx.org/licenses/MIT)
 PURPOSE:     Update baseaddresses of all modules
 COPYRIGHT:   Copyright 2017,2018 Mark Jansen (mark.jansen@reactos.org)
 '''
+
 from __future__ import print_function, absolute_import, division
+
+USAGE = """
+This script will update the baseaddresses of all modules, based on the build output.
+
+Specify the build output dir as commandline argument to the script:
+`python gen_baseaddress.py C:\\Users\\Mark\\reactos\\output-MinGW-i386`
+
+Multiple directories can be specified:
+`python gen_baseaddress r:/build/msvc r:/build/gcc`
+
+Specify -64 as first argument to use 64-bit addresses:
+`python gen_baseaddress -64 r:\\build\\msvc-x64`
+"""
+
 import os
 import struct
 import sys
@@ -13,11 +28,11 @@ try:
     import pefile
 except ImportError:
     print('# Please install pefile from pip or https://github.com/erocarrera/pefile')
-    print('# Using fallback')
-    print()
+    sys.exit(-1)
+
 
 ALL_EXTENSIONS = (
-    '.dll', '.acm', '.ax', '.cpl', '.drv', '.ocx'
+    '.dll', '.acm', '.ax', '.cpl', '.drv', '.ocx', '.ime'
 )
 
 PRIORITIES = (
@@ -65,7 +80,6 @@ PRIORITIES = (
     'glu32.dll',
     'opengl32.dll',
     'riched20.dll',
-    'smdll.dll',
     'userenv.dll',
     'uxtheme.dll',
     'cryptui.dll',
@@ -90,9 +104,9 @@ PRIORITIES = (
 EXCLUDE = (
     'bmfd.dll',
     'bootvid.dll',
-    'freeldr_pe.dll',
+    'framebuf.dll',
     'ftfd.dll',
-    'fusion.dll',
+    'genincdata.dll',
     'hal.dll',
     'halaacpi.dll',
     'halacpi.dll',
@@ -111,6 +125,7 @@ EXCLUDE = (
     'kbdbgt.dll',
     'kbdblr.dll',
     'kbdbr.dll',
+    'kbdbu.dll',
     'kbdbur.dll',
     'kbdcan.dll',
     'kbdcr.dll',
@@ -118,6 +133,7 @@ EXCLUDE = (
     'kbdcz1.dll',
     'kbdda.dll',
     'kbddv.dll',
+    'kbdeo.dll',
     'kbdes.dll',
     'kbdest.dll',
     'kbdfc.dll',
@@ -127,6 +143,7 @@ EXCLUDE = (
     'kbdgerg.dll',
     'kbdgneo.dll',
     'kbdgr.dll',
+    'kbdgr1.dll',
     'kbdgrist.dll',
     'kbdhe.dll',
     'kbdheb.dll',
@@ -140,8 +157,10 @@ EXCLUDE = (
     'kbdir.dll',
     'kbdit.dll',
     'kbdja.dll',
+    'kbdjpn.dll',
     'kbdkaz.dll',
     'kbdko.dll',
+    'kbdkor.dll',
     'kbdla.dll',
     'kbdlt1.dll',
     'kbdlv.dll',
@@ -152,11 +171,16 @@ EXCLUDE = (
     'kbdpl1.dll',
     'kbdpo.dll',
     'kbdro.dll',
+    'kbdrost.dll',
     'kbdru.dll',
     'kbdru1.dll',
+    'kbdsf.dll',
     'kbdsg.dll',
     'kbdsk.dll',
     'kbdsk1.dll',
+    'kbdsl.dll',
+    'kbdsl1.dll',
+    'kbdsp.dll',
     'kbdsw.dll',
     'kbdtat.dll',
     'kbdth0.dll',
@@ -179,52 +203,63 @@ EXCLUDE = (
     'kbdycl.dll',
     'kdcom.dll',
     'kdvbox.dll',
-    'setupldr_pe.dll',
     'vgaddi.dll',
     'dllexport_test_dll1.dll',
     'dllexport_test_dll2.dll',
     'dllimport_test.dll',
+    'localspl_apitest.dll',
     'MyEventProvider.dll',
-    'w32kdll_2k3sp2.dll',
-    'w32kdll_ros.dll',
-    'w32kdll_xpsp2.dll',
+    'redirtest1.dll',
+    'redirtest2.dll',
+    'win32u_2k3sp2.dll',
+    'win32u_vista.dll',
+    'win32u_xpsp2.dll',
+    'testvdd.dll',
 )
 
+IMAGE_NT_OPTIONAL_HDR32_MAGIC = 0x10b
+IMAGE_NT_OPTIONAL_HDR64_MAGIC = 0x20b
 
-def size_of_image_fallback(filename):
+IMAGE_TYPES = {
+    IMAGE_NT_OPTIONAL_HDR32_MAGIC: 0,
+    IMAGE_NT_OPTIONAL_HDR64_MAGIC: 0
+}
+
+IS_64_BIT = False
+
+def size_of_image(filename):
+    if IS_64_BIT:
+        return 0xFE0000 # This results in 0x1000000 / 16MB space
     with open(filename, 'rb') as fin:
-        if fin.read(2) != 'MZ':
+        if fin.read(2) != b'MZ':
             print(filename, 'No dos header found!')
             return 0
         fin.seek(0x3C)
         e_lfanew = struct.unpack('i', fin.read(4))[0]
         fin.seek(e_lfanew)
-        if fin.read(4) != 'PE\0\0':
+        if fin.read(4) != b'PE\0\0':
             print(filename, 'No PE header found!')
             return 0
         fin.seek(e_lfanew + 0x18)
         pe_magic = struct.unpack('h', fin.read(2))[0]
-        if pe_magic != 0x10b:
-            print(filename, 'is not a 32 bit exe!')
-            return 0
-        fin.seek(e_lfanew + 0x50)
-        pe_size_of_image = struct.unpack('i', fin.read(4))[0]
-        return pe_size_of_image
-
-def size_of_image(filename):
-    if 'pefile' in globals():
-        return pefile.PE(filename, fast_load=True).OPTIONAL_HEADER.SizeOfImage
-    return size_of_image_fallback(filename)
+        if pe_magic in IMAGE_TYPES.keys():
+            IMAGE_TYPES[pe_magic] += 1
+            fin.seek(e_lfanew + 0x50)
+            pe_size_of_image = struct.unpack('i', fin.read(4))[0]
+            return pe_size_of_image
+        print(filename, 'Unknown executable format!')
+        return 0
 
 
 class Module(object):
-    def __init__(self, name, address, size):
+    def __init__(self, name, address, size, filename):
         self._name = name
         self.address = address
         self.size = size
         self._reserved = address != 0
+        self.filename = filename
 
-    def gen_baseaddress(self):
+    def gen_baseaddress(self, output_file):
         name, ext = os.path.splitext(self._name)
         postfix = ''
         if ext in('.acm', '.drv') and self._name != 'winspool.drv':
@@ -233,7 +268,7 @@ class Module(object):
             postfix = ' # should be above 0x%08x' % self.address
         elif self._reserved:
             postfix = ' # reserved'
-        print('set(baseaddress_%-30s 0x%08x)%s' % (name, self.address, postfix))
+        output_file.write('set(baseaddress_%-30s 0x%08x)%s\n' % (name, self.address, postfix))
 
     def end(self):
         return self.address + self.size
@@ -261,11 +296,11 @@ class MemoryLayout(object):
         if name in self.reserved:
             addr = self.reserved[name][0]
             self.reserved[name] = (addr, size)
-        self.found[name] = Module(name, addr, size)
+        self.found[name] = Module(name, addr, size, filename)
 
     def _next_address(self, size):
         if self.start_at:
-            addr = (self.start_at - size - self.module_padding - 0xffff) & 0xffff0000
+            addr = (self.start_at - size - self.module_padding - 0xffff) & 0xffffffffffff0000
             self.start_at = addr
         else:
             addr = self.start_at = self.initial
@@ -310,29 +345,72 @@ class MemoryLayout(object):
             obj.address = self.next_address(obj.size)
             self.addresses.append(obj)
 
-    def gen_baseaddress(self):
+    def gen_baseaddress(self, output_file):
         for obj in self.addresses:
-            obj.gen_baseaddress()
+            obj.gen_baseaddress(output_file)
+
+def get_target_file(ntdll_path):
+    if 'pefile' in globals():
+        ntdll_pe = pefile.PE(ntdll_path, fast_load=True)
+        names = [sect.Name.strip(b'\0') for sect in ntdll_pe.sections]
+        count = b'|'.join(names).count(b'/')
+        if IS_64_BIT:
+            return 'baseaddress64.cmake'
+        elif b'.rossym' in names:
+            return 'baseaddress.cmake'
+        elif count == 0:
+            return 'baseaddress_msvc.cmake'
+        elif count > 3:
+            return 'baseaddress_dwarf.cmake'
+        else:
+            assert False, "Unknown"
+    return None
 
 def run_dir(target):
-    print('# Generated from', target)
-    print('# Generated by sdk/tools/gen_baseaddress.py')
-    layout = MemoryLayout(0x7c920000)
-    layout.add_reserved('user32.dll', 0x77a20000)
+    if IS_64_BIT:
+        layout = MemoryLayout(0x7FFB7000000)
+    else:
+        layout = MemoryLayout(0x7c920000)
+        layout.add_reserved('user32.dll', 0x77a20000)
+    IMAGE_TYPES[IMAGE_NT_OPTIONAL_HDR64_MAGIC] = 0
+    IMAGE_TYPES[IMAGE_NT_OPTIONAL_HDR32_MAGIC] = 0
     for root, _, files in os.walk(target):
         for dll in [filename for filename in files if filename.endswith(ALL_EXTENSIONS)]:
             if not dll in EXCLUDE and not dll.startswith('api-ms-win-'):
                 layout.add(os.path.join(root, dll), dll)
-    layout.update(PRIORITIES)
-    layout.gen_baseaddress()
+    ntdll_path = layout.found['ntdll.dll'].filename
+    target_file = get_target_file(ntdll_path)
+    if target_file:
+        target_dir = os.path.realpath(os.path.dirname(os.path.dirname(__file__)))
+        target_path = os.path.join(target_dir, 'cmake', target_file)
+        output_file = open(target_path, "w")
+    else:
+        output_file = sys.stdout
+    with output_file:
+        output_file.write('# Generated from {}\n'.format(target))
+        output_file.write('# Generated by sdk/tools/gen_baseaddress.py\n\n')
+        layout.update(PRIORITIES)
+        layout.gen_baseaddress(output_file)
 
-def main(dirs):
+def main():
+    dirs = sys.argv[1:]
+
+    if len(dirs) > 0 and dirs[0] == '-64':
+        print('Using 64-bit addresses')
+        global IS_64_BIT
+        IS_64_BIT = True
+        dirs = sys.argv[2:]
     if len(dirs) < 1:
         trydir = os.getcwd()
-        print('# No path specified, trying', trydir)
+        print(USAGE)
+        print('No path specified, trying the working directory: ', trydir)
         dirs = [trydir]
     for onedir in dirs:
-        run_dir(onedir)
+        if onedir.lower() in ['-help', '/help', '/h', '-h', '/?', '-?']:
+            print(USAGE)
+        else:
+            run_dir(onedir)
+
 
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    main()

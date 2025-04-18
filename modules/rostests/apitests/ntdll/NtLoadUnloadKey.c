@@ -506,7 +506,7 @@ START_TEST(NtLoadUnloadKey)
                 Disposition == REG_CREATED_NEW_KEY ? "create" : /* REG_OPENED_EXISTING_KEY */ "open",
                 Status);
     }
-    
+
     /* The key handle must be valid here */
     Status = NtFlushKey(KeyHandle);
     ok_ntstatus(Status, STATUS_SUCCESS);
@@ -520,8 +520,6 @@ START_TEST(NtLoadUnloadKey)
     Status = NtFlushKey(KeyHandle);
     ok_ntstatus(Status, STATUS_SUCCESS);
 
-#if 0 // Currently, leads to memory corruption !!!!!
-
     /* Force-unmount the hive, with the handle key still opened */
     Status = DisconnectRegistry(NULL, RegistryHives[0].RegMountPoint, REG_FORCE_UNLOAD);
     DPRINT1("Force-unmounting '%S' %s\n", RegistryHives[0].RegMountPoint, NT_SUCCESS(Status) ? "succeeded" : "failed");
@@ -534,8 +532,6 @@ START_TEST(NtLoadUnloadKey)
     {
         ok_ntstatus(Status, STATUS_KEY_DELETED);
     }
-
-#endif
 
     /* The key handle should not be valid anymore */
     Status = NtDeleteKey(KeyHandle);

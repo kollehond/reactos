@@ -59,7 +59,7 @@ static LIST_ENTRY VddUserHooksList = {&VddUserHooksList, &VddUserHooksList};
 
 static USHORT GetNextFreeVDDEntry(VOID)
 {
-    USHORT Entry = MAX_VDD_MODULES;
+    USHORT Entry;
     for (Entry = 0; Entry < ARRAYSIZE(VDDList); ++Entry)
     {
         if (VDDList[Entry].hDll == NULL) break;
@@ -341,7 +341,7 @@ static BOOL LoadInstallableVDD(VOID)
     VDDValueName = VDDList;
     while (*VDDList)
     {
-        DPRINT1("Loading VDD '%S'...", VDDList);
+        DPRINT1("Loading VDD '%S'... ", VDDList);
         hVDD = LoadLibraryW(VDDList);
         if (hVDD == NULL)
         {
@@ -501,7 +501,6 @@ VOID VDDResumeUserHook(VOID)
         if (UserHook->Uresume_Handler) UserHook->Uresume_Handler();
     }
 }
-
 
 
 VOID VDDSupInitialize(VOID)

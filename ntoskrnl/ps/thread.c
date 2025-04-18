@@ -375,7 +375,7 @@ PspCreateThread(OUT PHANDLE ThreadHandle,
     KeEnterCriticalRegion();
     ExAcquirePushLockExclusive(&Process->ProcessLock);
 
-    /* Make sure the proces didn't just die on us */
+    /* Make sure the process didn't just die on us */
     if (Process->ProcessDelete) goto Quickie;
 
     /* Check if the thread was ours, terminated and it was user mode */
@@ -780,7 +780,7 @@ PsGetThreadTeb(IN PETHREAD Thread)
 /*
  * @implemented
  */
-PTEB
+PVOID
 NTAPI
 PsGetCurrentThreadTeb(VOID)
 {
@@ -934,7 +934,7 @@ PsWrapApcWow64Thread(IN OUT PVOID *ApcContext,
 {
     UNIMPLEMENTED;
     return STATUS_NOT_IMPLEMENTED;
-}    
+}
 
 NTSTATUS
 NTAPI

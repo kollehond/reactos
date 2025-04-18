@@ -28,6 +28,7 @@
 #include "wine/winternl.h"
 #define CRYPT_OID_INFO_HAS_EXTRA_FIELDS
 #include "wincrypt.h"
+#include "snmp.h"
 #include "bcrypt.h"
 #include "winnls.h"
 #include "rpc.h"
@@ -532,14 +533,19 @@ void CRYPT_FixKeyProvInfoPointers(PCRYPT_KEY_PROV_INFO info)
     provNameLen = (lstrlenW(info->pwszProvName) + 1) * sizeof(WCHAR);
     data += provNameLen;
 
-    info->rgProvParam = (PCRYPT_KEY_PROV_PARAM)data;
-    data += info->cProvParam * sizeof(CRYPT_KEY_PROV_PARAM);
-
-    for (i = 0; i < info->cProvParam; i++)
+    if (info->cProvParam)
     {
-        info->rgProvParam[i].pbData = data;
-        data += info->rgProvParam[i].cbData;
+        info->rgProvParam = (PCRYPT_KEY_PROV_PARAM)data;
+        data += info->cProvParam * sizeof(CRYPT_KEY_PROV_PARAM);
+
+        for (i = 0; i < info->cProvParam; i++)
+        {
+            info->rgProvParam[i].pbData = data;
+            data += info->rgProvParam[i].cbData;
+        }
     }
+    else
+        info->rgProvParam = NULL;
 }
 
 BOOL WINAPI CertGetCertificateContextProperty(PCCERT_CONTEXT pCertContext,
@@ -992,8 +998,7 @@ static BOOL container_matches_cert(PCCERT_CONTEXT pCert, LPCSTR container,
     WCHAR containerW[MAX_PATH];
     BOOL matches;
 
-    MultiByteToWideChar(CP_ACP, 0, container, -1,
-     containerW, sizeof(containerW) / sizeof(containerW[0]));
+    MultiByteToWideChar(CP_ACP, 0, container, -1, containerW, ARRAY_SIZE(containerW));
     /* We make a copy of the CRYPT_KEY_PROV_INFO because the caller expects
      * keyProvInfo->pwszContainerName to be NULL or a heap-allocated container
      * name.
@@ -1243,6 +1248,12 @@ BOOL WINAPI CertComparePublicKeyInfo(DWORD dwCertEncodingType,
 
     TRACE("(%08x, %p, %p)\n", dwCertEncodingType, pPublicKey1, pPublicKey2);
 
+    /* RSA public key data should start with ASN_SEQUENCE,
+     * otherwise it's not a RSA_CSP_PUBLICKEYBLOB.
+     */
+    if (!pPublicKey1->PublicKey.cbData || pPublicKey1->PublicKey.pbData[0] != ASN_SEQUENCE)
+        dwCertEncodingType = 0;
+
     switch (GET_CERT_ENCODING_TYPE(dwCertEncodingType))
     {
     case 0:	/* Seems to mean "raw binary bits" */
@@ -1268,32 +1279,21 @@ BOOL WINAPI CertComparePublicKeyInfo(DWORD dwCertEncodingType,
         ret = FALSE;
         if (CryptDecodeObject(dwCertEncodingType, RSA_CSP_PUBLICKEYBLOB,
                     pPublicKey1->PublicKey.pbData, pPublicKey1->PublicKey.cbData,
-                    0, NULL, &length))
+                    CRYPT_DECODE_ALLOC_FLAG, &pblob1, &length))
         {
-            pblob1 = CryptMemAlloc(length);
             if (CryptDecodeObject(dwCertEncodingType, RSA_CSP_PUBLICKEYBLOB,
-                    pPublicKey1->PublicKey.pbData, pPublicKey1->PublicKey.cbData,
-                    0, pblob1, &length))
+                        pPublicKey2->PublicKey.pbData, pPublicKey2->PublicKey.cbData,
+                        CRYPT_DECODE_ALLOC_FLAG, &pblob2, &length))
             {
-                if (CryptDecodeObject(dwCertEncodingType, RSA_CSP_PUBLICKEYBLOB,
-                            pPublicKey2->PublicKey.pbData, pPublicKey2->PublicKey.cbData,
-                            0, NULL, &length))
-                {
-                    pblob2 = CryptMemAlloc(length);
-                    if (CryptDecodeObject(dwCertEncodingType, RSA_CSP_PUBLICKEYBLOB,
-                            pPublicKey2->PublicKey.pbData, pPublicKey2->PublicKey.cbData,
-                            0, pblob2, &length))
-                    {
-                        /* The RSAPUBKEY structure directly follows the BLOBHEADER */
-                        RSAPUBKEY *pk1 = (LPVOID)(pblob1 + 1),
-                                  *pk2 = (LPVOID)(pblob2 + 1);
-                        ret = (pk1->bitlen == pk2->bitlen) && (pk1->pubexp == pk2->pubexp)
-                                 && !memcmp(pk1 + 1, pk2 + 1, pk1->bitlen/8);
-                    }
-                    CryptMemFree(pblob2);
-                }
+                /* The RSAPUBKEY structure directly follows the BLOBHEADER */
+                RSAPUBKEY *pk1 = (LPVOID)(pblob1 + 1),
+                          *pk2 = (LPVOID)(pblob2 + 1);
+                ret = (pk1->bitlen == pk2->bitlen) && (pk1->pubexp == pk2->pubexp)
+                         && !memcmp(pk1 + 1, pk2 + 1, pk1->bitlen/8);
+
+                LocalFree(pblob2);
             }
-            CryptMemFree(pblob1);
+            LocalFree(pblob1);
         }
 
         break;
@@ -1322,9 +1322,30 @@ DWORD WINAPI CertGetPublicKeyLength(DWORD dwCertEncodingType,
     }
     else
     {
+        PCCRYPT_OID_INFO info;
         DWORD size;
         PBYTE buf;
-        BOOL ret = CryptDecodeObjectEx(dwCertEncodingType,
+        BOOL ret;
+
+        info = CryptFindOIDInfo(CRYPT_OID_INFO_OID_KEY, pPublicKey->Algorithm.pszObjId, 0);
+        if (info)
+        {
+            HCRYPTKEY key;
+
+            TRACE("public key algid %#x (%s)\n", info->u.Algid, debugstr_a(pPublicKey->Algorithm.pszObjId));
+
+            ret = CryptImportPublicKeyInfo(I_CryptGetDefaultCryptProv(info->u.Algid), dwCertEncodingType, pPublicKey, &key);
+            if (ret)
+            {
+                size = sizeof(len);
+                ret = CryptGetKeyParam(key, KP_KEYLEN, (BYTE *)&len, &size, 0);
+                CryptDestroyKey(key);
+                return len;
+            }
+            /* fallback to RSA */
+        }
+
+        ret = CryptDecodeObjectEx(dwCertEncodingType,
          RSA_CSP_PUBLICKEYBLOB, pPublicKey->PublicKey.pbData,
          pPublicKey->PublicKey.cbData, CRYPT_DECODE_ALLOC_FLAG, NULL, &buf,
          &size);
@@ -1795,7 +1816,7 @@ PCCERT_CONTEXT WINAPI CertFindCertificateInStore(HCERTSTORE hCertStore,
     }
 
     if (find)
-        ret = find(hCertStore, dwFlags, dwType, pvPara, pPrevCertContext);
+        ret = find(hCertStore, dwType, dwFlags, pvPara, pPrevCertContext);
     else if (compare)
         ret = cert_compare_certs_in_store(hCertStore, pPrevCertContext,
          compare, dwType, dwFlags, pvPara);
@@ -1889,7 +1910,7 @@ PCCERT_CONTEXT WINAPI CertGetIssuerCertificateFromStore(HCERTSTORE hCertStore,
             CertFreeCertificateContext(ret);
             ret = NULL;
         }
-        if (CRYPT_IsCertificateSelfSigned(pSubjectContext, NULL))
+        if (CRYPT_IsCertificateSelfSigned(pSubjectContext))
         {
             CertFreeCertificateContext(ret);
             ret = NULL;
@@ -2174,7 +2195,7 @@ BOOL WINAPI CryptHashCertificate(HCRYPTPROV_LEGACY hCryptProv, ALG_ID Algid,
      pbEncoded, cbEncoded, pbComputedHash, pcbComputedHash);
 
     if (!hCryptProv)
-        hCryptProv = CRYPT_GetDefaultProvider();
+        hCryptProv = I_CryptGetDefaultCryptProv(0);
     if (!Algid)
         Algid = CALG_SHA1;
     if (ret)
@@ -2203,7 +2224,7 @@ BOOL WINAPI CryptHashPublicKeyInfo(HCRYPTPROV_LEGACY hCryptProv, ALG_ID Algid,
      dwCertEncodingType, pInfo, pbComputedHash, pcbComputedHash);
 
     if (!hCryptProv)
-        hCryptProv = CRYPT_GetDefaultProvider();
+        hCryptProv = I_CryptGetDefaultCryptProv(0);
     if (!Algid)
         Algid = CALG_MD5;
     if ((dwCertEncodingType & CERT_ENCODING_TYPE_MASK) != X509_ASN_ENCODING)
@@ -2255,7 +2276,7 @@ BOOL WINAPI CryptHashToBeSigned(HCRYPTPROV_LEGACY hCryptProv,
         HCRYPTHASH hHash;
 
         if (!hCryptProv)
-            hCryptProv = CRYPT_GetDefaultProvider();
+            hCryptProv = I_CryptGetDefaultCryptProv(0);
         oidInfo = CryptFindOIDInfo(CRYPT_OID_INFO_OID_KEY,
          info->SignatureAlgorithm.pszObjId, 0);
         if (!oidInfo)
@@ -2304,7 +2325,7 @@ BOOL WINAPI CryptSignCertificate(HCRYPTPROV_OR_NCRYPT_KEY_HANDLE hCryptProv,
     if (info->dwGroupId == CRYPT_HASH_ALG_OID_GROUP_ID)
     {
         if (!hCryptProv)
-            hCryptProv = CRYPT_GetDefaultProvider();
+            hCryptProv = I_CryptGetDefaultCryptProv(0);
         ret = CryptCreateHash(hCryptProv, info->u.Algid, 0, 0, &hHash);
         if (ret)
         {
@@ -2414,29 +2435,27 @@ BOOL WINAPI CryptVerifyCertificateSignature(HCRYPTPROV_LEGACY hCryptProv,
      CRYPT_VERIFY_CERT_SIGN_ISSUER_PUBKEY, pPublicKey, 0, NULL);
 }
 
-static BOOL verify_signature_crypt(HCRYPTPROV_LEGACY hCryptProv,
-    DWORD dwCertEncodingType, PCERT_PUBLIC_KEY_INFO pubKeyInfo,
-    const CERT_SIGNED_CONTENT_INFO *signedCert, PCCRYPT_OID_INFO info)
+static BOOL CRYPT_VerifySignature(HCRYPTPROV_LEGACY hCryptProv, DWORD dwCertEncodingType,
+    CERT_PUBLIC_KEY_INFO *pubKeyInfo, const CERT_SIGNED_CONTENT_INFO *signedCert, const CRYPT_OID_INFO *info)
 {
-    ALG_ID pubKeyID, hashID;
-    HCRYPTHASH hash;
-    HCRYPTKEY key;
     BOOL ret;
+    HCRYPTKEY key;
+    ALG_ID pubKeyID, hashID;
 
     hashID = info->u.Algid;
     if (info->ExtraInfo.cbData >= sizeof(ALG_ID))
         pubKeyID = *(ALG_ID *)info->ExtraInfo.pbData;
     else
         pubKeyID = hashID;
-
     /* Load the default provider if necessary */
     if (!hCryptProv)
-        hCryptProv = CRYPT_GetDefaultProvider();
-
+        hCryptProv = I_CryptGetDefaultCryptProv(0);
     ret = CryptImportPublicKeyInfoEx(hCryptProv, dwCertEncodingType,
      pubKeyInfo, pubKeyID, 0, NULL, &key);
     if (ret)
     {
+        HCRYPTHASH hash;
+
         ret = CryptCreateHash(hCryptProv, hashID, 0, 0, &hash);
         if (ret)
         {
@@ -2452,14 +2471,13 @@ static BOOL verify_signature_crypt(HCRYPTPROV_LEGACY hCryptProv,
     return ret;
 }
 
-static BOOL calculate_hash_bcrypt(const WCHAR *algorithm,
-    const CERT_SIGNED_CONTENT_INFO *signedCert, BYTE **hash_value, DWORD *hash_len)
+static BOOL CNG_CalcHash(const WCHAR *algorithm, const CERT_SIGNED_CONTENT_INFO *signedCert,
+        BYTE **hash_value, DWORD *hash_len)
 {
     BCRYPT_HASH_HANDLE hash = NULL;
     BCRYPT_ALG_HANDLE alg = NULL;
     NTSTATUS status;
     DWORD size;
-    BOOL ret = FALSE;
 
     if ((status = BCryptOpenAlgorithmProvider(&alg, algorithm, NULL, 0)))
         goto done;
@@ -2485,23 +2503,21 @@ static BOOL calculate_hash_bcrypt(const WCHAR *algorithm,
         goto done;
     }
 
-    ret = TRUE;
-
 done:
     if (hash) BCryptDestroyHash(hash);
     if (alg)  BCryptCloseAlgorithmProvider(alg, 0);
     if (status) SetLastError(RtlNtStatusToDosError(status));
-    return ret;
+    return status == 0;
 }
 
-static BOOL import_bcrypt_pubkey_ecc(PCERT_PUBLIC_KEY_INFO pubKeyInfo, BCRYPT_KEY_HANDLE *key)
+static BOOL CNG_ImportECCPubKey(CERT_PUBLIC_KEY_INFO *pubKeyInfo, BCRYPT_KEY_HANDLE *key)
 {
     DWORD blob_magic, ecckey_len, size;
-    NTSTATUS status = STATUS_SUCCESS;
+    BCRYPT_ALG_HANDLE alg = NULL;
     BCRYPT_ECCKEY_BLOB *ecckey;
     const WCHAR *sign_algo;
-    BCRYPT_ALG_HANDLE alg;
-    LPSTR *ecc_curve;
+    char **ecc_curve;
+    NTSTATUS status;
 
     if (!pubKeyInfo->PublicKey.cbData)
     {
@@ -2516,10 +2532,8 @@ static BOOL import_bcrypt_pubkey_ecc(PCERT_PUBLIC_KEY_INFO pubKeyInfo, BCRYPT_KE
         return FALSE;
     }
 
-    if (!CryptDecodeObjectEx(X509_ASN_ENCODING, X509_OBJECT_IDENTIFIER,
-                             pubKeyInfo->Algorithm.Parameters.pbData,
-                             pubKeyInfo->Algorithm.Parameters.cbData,
-                             CRYPT_DECODE_ALLOC_FLAG, NULL, &ecc_curve, &size))
+    if (!CryptDecodeObjectEx(X509_ASN_ENCODING, X509_OBJECT_IDENTIFIER, pubKeyInfo->Algorithm.Parameters.pbData,
+            pubKeyInfo->Algorithm.Parameters.cbData, CRYPT_DECODE_ALLOC_FLAG, NULL, &ecc_curve, &size))
         return FALSE;
 
     if (!strcmp(*ecc_curve, szOID_ECC_CURVE_P256))
@@ -2527,7 +2541,7 @@ static BOOL import_bcrypt_pubkey_ecc(PCERT_PUBLIC_KEY_INFO pubKeyInfo, BCRYPT_KE
         sign_algo = BCRYPT_ECDSA_P256_ALGORITHM;
         blob_magic = BCRYPT_ECDSA_PUBLIC_P256_MAGIC;
     }
-    else if(!strcmp(*ecc_curve, szOID_ECC_CURVE_P384))
+    else if (!strcmp(*ecc_curve, szOID_ECC_CURVE_P384))
     {
         sign_algo = BCRYPT_ECDSA_P384_ALGORITHM;
         blob_magic = BCRYPT_ECDSA_PUBLIC_P384_MAGIC;
@@ -2547,17 +2561,13 @@ static BOOL import_bcrypt_pubkey_ecc(PCERT_PUBLIC_KEY_INFO pubKeyInfo, BCRYPT_KE
     }
 
     if ((status = BCryptOpenAlgorithmProvider(&alg, sign_algo, NULL, 0)))
-    {
-        SetLastError(RtlNtStatusToDosError(status));
-        return FALSE;
-    }
+        goto done;
 
     ecckey_len = sizeof(BCRYPT_ECCKEY_BLOB) + pubKeyInfo->PublicKey.cbData - 1;
     if (!(ecckey = CryptMemAlloc(ecckey_len)))
     {
-        BCryptCloseAlgorithmProvider(alg, 0);
-        SetLastError(ERROR_OUTOFMEMORY);
-        return FALSE;
+        status = STATUS_NO_MEMORY;
+        goto done;
     }
 
     ecckey->dwMagic = blob_magic;
@@ -2565,36 +2575,32 @@ static BOOL import_bcrypt_pubkey_ecc(PCERT_PUBLIC_KEY_INFO pubKeyInfo, BCRYPT_KE
     memcpy(ecckey + 1, pubKeyInfo->PublicKey.pbData + 1, pubKeyInfo->PublicKey.cbData - 1);
 
     status = BCryptImportKeyPair(alg, NULL, BCRYPT_ECCPUBLIC_BLOB, key, (BYTE*)ecckey, ecckey_len, 0);
-    BCryptCloseAlgorithmProvider(alg, 0);
-    if (status)
-    {
-        SetLastError(RtlNtStatusToDosError(status));
-        return FALSE;
-    }
+    CryptMemFree(ecckey);
 
-    return TRUE;
+done:
+    if (alg) BCryptCloseAlgorithmProvider(alg, 0);
+    if (status) SetLastError(RtlNtStatusToDosError(status));
+    return !status;
 }
 
-static BOOL import_bcrypt_pubkey(PCERT_PUBLIC_KEY_INFO pubKeyInfo, BCRYPT_KEY_HANDLE *key)
+static BOOL CNG_ImportPubKey(CERT_PUBLIC_KEY_INFO *pubKeyInfo, BCRYPT_KEY_HANDLE *key)
 {
     if (!strcmp(pubKeyInfo->Algorithm.pszObjId, szOID_ECC_PUBLIC_KEY))
-        return import_bcrypt_pubkey_ecc(pubKeyInfo, key);
+        return CNG_ImportECCPubKey(pubKeyInfo, key);
 
     FIXME("Unsupported public key type: %s\n", debugstr_a(pubKeyInfo->Algorithm.pszObjId));
     SetLastError(NTE_BAD_ALGID);
     return FALSE;
 }
 
-static BOOL prepare_bcrypt_signature_ecc(BYTE *encoded_sig, DWORD encoded_size,
-    BYTE **sig_value, DWORD *sig_len)
+static BOOL CNG_PrepareSignatureECC(BYTE *encoded_sig, DWORD encoded_size, BYTE **sig_value, DWORD *sig_len)
 {
     CERT_ECC_SIGNATURE *ecc_sig;
     DWORD size;
     int i;
 
-    if (!CryptDecodeObjectEx(X509_ASN_ENCODING, X509_ECC_SIGNATURE,
-                             encoded_sig, encoded_size,
-                             CRYPT_DECODE_ALLOC_FLAG, NULL, &ecc_sig, &size))
+    if (!CryptDecodeObjectEx(X509_ASN_ENCODING, X509_ECC_SIGNATURE, encoded_sig, encoded_size,
+            CRYPT_DECODE_ALLOC_FLAG, NULL, &ecc_sig, &size))
         return FALSE;
 
     if (!ecc_sig->r.cbData || !ecc_sig->s.cbData)
@@ -2621,8 +2627,8 @@ static BOOL prepare_bcrypt_signature_ecc(BYTE *encoded_sig, DWORD encoded_size,
     return TRUE;
 }
 
-static BOOL prepare_bcrypt_signature(PCERT_PUBLIC_KEY_INFO pubKeyInfo,
-    const CERT_SIGNED_CONTENT_INFO *signedCert, BYTE **sig_value, DWORD *sig_len)
+static BOOL CNG_PrepareSignature(CERT_PUBLIC_KEY_INFO *pubKeyInfo, const CERT_SIGNED_CONTENT_INFO *signedCert,
+    BYTE **sig_value, DWORD *sig_len)
 {
     BYTE *encoded_sig;
     BOOL ret = FALSE;
@@ -2644,7 +2650,7 @@ static BOOL prepare_bcrypt_signature(PCERT_PUBLIC_KEY_INFO pubKeyInfo,
         encoded_sig[i] = signedCert->Signature.pbData[signedCert->Signature.cbData - i - 1];
 
     if (!strcmp(pubKeyInfo->Algorithm.pszObjId, szOID_ECC_PUBLIC_KEY))
-        ret = prepare_bcrypt_signature_ecc(encoded_sig, signedCert->Signature.cbData, sig_value, sig_len);
+        ret = CNG_PrepareSignatureECC(encoded_sig, signedCert->Signature.cbData, sig_value, sig_len);
     else
     {
         FIXME("Unsupported public key type: %s\n", debugstr_a(pubKeyInfo->Algorithm.pszObjId));
@@ -2655,55 +2661,47 @@ static BOOL prepare_bcrypt_signature(PCERT_PUBLIC_KEY_INFO pubKeyInfo,
     return ret;
 }
 
-static BOOL verify_signature_bcrypt(HCRYPTPROV_LEGACY hCryptProv,
-    DWORD dwCertEncodingType, PCERT_PUBLIC_KEY_INFO pubKeyInfo,
-    const CERT_SIGNED_CONTENT_INFO *signedCert, PCCRYPT_OID_INFO info)
+static BOOL CNG_VerifySignature(HCRYPTPROV_LEGACY hCryptProv, DWORD dwCertEncodingType,
+    CERT_PUBLIC_KEY_INFO *pubKeyInfo, const CERT_SIGNED_CONTENT_INFO *signedCert, const CRYPT_OID_INFO *info)
 {
     BCRYPT_KEY_HANDLE key = NULL;
-    BYTE *hash_value, *sig_value;
+    BYTE *hash_value = NULL, *sig_value;
     DWORD hash_len, sig_len;
     NTSTATUS status;
+    BOOL ret;
 
-    if (!calculate_hash_bcrypt(info->pwszCNGAlgid, signedCert, &hash_value, &hash_len))
-        return FALSE;
-
-    if (!import_bcrypt_pubkey(pubKeyInfo, &key))
+    ret = CNG_ImportPubKey(pubKeyInfo, &key);
+    if (ret)
     {
-        CryptMemFree(hash_value);
-        return FALSE;
-    }
-
-    if (!prepare_bcrypt_signature(pubKeyInfo, signedCert, &sig_value, &sig_len))
-    {
-        CryptMemFree(hash_value);
+        ret = CNG_CalcHash(info->pwszCNGAlgid, signedCert, &hash_value, &hash_len);
+        if (ret)
+        {
+            ret = CNG_PrepareSignature(pubKeyInfo, signedCert, &sig_value, &sig_len);
+            if (ret)
+            {
+                status = BCryptVerifySignature(key, NULL, hash_value, hash_len, sig_value, sig_len, 0);
+                if (status)
+                {
+                    FIXME("Failed to verify signature: %08x\n", status);
+                    SetLastError(RtlNtStatusToDosError(status));
+                    ret = FALSE;
+                }
+                CryptMemFree(sig_value);
+            }
+            CryptMemFree(hash_value);
+        }
         BCryptDestroyKey(key);
-        return FALSE;
     }
 
-    status = BCryptVerifySignature(key, NULL, hash_value, hash_len, sig_value, sig_len, 0);
-
-    BCryptDestroyKey(key);
-    CryptMemFree(hash_value);
-    CryptMemFree(sig_value);
-
-    if (status)
-    {
-        FIXME("Failed to verify signature: %08x\n", status);
-        SetLastError(RtlNtStatusToDosError(status));
-        return FALSE;
-    }
-
-    return TRUE;
+    return ret;
 }
 
-static BOOL CRYPT_VerifyCertSignatureFromPublicKeyInfo(HCRYPTPROV_LEGACY hCryptProv,
-    DWORD dwCertEncodingType, PCERT_PUBLIC_KEY_INFO pubKeyInfo,
-    const CERT_SIGNED_CONTENT_INFO *signedCert)
+static BOOL CRYPT_VerifyCertSignatureFromPublicKeyInfo(HCRYPTPROV_LEGACY hCryptProv, DWORD dwCertEncodingType,
+    CERT_PUBLIC_KEY_INFO *pubKeyInfo, const CERT_SIGNED_CONTENT_INFO *signedCert)
 {
-    PCCRYPT_OID_INFO info;
+    CCRYPT_OID_INFO *info;
 
-    info = CryptFindOIDInfo(CRYPT_OID_INFO_OID_KEY,
-     signedCert->SignatureAlgorithm.pszObjId, 0);
+    info = CryptFindOIDInfo(CRYPT_OID_INFO_OID_KEY, signedCert->SignatureAlgorithm.pszObjId, 0);
     if (!info || info->dwGroupId != CRYPT_SIGN_ALG_OID_GROUP_ID)
     {
         SetLastError(NTE_BAD_ALGID);
@@ -2711,9 +2709,9 @@ static BOOL CRYPT_VerifyCertSignatureFromPublicKeyInfo(HCRYPTPROV_LEGACY hCryptP
     }
 
     if (info->u.Algid == CALG_OID_INFO_CNG_ONLY)
-        return verify_signature_bcrypt(hCryptProv, dwCertEncodingType, pubKeyInfo, signedCert, info);
+        return CNG_VerifySignature(hCryptProv, dwCertEncodingType, pubKeyInfo, signedCert, info);
     else
-        return verify_signature_crypt(hCryptProv, dwCertEncodingType, pubKeyInfo, signedCert, info);
+        return CRYPT_VerifySignature(hCryptProv, dwCertEncodingType, pubKeyInfo, signedCert, info);
 }
 
 BOOL WINAPI CryptVerifyCertificateSignatureEx(HCRYPTPROV_LEGACY hCryptProv,
@@ -3708,4 +3706,12 @@ const void * WINAPI CertCreateContext(DWORD dwContextType, DWORD dwEncodingType,
         WARN("unknown context type: 0x%x\n", dwContextType);
         return NULL;
     }
+}
+
+BOOL WINAPI CryptSetKeyIdentifierProperty(const CRYPT_HASH_BLOB *pKeyIdentifier, DWORD dwPropId,
+    DWORD dwFlags, LPCWSTR pwszComputerName, void *pvReserved, const void *pvData)
+{
+    FIXME("(%p, 0x%x, 0x%x, %s, %p, %p): stub\n", pKeyIdentifier, dwPropId, dwFlags,
+        debugstr_w(pwszComputerName), pvReserved, pvData);
+    return FALSE;
 }

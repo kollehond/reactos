@@ -36,7 +36,6 @@ Applet(HWND hwnd, UINT uMsg, LPARAM wParam, LPARAM lParam);
 
 
 HINSTANCE hApplet = 0;
-HWND hCPLWindow;
 HINF hSetupInf = INVALID_HANDLE_VALUE;
 DWORD IsUnattendedSetupEnabled = 0;
 DWORD UnattendLCID = 0;
@@ -149,19 +148,39 @@ ParseSetupInf(VOID)
     SetupCloseInfFile(hSetupInf);
 }
 
+static int CALLBACK
+PropSheetProc(HWND hwndDlg, UINT uMsg, LPARAM lParam)
+{
+    // NOTE: This callback is needed to set large icon correctly.
+    HICON hIcon;
+    switch (uMsg)
+    {
+        case PSCB_INITIALIZED:
+        {
+            hIcon = LoadIconW(hApplet, MAKEINTRESOURCEW(IDC_CPLICON));
+            SendMessageW(hwndDlg, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+            break;
+        }
+    }
+    return 0;
+}
+
 static LONG APIENTRY
 Applet(HWND hwnd, UINT uMsg, LPARAM wParam, LPARAM lParam)
 {
-    TCHAR Caption[BUFFERSIZE];
     PROPSHEETPAGE psp[3];
     PROPSHEETHEADER psh;
     PGLOBALDATA pGlobalData;
+    INT nPage = 0;
     LONG ret;
 
     if (OpenSetupInf())
     {
         ParseSetupInf();
     }
+
+    if (uMsg == CPL_STARTWPARMSW && lParam != 0)
+        nPage = _wtoi((PWSTR)lParam);
 
     pGlobalData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(GLOBALDATA));
     if (pGlobalData == NULL)
@@ -170,18 +189,17 @@ Applet(HWND hwnd, UINT uMsg, LPARAM wParam, LPARAM lParam)
     pGlobalData->SystemLCID = GetSystemDefaultLCID();
     pGlobalData->bIsUserAdmin = IsUserAdmin();
 
-    LoadString(hApplet, IDS_CPLNAME, Caption, sizeof(Caption) / sizeof(TCHAR));
-
     ZeroMemory(&psh, sizeof(PROPSHEETHEADER));
     psh.dwSize = sizeof(PROPSHEETHEADER);
-    psh.dwFlags =  PSH_PROPSHEETPAGE;
-    psh.hwndParent = hCPLWindow;
+    psh.dwFlags =  PSH_PROPSHEETPAGE | PSH_USEICONID | PSH_USECALLBACK;
+    psh.hwndParent = hwnd;
     psh.hInstance = hApplet;
-    psh.hIcon = LoadIcon(hApplet, MAKEINTRESOURCE(IDC_CPLICON));
-    psh.pszCaption = Caption;
-    psh.nPages = 0; //sizeof(psp) / sizeof(PROPSHEETPAGE);
+    psh.pszIcon = MAKEINTRESOURCEW(IDC_CPLICON);
+    psh.pszCaption = MAKEINTRESOURCEW(IDS_CPLNAME);
+    psh.nPages = 0;
     psh.nStartPage = 0;
     psh.ppsp = psp;
+    psh.pfnCallback = PropSheetProc;
 
     InitIntlPropSheetPage(&psp[0], IDD_GENERALPAGE, GeneralPageProc, (LPARAM)pGlobalData);
     psh.nPages++;
@@ -194,7 +212,12 @@ Applet(HWND hwnd, UINT uMsg, LPARAM wParam, LPARAM lParam)
         psh.nPages++;
     }
 
+    if (nPage != 0 && nPage <= psh.nPages)
+        psh.nStartPage = nPage;
+
     ret = (LONG)(PropertySheet(&psh) != -1);
+    if (ret > 0)
+        SendMessageW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)L"intl");
 
     HeapFree(GetProcessHeap(), 0, pGlobalData);
 
@@ -209,7 +232,9 @@ CPlApplet(HWND hwndCpl,
           LPARAM lParam1,
           LPARAM lParam2)
 {
-    switch(uMsg)
+    UINT i = (UINT)lParam1;
+
+    switch (uMsg)
     {
         case CPL_INIT:
             return TRUE;
@@ -218,24 +243,31 @@ CPlApplet(HWND hwndCpl,
             return NUM_APPLETS;
 
         case CPL_INQUIRE:
-        {
-            CPLINFO *CPlInfo = (CPLINFO*)lParam2;
-            UINT uAppIndex = (UINT)lParam1;
-
-            CPlInfo->lData = 0;
-            CPlInfo->idIcon = Applets[uAppIndex].idIcon;
-            CPlInfo->idName = Applets[uAppIndex].idName;
-            CPlInfo->idInfo = Applets[uAppIndex].idDescription;
+            if (i < NUM_APPLETS)
+            {
+                CPLINFO *CPlInfo = (CPLINFO*)lParam2;
+                CPlInfo->lData = 0;
+                CPlInfo->idIcon = Applets[i].idIcon;
+                CPlInfo->idName = Applets[i].idName;
+                CPlInfo->idInfo = Applets[i].idDescription;
+            }
+            else
+            {
+                return TRUE;
+            }
             break;
-        }
 
         case CPL_DBLCLK:
-        {
-            UINT uAppIndex = (UINT)lParam1;
-            hCPLWindow = hwndCpl;
-            Applets[uAppIndex].AppletProc(hwndCpl, uMsg, lParam1, lParam2);
+            if (i < NUM_APPLETS)
+                Applets[i].AppletProc(hwndCpl, uMsg, lParam1, lParam2);
+            else
+                return TRUE;
             break;
-        }
+
+        case CPL_STARTWPARMSW:
+            if (i < NUM_APPLETS)
+                return Applets[i].AppletProc(hwndCpl, uMsg, lParam1, lParam2);
+            break;
     }
 
     return FALSE;

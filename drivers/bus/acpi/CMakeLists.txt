@@ -59,6 +59,7 @@ list(APPEND ACPICA_SOURCE
     acpica/executer/exresnte.c
     acpica/executer/exresolv.c
     acpica/executer/exresop.c
+    acpica/executer/exserial.c
     acpica/executer/exstore.c
     acpica/executer/exstoren.c
     acpica/executer/exstorob.c
@@ -136,6 +137,7 @@ list(APPEND ACPICA_SOURCE
     acpica/utilities/utascii.c
     acpica/utilities/utbuffer.c
     acpica/utilities/utcache.c
+    acpica/utilities/utcksum.c
     # acpica/utilities/utclib.c
     acpica/utilities/utcopy.c
     # acpica/utilities/utdebug.c
@@ -162,20 +164,23 @@ list(APPEND ACPICA_SOURCE
     acpica/utilities/utstate.c
     acpica/utilities/utstring.c
     acpica/utilities/utstrtoul64.c
+    acpica/utilities/utstrsuppt.c
     # acpica/utilities/utuuid.c
     acpica/utilities/uttrack.c
     acpica/utilities/utxface.c
     acpica/utilities/utxferror.c
     acpica/utilities/utxfinit.c
-    acpica/utilities/utxfmutex.c
-    acpica/include/acpi.h)
+    acpica/utilities/utxfmutex.c)
 
-add_library(acpica
-    ${ACPICA_SOURCE}
+list(APPEND ACPICA_PCH_SKIP_SOURCE
     acpica/utilities/utexcep.c
     acpica/utilities/utglobal.c)
 
-add_pch(acpica acpica/include/acpi.h ACPICA_SOURCE)
+add_library(acpica
+    ${ACPICA_SOURCE}
+    ${ACPICA_PCH_SKIP_SOURCE})
+
+add_pch(acpica acpica/include/acpi.h "${ACPICA_PCH_SKIP_SOURCE}")
 set_target_properties(acpica PROPERTIES COMPILE_DEFINITIONS "ACPI_USE_LOCAL_CACHE;ACPI_USE_SYSTEM_INTTYPES")
 add_dependencies(acpica bugcodes xdk)
 
@@ -192,15 +197,15 @@ list(APPEND ACPI_SOURCE
     pnp.c
     power.c
     buspdo.c
-    main.c
-    precomp.h)
+    main.c)
 
-add_library(acpi SHARED ${ACPI_SOURCE})
+add_library(acpi MODULE
+    ${ACPI_SOURCE}
+    acpi.rc)
+
 set_module_type(acpi kernelmodedriver)
 target_link_libraries(acpi wdmguid acpica memcmp strtol ${PSEH_LIB})
 add_importlibs(acpi ntoskrnl hal)
 add_pch(acpi precomp.h ACPI_SOURCE)
 add_cd_file(TARGET acpi DESTINATION reactos/system32/drivers NO_CAB FOR all)
-
-add_subdirectory(cmbatt)
-add_subdirectory(compbatt)
+add_driver_inf(acpi acpi.inf)

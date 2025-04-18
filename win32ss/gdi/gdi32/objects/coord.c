@@ -142,7 +142,7 @@ SetMapMode(
     /* Handle METADC16 here, since we don't have a DCATTR. */
     if (GDI_HANDLE_GET_TYPE(hdc) == GDILoObjType_LO_METADC16_TYPE) \
     {
-        return GetAndSetDCDWord(hdc, GdiGetSetMapMode, iMode, 0, 0, 0 );
+        return METADC_SetMapMode(hdc, iMode);
     }
 
     /* Get the DC attribute */
@@ -157,7 +157,7 @@ SetMapMode(
     if ((iMode != pdcattr->iMapMode) || (iMode == MM_ISOTROPIC))
     {
         pdcattr->ulDirty_ &= ~SLOW_WIDTHS;
-        return GetAndSetDCDWord(hdc, GdiGetSetMapMode, iMode, 0, 0, 0 );
+        return GetAndSetDCDWord(hdc, GdiGetSetMapMode, iMode, EMR_SETMAPMODE, 0, 0 );
     }
 
     return pdcattr->iMapMode;
@@ -171,28 +171,35 @@ DPtoLP(
     _Inout_updates_(nCount) LPPOINT lpPoints,
     _In_ INT nCount)
 {
-#if 0
-    INT i;
     PDC_ATTR pdcattr;
+    SIZEL sizlView;
 
-    /* Get the DC attribute */
-    pdcattr = GdiGetDcAttr(hdc);
-    if (!pdcattr)
+    if (nCount <= 0)
+        return TRUE;
+
+    if (hdc == NULL)
     {
         SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
     }
-
-    if (pdcattr->flXform & ANY_XFORM_CHANGES)
+    if (lpPoints == NULL)
     {
-        GdiFixupTransforms(pdcattr);
+        return TRUE;
     }
 
-    // FIXME: can this fail on Windows?
-    GdiTransformPoints(&pdcattr->mxDeviceToWorld, lpPoints, lpPoints, nCount);
+    pdcattr = GdiGetDcAttr(hdc);
+    if (pdcattr == NULL)
+        return FALSE;
 
-    return TRUE;
-#endif
+    if (pdcattr->iMapMode == MM_ISOTROPIC)
+    {
+        if (NtGdiGetDCPoint(hdc, GdiGetViewPortExt, (PPOINTL)&sizlView))
+        {
+            if (sizlView.cx == 0 || sizlView.cy == 0)
+                return FALSE;
+        }
+    }
+
     return NtGdiTransformPoints(hdc, lpPoints, lpPoints, nCount, GdiDpToLp);
 }
 
@@ -203,28 +210,25 @@ LPtoDP(
     _Inout_updates_(nCount) LPPOINT lpPoints,
     _In_ INT nCount)
 {
-#if 0
-    INT i;
     PDC_ATTR pdcattr;
 
-    /* Get the DC attribute */
-    pdcattr = GdiGetDcAttr(hdc);
-    if (!pdcattr)
+    if (nCount <= 0)
+        return TRUE;
+
+    if (hdc == NULL)
     {
         SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
     }
-
-    if (pdcattr->flXform & ANY_XFORM_CHANGES)
+    if (lpPoints == NULL)
     {
-        GdiFixupTransforms(pdcattr);
+        return TRUE;
     }
 
-    // FIXME: can this fail on Windows?
-    GdiTransformPoints(&pdcattr->mxWorldToDevice, lpPoints, lpPoints, nCount);
+    pdcattr = GdiGetDcAttr(hdc);
+    if (pdcattr == NULL)
+        return FALSE;
 
-    return TRUE;
-#endif
     return NtGdiTransformPoints(hdc, lpPoints, lpPoints, nCount, GdiLpToDp);
 }
 
@@ -275,7 +279,6 @@ GetWorldTransform(
     _In_ HDC hdc,
     _Out_ LPXFORM pxform)
 {
-#if 0
     PDC_ATTR pdcattr;
 
     pdcattr = GdiGetDcAttr(hdc);
@@ -284,7 +287,7 @@ GetWorldTransform(
         SetLastError(ERROR_INVALID_HANDLE);
         return FALSE;
     }
-
+#if 0
     if (pdcattr->flXform & ANY_XFORM_INVALID)
     {
         GdiFixupTransforms(pdcattr);
@@ -320,11 +323,11 @@ ModifyWorldTransform(
 
     if (dwMode == MWT_SET)
     {
-       HANDLE_METADC(BOOL, SetWorldTransform, FALSE, hdc, pxform);
+       HANDLE_EMETAFDC(BOOL, SetWorldTransform, FALSE, hdc, pxform);
     }
     else
     {
-       HANDLE_METADC(BOOL, ModifyWorldTransform, FALSE, hdc, pxform, dwMode);
+       HANDLE_EMETAFDC(BOOL, ModifyWorldTransform, FALSE, hdc, pxform, dwMode);
     }
 
     /* Get the DC attribute */
@@ -455,7 +458,7 @@ GetWindowOrgEx(
 }
 
 /*
- * @unimplemented
+ * @implemented
  */
 BOOL
 WINAPI
@@ -467,7 +470,7 @@ SetViewportExtEx(
 {
     PDC_ATTR pdcattr;
 
-    HANDLE_METADC(BOOL, SetViewportExtEx, FALSE, hdc, nXExtent, nYExtent, lpSize);
+    HANDLE_METADC(BOOL, SetViewportExtEx, FALSE, hdc, nXExtent, nYExtent);
 
     /* Get the DC attribute */
     pdcattr = GdiGetDcAttr(hdc);
@@ -490,16 +493,19 @@ SetViewportExtEx(
         (pdcattr->szlViewportExt.cy == nYExtent))
         return TRUE;
 
+    if (nXExtent == 0 || nYExtent == 0)
+        return TRUE;
+
     /* Only change viewport extension if we are in iso or aniso mode */
     if ((pdcattr->iMapMode == MM_ISOTROPIC) ||
         (pdcattr->iMapMode == MM_ANISOTROPIC))
     {
         if (NtCurrentTeb()->GdiTebBatch.HDC == hdc)
         {
-            if (pdcattr->ulDirty_ & DC_FONTTEXT_DIRTY)
+            if (pdcattr->ulDirty_ & DC_MODE_DIRTY)
             {
                 NtGdiFlush(); // Sync up pdcattr from Kernel space.
-                pdcattr->ulDirty_ &= ~(DC_MODE_DIRTY|DC_FONTTEXT_DIRTY);
+                pdcattr->ulDirty_ &= ~DC_MODE_DIRTY;
             }
         }
 
@@ -519,7 +525,7 @@ SetViewportExtEx(
 }
 
 /*
- * @unimplemented
+ * @implemented
  */
 BOOL
 WINAPI
@@ -531,7 +537,7 @@ SetWindowOrgEx(
 {
     PDC_ATTR pdcattr;
 
-    HANDLE_METADC(BOOL, SetWindowOrgEx, FALSE, hdc, X, Y, lpPoint);
+    HANDLE_METADC(BOOL, SetWindowOrgEx, FALSE, hdc, X, Y);
 
     /* Get the DC attribute */
     pdcattr = GdiGetDcAttr(hdc);
@@ -540,7 +546,7 @@ SetWindowOrgEx(
         /* Do not set LastError here! */
         return FALSE;
     }
-#if 0
+
     if (lpPoint)
     {
         lpPoint->x = pdcattr->ptlWindowOrg.x;
@@ -550,27 +556,28 @@ SetWindowOrgEx(
     if ((pdcattr->ptlWindowOrg.x == X) && (pdcattr->ptlWindowOrg.y == Y))
         return TRUE;
 
-    if (NtCurrentTeb()->GdiTebBatch.HDC == (ULONG)hdc)
+    if (NtCurrentTeb()->GdiTebBatch.HDC == hdc)
     {
-        if (pdcattr->ulDirty_ & DC_FONTTEXT_DIRTY)
+        if (pdcattr->ulDirty_ & DC_MODE_DIRTY)
         {
             NtGdiFlush(); // Sync up pdcattr from Kernel space.
-            pdcattr->ulDirty_ &= ~(DC_MODE_DIRTY|DC_FONTTEXT_DIRTY);
+            pdcattr->ulDirty_ &= ~DC_MODE_DIRTY;
         }
     }
 
     pdcattr->ptlWindowOrg.x = X;
-    pdcattr->lWindowOrgx    = X;
     pdcattr->ptlWindowOrg.y = Y;
+
+    pdcattr->lWindowOrgx    = X;
     if (pdcattr->dwLayout & LAYOUT_RTL) NtGdiMirrorWindowOrg(hdc);
-    pdcattr->flXform |= (PAGE_XLATE_CHANGED|DEVICE_TO_WORLD_INVALID);
+    pdcattr->flXform |= (PAGE_XLATE_CHANGED|WORLD_XFORM_CHANGED|DEVICE_TO_WORLD_INVALID);
     return TRUE;
-#endif
-    return NtGdiSetWindowOrgEx(hdc, X, Y, lpPoint);
+
+//    return NtGdiSetWindowOrgEx(hdc, X, Y, lpPoint);
 }
 
 /*
- * @unimplemented
+ * @implemented
  */
 BOOL
 WINAPI
@@ -582,7 +589,7 @@ SetWindowExtEx(
 {
     PDC_ATTR pdcattr;
 
-    HANDLE_METADC(BOOL, SetWindowExtEx, FALSE, hdc, nXExtent, nYExtent, lpSize);
+    HANDLE_METADC(BOOL, SetWindowExtEx, FALSE, hdc, nXExtent, nYExtent);
 
     /* Get the DC attr */
     pdcattr = GdiGetDcAttr(hdc);
@@ -622,10 +629,10 @@ SetWindowExtEx(
 
         if (NtCurrentTeb()->GdiTebBatch.HDC == hdc)
         {
-            if (pdcattr->ulDirty_ & DC_FONTTEXT_DIRTY)
+            if (pdcattr->ulDirty_ & DC_MODE_DIRTY)
             {
                 NtGdiFlush(); // Sync up Dc_Attr from Kernel space.
-                pdcattr->ulDirty_ &= ~(DC_MODE_DIRTY|DC_FONTTEXT_DIRTY);
+                pdcattr->ulDirty_ &= ~DC_MODE_DIRTY;
             }
         }
 
@@ -641,7 +648,7 @@ SetWindowExtEx(
 }
 
 /*
- * @unimplemented
+ * @implemented
  */
 BOOL
 WINAPI
@@ -653,7 +660,7 @@ SetViewportOrgEx(
 {
     PDC_ATTR pdcattr;
 
-    HANDLE_METADC(BOOL, SetViewportOrgEx, FALSE, hdc, X, Y, lpPoint);
+    HANDLE_METADC(BOOL, SetViewportOrgEx, FALSE, hdc, X, Y);
 
     /* Get the DC attribute */
     pdcattr = GdiGetDcAttr(hdc);
@@ -662,21 +669,29 @@ SetViewportOrgEx(
         /* Do not set LastError here! */
         return FALSE;
     }
-
-#if 0
+    //// HACK : XP+ doesn't do this. See CORE-16656 & CORE-16644.
+    if (NtCurrentTeb()->GdiTebBatch.HDC == hdc)
+    {
+        if (pdcattr->ulDirty_ & DC_MODE_DIRTY)
+        {
+            NtGdiFlush();
+            pdcattr->ulDirty_ &= ~DC_MODE_DIRTY;
+        }
+    }
+    ////
     if (lpPoint)
     {
         lpPoint->x = pdcattr->ptlViewportOrg.x;
         lpPoint->y = pdcattr->ptlViewportOrg.y;
         if (pdcattr->dwLayout & LAYOUT_RTL) lpPoint->x = -lpPoint->x;
     }
-    pdcattr->flXform |= (PAGE_XLATE_CHANGED|DEVICE_TO_WORLD_INVALID);
+    pdcattr->flXform |= (PAGE_XLATE_CHANGED|WORLD_XFORM_CHANGED|DEVICE_TO_WORLD_INVALID);
     if (pdcattr->dwLayout & LAYOUT_RTL) X = -X;
     pdcattr->ptlViewportOrg.x = X;
     pdcattr->ptlViewportOrg.y = Y;
     return TRUE;
-#endif
-    return NtGdiSetViewportOrgEx(hdc,X,Y,lpPoint);
+
+//    return NtGdiSetViewportOrgEx(hdc,X,Y,lpPoint);
 }
 
 /*
@@ -692,7 +707,7 @@ ScaleViewportExtEx(
     _In_ INT yDenom,
     _Out_ LPSIZE lpSize)
 {
-    HANDLE_METADC(BOOL, ScaleViewportExtEx, FALSE, hdc, xNum, xDenom, yNum, yDenom, lpSize);
+    HANDLE_METADC(BOOL, ScaleViewportExtEx, FALSE, hdc, xNum, xDenom, yNum, yDenom);
 
     if (!GdiGetDcAttr(hdc))
     {
@@ -716,7 +731,7 @@ ScaleWindowExtEx(
     _In_ INT yDenom,
     _Out_ LPSIZE lpSize)
 {
-    HANDLE_METADC(BOOL, ScaleWindowExtEx, FALSE, hdc, xNum, xDenom, yNum, yDenom, lpSize);
+    HANDLE_METADC(BOOL, ScaleWindowExtEx, FALSE, hdc, xNum, xDenom, yNum, yDenom);
 
     if (!GdiGetDcAttr(hdc))
     {
@@ -846,10 +861,9 @@ OffsetViewportOrgEx(
     _In_ int nYOffset,
     _Out_opt_ LPPOINT lpPoint)
 {
-    //PDC_ATTR pdcattr;
+    PDC_ATTR pdcattr;
 
-    HANDLE_METADC(BOOL, OffsetViewportOrgEx, FALSE, hdc, nXOffset, nYOffset, lpPoint);
-#if 0
+    HANDLE_METADC16(BOOL, OffsetViewportOrgEx, FALSE, hdc, nXOffset, nYOffset);
 
     /* Get the DC attribute */
     pdcattr = GdiGetDcAttr(hdc);
@@ -861,13 +875,13 @@ OffsetViewportOrgEx(
 
     if (lpPoint)
     {
-        *lpPoint = (POINT)pdcattr->ptlViewportOrg;
+        *lpPoint = pdcattr->ptlViewportOrg;
         if ( pdcattr->dwLayout & LAYOUT_RTL) lpPoint->x = -lpPoint->x;
     }
 
     if ( nXOffset || nYOffset != nXOffset )
     {
-        if (NtCurrentTeb()->GdiTebBatch.HDC == (ULONG)hdc)
+        if (NtCurrentTeb()->GdiTebBatch.HDC == hdc)
         {
             if (pdcattr->ulDirty_ & DC_MODE_DIRTY)
             {
@@ -876,14 +890,17 @@ OffsetViewportOrgEx(
             }
         }
 
-        pdcattr->flXform |= (PAGE_XLATE_CHANGED|DEVICE_TO_WORLD_INVALID);
+        pdcattr->flXform |= (PAGE_XLATE_CHANGED|WORLD_XFORM_CHANGED|DEVICE_TO_WORLD_INVALID);
         if (pdcattr->dwLayout & LAYOUT_RTL) nXOffset = -nXOffset;
         pdcattr->ptlViewportOrg.x += nXOffset;
         pdcattr->ptlViewportOrg.y += nYOffset;
     }
+
+    HANDLE_EMETAFDC(BOOL, SetViewportOrgEx, FALSE, hdc, pdcattr->ptlViewportOrg.x, pdcattr->ptlViewportOrg.y);
+
     return TRUE;
-#endif
-    return  NtGdiOffsetViewportOrgEx(hdc, nXOffset, nYOffset, lpPoint);
+
+//    return  NtGdiOffsetViewportOrgEx(hdc, nXOffset, nYOffset, lpPoint);
 }
 
 /*
@@ -898,11 +915,10 @@ OffsetWindowOrgEx(
     _In_ int nYOffset,
     _Out_opt_ LPPOINT lpPoint)
 {
-    //PDC_ATTR pdcattr;
+    PDC_ATTR pdcattr;
 
-    HANDLE_METADC(BOOL, OffsetWindowOrgEx, FALSE, hdc, nXOffset, nYOffset, lpPoint);
+    HANDLE_METADC16(BOOL, OffsetWindowOrgEx, FALSE, hdc, nXOffset, nYOffset);
 
-#if 0
     /* Get the DC attribute */
     pdcattr = GdiGetDcAttr(hdc);
     if (!pdcattr)
@@ -913,13 +929,13 @@ OffsetWindowOrgEx(
 
     if ( lpPoint )
     {
-        *lpPoint   = (POINT)pdcattr->ptlWindowOrg;
-        lpPoint->x = pdcattr->lWindowOrgx;
+        *lpPoint   = pdcattr->ptlWindowOrg;
+        //lpPoint->x = pdcattr->lWindowOrgx;
     }
 
     if ( nXOffset || nYOffset != nXOffset )
     {
-        if (NtCurrentTeb()->GdiTebBatch.HDC == (ULONG)hdc)
+        if (NtCurrentTeb()->GdiTebBatch.HDC == hdc)
         {
             if (pdcattr->ulDirty_ & DC_MODE_DIRTY)
             {
@@ -928,13 +944,16 @@ OffsetWindowOrgEx(
             }
         }
 
-        pdcattr->flXform |= (PAGE_XLATE_CHANGED|DEVICE_TO_WORLD_INVALID);
+        pdcattr->flXform |= (PAGE_XLATE_CHANGED|WORLD_XFORM_CHANGED|DEVICE_TO_WORLD_INVALID);
         pdcattr->ptlWindowOrg.x += nXOffset;
         pdcattr->ptlWindowOrg.y += nYOffset;
         pdcattr->lWindowOrgx += nXOffset;
     }
+
+    HANDLE_EMETAFDC(BOOL, SetWindowOrgEx, FALSE, hdc, pdcattr->ptlWindowOrg.x, pdcattr->ptlWindowOrg.y);
+
     return TRUE;
-#endif
-    return NtGdiOffsetWindowOrgEx(hdc, nXOffset, nYOffset, lpPoint);
+
+//    return NtGdiOffsetWindowOrgEx(hdc, nXOffset, nYOffset, lpPoint);
 }
 

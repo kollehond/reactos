@@ -19,10 +19,18 @@
 #ifndef __WINE_UNDOCSHELL_H
 #define __WINE_UNDOCSHELL_H
 
+#ifndef SHSTDAPI
+#if defined(_SHELL32_) /* DECLSPEC_IMPORT disabled because of CORE-6504: */ || TRUE
+#define SHSTDAPI_(type) type WINAPI
+#else
+#define SHSTDAPI_(type) EXTERN_C DECLSPEC_IMPORT type WINAPI
+#endif
+#define SHSTDAPI SHSTDAPI_(HRESULT)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif /* defined(__cplusplus) */
-
 
 #if (NTDDI_VERSION < NTDDI_LONGHORN)
 #define DBIMF_NOGRIPPER         0x0800
@@ -49,13 +57,17 @@ typedef struct _TRAYNOTIFYDATAW
 
 #endif /* defined (_SHELLAPI_H) || defined (_INC_SHELLAPI) */
 
-
 /****************************************************************************
  * Taskbar WM_COMMAND identifiers
  */
 #define TWM_DOEXITWINDOWS (WM_USER + 342)
 #define TWM_CYCLEFOCUS (WM_USER + 348)
 
+/****************************************************************************
+ * ProgMan messages
+ */
+#define WM_PROGMAN_OPENSHELLSETTINGS (WM_USER + 22) /* wParam specifies the dialog (and tab page) */
+#define WM_PROGMAN_SAVESTATE         (WM_USER + 77)
 
 /****************************************************************************
  *  IDList Functions
@@ -75,6 +87,15 @@ BOOL WINAPI ILGetDisplayNameEx(
     LPVOID path,
     DWORD type);
 
+#if (NTDDI_VERSION >= NTDDI_LONGHORN) || defined(_SHELL32_)
+SHSTDAPI DisplayNameOfW(
+    _In_ IShellFolder *psf,
+    _In_ LPCITEMIDLIST pidl,
+    _In_ DWORD dwFlags,
+    _Out_ LPWSTR pszBuf,
+    _In_ UINT cchBuf);
+#endif
+
 LPITEMIDLIST WINAPI ILGlobalClone(LPCITEMIDLIST pidl);
 void WINAPI ILGlobalFree(LPITEMIDLIST pidl);
 LPITEMIDLIST WINAPI SHSimpleIDListFromPathA (LPCSTR lpszPath); //FIXME
@@ -90,12 +111,28 @@ HRESULT WINAPI SHILCreateFromPathW (
     LPITEMIDLIST * ppidl,
     DWORD *attributes);
 
+HRESULT WINAPI SHInvokeCommand(
+    HWND hWnd,
+    IShellFolder* lpFolder,
+    LPCITEMIDLIST lpApidl,
+    LPCSTR lpVerb);
+HRESULT WINAPI SHInvokeCommandOnContextMenu(
+    _In_opt_ HWND hWnd,
+    _In_opt_ IUnknown* pUnk,
+    _In_ IContextMenu* pCM,
+    _In_ UINT fCMIC,
+    _In_opt_ LPCSTR pszVerb);
+BOOL WINAPI IContextMenu_Invoke(
+    _In_ IContextMenu *pContextMenu,
+    _In_ HWND hwnd,
+    _In_ LPCSTR lpVerb,
+    _In_ UINT uFlags);
+
 /*
     string functions
 */
 BOOL WINAPI StrRetToStrNA(LPSTR,DWORD,LPSTRRET,const ITEMIDLIST*);
 BOOL WINAPI StrRetToStrNW(LPWSTR,DWORD,LPSTRRET,const ITEMIDLIST*);
-
 
 /****************************************************************************
  * SHChangeNotifyRegister API
@@ -105,6 +142,23 @@ BOOL WINAPI StrRetToStrNW(LPWSTR,DWORD,LPSTRRET,const ITEMIDLIST*);
 #define SHCNRF_RecursiveInterrupt   0x1000  /* Must be combined with SHCNRF_InterruptLevel */
 #define SHCNRF_NewDelivery          0x8000  /* Messages use shared memory */
 
+/****************************************************************************
+ * SHChangeNotify
+ */
+
+typedef struct _SHCNF_PRINTJOB_INFO
+{
+    DWORD JobId;
+    // More info,,,
+} SHCNF_PRINTJOB_INFO, *PSHCNF_PRINTJOB_INFO;
+
+//
+// Add missing types for print job notifications.
+//
+#define SHCNF_PRINTJOBA 0x0004
+#define SHCNF_PRINTJOBW 0x0007
+
+HRESULT WINAPI SHUpdateRecycleBinIcon(void);
 
 /****************************************************************************
  * Shell Common Dialogs
@@ -168,10 +222,19 @@ int  WINAPI SHOutOfMemoryMessageBox(
     LPCSTR lpCaption,
     UINT uType);
 
+HRESULT WINAPI SHShouldShowWizards(_In_ IUnknown *pUnknown);
+
 DWORD WINAPI SHNetConnectionDialog(
     HWND hwndOwner,
     LPCWSTR lpstrRemoteName,
     DWORD dwType);
+
+BOOL WINAPI SHIsTempDisplayMode(VOID);
+
+HRESULT WINAPI
+SHGetUserDisplayName(
+    _Out_writes_to_(*puSize, *puSize) PWSTR pName,
+    _Inout_ PULONG puSize);
 
 /****************************************************************************
  * Cabinet Window Messages
@@ -221,9 +284,26 @@ HICON WINAPI SHGetFileIcon(
 
 BOOL WINAPI FileIconInit(BOOL bFullInit);
 
+WORD WINAPI
+ExtractIconResInfoA(
+    _In_ HANDLE hHandle,
+    _In_ LPCSTR lpFileName,
+    _In_ WORD wIndex,
+    _Out_ LPWORD lpSize,
+    _Out_ LPHANDLE lpIcon);
+
+WORD WINAPI
+ExtractIconResInfoW(
+    _In_ HANDLE hHandle,
+    _In_ LPCWSTR lpFileName,
+    _In_ WORD wIndex,
+    _Out_ LPWORD lpSize,
+    _Out_ LPHANDLE lpIcon);
+
 /****************************************************************************
  * File Menu Routines
  */
+
 /* FileMenu_Create nSelHeight constants */
 #define FM_DEFAULT_SELHEIGHT  -1
 #define FM_FULL_SELHEIGHT     0
@@ -424,8 +504,9 @@ BOOL WINAPI PathYetAnotherMakeUniqueName(
     LPCWSTR lpszShortName,
     LPCWSTR lpszLongName);
 
-BOOL  WINAPI PathQualifyAW(LPCVOID path);
-
+VOID WINAPI PathQualifyA(LPSTR pszPath);
+VOID WINAPI PathQualifyW(LPWSTR pszPath);
+VOID WINAPI PathQualifyAW(LPVOID path);
 
 /* PathResolve flags */
 #define PRF_CHECKEXISTANCE  0x01
@@ -433,6 +514,8 @@ BOOL  WINAPI PathQualifyAW(LPCVOID path);
 #define PRF_QUALIFYONPATH   0x04
 #define PRF_WINDOWS31       0x08
 
+BOOL WINAPI PathResolveA(LPSTR path, LPCSTR *dirs, DWORD flags);
+BOOL WINAPI PathResolveW(LPWSTR path, LPCWSTR *dirs, DWORD flags);
 BOOL WINAPI PathResolveAW(LPVOID lpszPath, LPCVOID *alpszPaths, DWORD dwFlags);
 
 VOID WINAPI PathSetDlgItemPathAW(HWND hDlg, int nIDDlgItem, LPCVOID lpszPath);
@@ -461,20 +544,52 @@ BOOL WINAPI PathIsSameRootAW(LPCVOID lpszPath1, LPCVOID lpszPath2);
 
 BOOL WINAPI PathFindOnPathAW(LPVOID sFile, LPCVOID *sOtherDirs);
 
+BOOL WINAPI PathIsEqualOrSubFolder(_In_ LPCWSTR pszFile1OrCSIDL, _In_ LPCWSTR pszFile2);
+
+BOOL WINAPI PathIsTemporaryA(_In_ LPCSTR Str);
+BOOL WINAPI PathIsTemporaryW(_In_ LPCWSTR Str);
+
 /****************************************************************************
- * Shell File Operations error codes
+ * Shell File Operations error codes - SHFileOperationA/W
  */
 
 /* Error codes could be pre-Win32 */
-#define DE_SAMEFILE      0x71
-#define DE_MANYSRC1DEST  0x72
-#define DE_DIFFDIR       0x73
-#define DE_OPCANCELLED   0x75
-#define DE_DESTSUBTREE   0x76
-#define DE_INVALIDFILES  0x7C
-#define DE_DESTSAMETREE  0x7D
-#define DE_FLDDESTISFILE 0x7E
-#define DE_FILEDESTISFLD 0x80
+#define DE_SAMEFILE         0x71
+#define DE_MANYSRC1DEST     0x72
+#define DE_DIFFDIR          0x73
+#define DE_ROOTDIR          0x74
+#define DE_OPCANCELLED      0x75
+#define DE_DESTSUBTREE      0x76
+#define DE_ACCESSDENIEDSRC  0x78
+#define DE_PATHTOODEEP      0x79
+#define DE_MANYDEST         0x7A
+#define DE_INVALIDFILES     0x7C
+#define DE_DESTSAMETREE     0x7D
+#define DE_FLDDESTISFILE    0x7E
+#define DE_FILEDESTISFLD    0x80
+#define DE_FILENAMETOOLONG  0x81
+#define DE_DEST_IS_CDROM    0x82
+#define DE_DEST_IS_DVD      0x83
+#define DE_DEST_IS_CDRECORD 0x84
+#define DE_FILE_TOO_LARGE   0x85
+#define DE_SRC_IS_CDROM     0x86
+#define DE_SRC_IS_DVD       0x87
+#define DE_SRC_IS_CDRECORD  0x88
+// #define DE_ERROR_MAX
+#define ERRORONDEST         0x10000
+
+/****************************************************************************
+ * Shell settings
+ */
+
+typedef struct _REGSHELLSTATE
+{
+    DWORD dwSize;
+    SHELLSTATE ss;
+} REGSHELLSTATE, *PREGSHELLSTATE;
+#define REGSHELLSTATE_SIZE 0x24
+#define REGSHELLSTATE_VERSION 0xD
+C_ASSERT(sizeof(REGSHELLSTATE) == REGSHELLSTATE_SIZE);
 
 /****************************************************************************
  * Shell Namespace Routines
@@ -561,6 +676,81 @@ HRESULT WINAPI ShellExecCmdLine(
     LPVOID pUnused,
     DWORD dwSeclFlags);
 
+HINSTANCE WINAPI
+RealShellExecuteA(
+    _In_opt_ HWND hwnd,
+    _In_opt_ LPCSTR lpOperation,
+    _In_opt_ LPCSTR lpFile,
+    _In_opt_ LPCSTR lpParameters,
+    _In_opt_ LPCSTR lpDirectory,
+    _In_opt_ LPSTR lpReturn,
+    _In_opt_ LPCSTR lpTitle,
+    _In_opt_ LPVOID lpReserved,
+    _In_ INT nCmdShow,
+    _Out_opt_ PHANDLE lphProcess);
+
+HINSTANCE WINAPI
+RealShellExecuteW(
+    _In_opt_ HWND hwnd,
+    _In_opt_ LPCWSTR lpOperation,
+    _In_opt_ LPCWSTR lpFile,
+    _In_opt_ LPCWSTR lpParameters,
+    _In_opt_ LPCWSTR lpDirectory,
+    _In_opt_ LPWSTR lpReturn,
+    _In_opt_ LPCWSTR lpTitle,
+    _In_opt_ LPVOID lpReserved,
+    _In_ INT nCmdShow,
+    _Out_opt_ PHANDLE lphProcess);
+
+HINSTANCE WINAPI
+RealShellExecuteExA(
+    _In_opt_ HWND hwnd,
+    _In_opt_ LPCSTR lpOperation,
+    _In_opt_ LPCSTR lpFile,
+    _In_opt_ LPCSTR lpParameters,
+    _In_opt_ LPCSTR lpDirectory,
+    _In_opt_ LPSTR lpReturn,
+    _In_opt_ LPCSTR lpTitle,
+    _In_opt_ LPVOID lpReserved,
+    _In_ INT nCmdShow,
+    _Out_opt_ PHANDLE lphProcess,
+    _In_ DWORD dwFlags);
+
+HINSTANCE WINAPI
+RealShellExecuteExW(
+    _In_opt_ HWND hwnd,
+    _In_opt_ LPCWSTR lpOperation,
+    _In_opt_ LPCWSTR lpFile,
+    _In_opt_ LPCWSTR lpParameters,
+    _In_opt_ LPCWSTR lpDirectory,
+    _In_opt_ LPWSTR lpReturn,
+    _In_opt_ LPCWSTR lpTitle,
+    _In_opt_ LPVOID lpReserved,
+    _In_ INT nCmdShow,
+    _Out_opt_ PHANDLE lphProcess,
+    _In_ DWORD dwFlags);
+
+VOID WINAPI
+ShellExec_RunDLL(
+    _In_opt_ HWND hwnd,
+    _In_opt_ HINSTANCE hInstance,
+    _In_ PCSTR pszCmdLine,
+    _In_ INT nCmdShow);
+
+VOID WINAPI
+ShellExec_RunDLLA(
+    _In_opt_ HWND hwnd,
+    _In_opt_ HINSTANCE hInstance,
+    _In_ PCSTR pszCmdLine,
+    _In_ INT nCmdShow);
+
+VOID WINAPI
+ShellExec_RunDLLW(
+    _In_opt_ HWND hwnd,
+    _In_opt_ HINSTANCE hInstance,
+    _In_ PCWSTR pszCmdLine,
+    _In_ INT nCmdShow);
+
 /* RegisterShellHook types */
 #define RSH_DEREGISTER        0
 #define RSH_REGISTER          1
@@ -597,8 +787,8 @@ HRESULT WINAPI SHCreateLinks(
     UINT uFlags,
     LPITEMIDLIST *lppidlLinks);
 
-DWORD WINAPI CheckEscapesA(LPSTR string, DWORD len);
-DWORD WINAPI CheckEscapesW(LPWSTR string, DWORD len);
+VOID WINAPI CheckEscapesA(LPSTR string, DWORD len);
+VOID WINAPI CheckEscapesW(LPWSTR string, DWORD len);
 
 /* policy functions */
 BOOL WINAPI SHInitRestricted(LPCVOID unused, LPCVOID inpRegKey);
@@ -611,146 +801,86 @@ BOOL WINAPI SHInitRestricted(LPCVOID unused, LPCVOID inpRegKey);
 #define SMC_EXEC 4
 INT WINAPI Shell_GetCachedImageIndex(LPCWSTR szPath, INT nIndex, UINT bSimulateDoc);
 
+HRESULT WINAPI SHCreatePropertyBag(_In_ REFIID riid, _Out_ void **ppvObj);
+HRESULT WINAPI SHLimitInputCombo(HWND hWnd, IShellFolder *psf);
 HRESULT WINAPI SHGetImageList(int iImageList, REFIID riid, void **ppv);
 
+BOOL WINAPI GUIDFromStringA(
+    _In_   PCSTR psz,
+    _Out_  LPGUID pguid);
 BOOL WINAPI GUIDFromStringW(
     _In_   PCWSTR psz,
-    _Out_  LPGUID pguid
-    );
+    _Out_  LPGUID pguid);
 
-static inline ULONG
-Win32DbgPrint(const char *filename, int line, const char *lpFormat, ...)
-{
-    char szMsg[512];
-    char *szMsgStart;
-    const char *fname;
-    va_list vl;
-    ULONG uRet;
+PSTR WINAPI
+StrRStrA(
+    _In_ PCSTR pszSrc,
+    _In_opt_ PCSTR pszLast,
+    _In_ PCSTR pszSearch);
 
-    fname = strrchr(filename, '\\');
-    if (fname == NULL)
-    {
-        fname = strrchr(filename, '/');
-        if (fname != NULL)
-            fname++;
-    }
-    else
-        fname++;
+PWSTR WINAPI
+StrRStrW(
+    _In_ PCWSTR pszSrc,
+    _In_opt_ PCWSTR pszLast,
+    _In_ PCWSTR pszSearch);
 
-    if (fname == NULL)
-        fname = filename;
+LPSTR WINAPI SheRemoveQuotesA(LPSTR psz);
+LPWSTR WINAPI SheRemoveQuotesW(LPWSTR psz);
 
-    szMsgStart = szMsg + sprintf(szMsg, "%s:%d: ", fname, line);
+/* Flags for Int64ToString and LargeIntegerToString */
+#define FMT_USE_NUMDIGITS 0x01
+#define FMT_USE_LEADZERO  0x02
+#define FMT_USE_GROUPING  0x04
+#define FMT_USE_DECIMAL   0x08
+#define FMT_USE_THOUSAND  0x10
+#define FMT_USE_NEGNUMBER 0x20
 
-    va_start(vl, lpFormat);
-    uRet = (ULONG) vsprintf(szMsgStart, lpFormat, vl);
-    va_end(vl);
+INT WINAPI
+Int64ToString(
+    _In_ LONGLONG llValue,
+    _Out_writes_z_(cchOut) LPWSTR pszOut,
+    _In_ UINT cchOut,
+    _In_ BOOL bUseFormat,
+    _In_opt_ const NUMBERFMTW *pNumberFormat,
+    _In_ DWORD dwNumberFlags);
 
-    OutputDebugStringA(szMsg);
+INT WINAPI
+LargeIntegerToString(
+    _In_ const LARGE_INTEGER *pLargeInt,
+    _Out_writes_z_(cchOut) LPWSTR pszOut,
+    _In_ UINT cchOut,
+    _In_ BOOL bUseFormat,
+    _In_opt_ const NUMBERFMTW *pNumberFormat,
+    _In_ DWORD dwNumberFlags);
 
-    return uRet;
-}
+LPWSTR WINAPI
+ShortSizeFormatW(
+    _In_ DWORD dwNumber,
+    _Out_writes_(0x8FFF) LPWSTR pszBuffer);
 
-#define DbgPrint(fmt, ...) \
-    Win32DbgPrint(__FILE__, __LINE__, fmt, ##__VA_ARGS__)
+BOOL WINAPI SHOpenEffectiveToken(_Out_ LPHANDLE phToken);
+DWORD WINAPI SHGetUserSessionId(_In_opt_ HANDLE hToken);
 
-static inline void DbgDumpMenuInternal(HMENU hmenu, char* padding, int padlevel)
-{
-    WCHAR label[128];
-    int i;
-    int count = GetMenuItemCount(hmenu);
+typedef HRESULT (CALLBACK *PRIVILEGED_FUNCTION)(LPARAM lParam);
 
-    padding[padlevel] = '.';
-    padding[padlevel + 1] = '.';
-    padding[padlevel + 2] = 0;
+HRESULT WINAPI
+SHInvokePrivilegedFunctionW(
+    _In_z_ LPCWSTR pszName,
+    _In_ PRIVILEGED_FUNCTION fn,
+    _In_opt_ LPARAM lParam);
 
-    for (i = 0; i < count; i++)
-    {
-        MENUITEMINFOW mii = { 0 };
+BOOL WINAPI
+SHTestTokenPrivilegeW(_In_opt_ HANDLE hToken, _In_z_ LPCWSTR lpName);
+BOOL WINAPI IsSuspendAllowed(VOID);
 
-        mii.cbSize = sizeof(mii);
-        mii.fMask = MIIM_STRING | MIIM_FTYPE | MIIM_SUBMENU | MIIM_STATE | MIIM_ID;
-        mii.dwTypeData = label;
-        mii.cch = _countof(label);
+BOOL WINAPI
+Activate_RunDLL(
+    _In_ HWND hwnd,
+    _In_ HINSTANCE hinst,
+    _In_ LPCWSTR cmdline,
+    _In_ INT cmdshow);
 
-        GetMenuItemInfoW(hmenu, i, TRUE, &mii);
-
-        if (mii.fType & MFT_BITMAP)
-            DbgPrint("%s%2d - %08x: BITMAP %08p (state=%d, has submenu=%s)\n", padding, i, mii.wID, mii.hbmpItem, mii.fState, mii.hSubMenu ? "TRUE" : "FALSE");
-        else if (mii.fType & MFT_SEPARATOR)
-            DbgPrint("%s%2d - %08x ---SEPARATOR---\n", padding, i, mii.wID);
-        else
-            DbgPrint("%s%2d - %08x: %S (state=%d, has submenu=%s)\n", padding, i, mii.wID, mii.dwTypeData, mii.fState, mii.hSubMenu ? "TRUE" : "FALSE");
-
-        if (mii.hSubMenu)
-            DbgDumpMenuInternal(mii.hSubMenu, padding, padlevel + 2);
-
-    }
-
-    padding[padlevel] = 0;
-}
-
-static __inline void DbgDumpMenu(HMENU hmenu)
-{
-    char padding[128];
-    DbgDumpMenuInternal(hmenu, padding, 0);
-}
-
-
-static inline
-void DumpIdList(LPCITEMIDLIST pcidl)
-{
-    DbgPrint("Begin IDList Dump\n");
-
-    for (; pcidl != NULL; pcidl = ILGetNext(pcidl))
-    {
-        int i;
-        int cb = pcidl->mkid.cb;
-        BYTE * sh = (BYTE*) &(pcidl->mkid);
-        if (cb == 0) // ITEMIDLISTs are terminatedwith a null SHITEMID.
-            break;
-        DbgPrint("Begin SHITEMID (cb=%d)\n", cb);
-        if ((cb & 3) != 0)
-            DbgPrint(" - WARNING: cb is not a multiple of 4\n");
-        for (i = 0; (i + 4) <= cb; i += 4)
-        {
-            DbgPrint(" - abID[%08x]: %02x %02x %02x %02x\n",
-                     i,
-                     sh[i + 0],
-                     sh[i + 1],
-                     sh[i + 2],
-                     sh[i + 3]);
-        }
-        if (i < cb)
-        {
-            cb -= i;
-            if (cb == 3)
-            {
-                DbgPrint(" - abID[%08x]: %02x %02x %02x --\n",
-                         i,
-                         sh[i + 0],
-                         sh[i + 1],
-                         sh[i + 2]);
-            }
-            else if (cb == 2)
-            {
-                DbgPrint(" - abID[%08x]: %02x %02x -- --\n",
-                         i,
-                         sh[i + 0],
-                         sh[i + 1]);
-            }
-            else if (cb == 1)
-            {
-                DbgPrint(" - abID[%08x]: %02x -- -- --\n",
-                         i,
-                         sh[i + 0]);
-            }
-        }
-        DbgPrint("End SHITEMID\n");
-    }
-    DbgPrint("End IDList Dump.\n");
-}
-
+BOOL WINAPI SHSettingsChanged(LPCVOID unused, LPCWSTR pszKey);
 
 /*****************************************************************************
  * Shell32 resources
@@ -785,12 +915,97 @@ void DumpIdList(LPCITEMIDLIST pcidl)
 #define SMSET_UNKNOWN08             0x08
 #define SMSET_UNKNOWN10             0x10
 
+// explorer tray commands
+#define TRAYCMD_STARTMENU           305
+#define TRAYCMD_RUN_DIALOG          401
+#define TRAYCMD_LOGOFF_DIALOG       402
+#define TRAYCMD_CASCADE             403
+#define TRAYCMD_TILE_H              404
+#define TRAYCMD_TILE_V              405
+#define TRAYCMD_TOGGLE_DESKTOP      407
+#define TRAYCMD_DATE_AND_TIME       408
+#define TRAYCMD_TASKBAR_PROPERTIES  413
+#define TRAYCMD_MINIMIZE_ALL        415
+#define TRAYCMD_RESTORE_ALL         416
+#define TRAYCMD_SHOW_DESKTOP        419
+#define TRAYCMD_SHOW_TASK_MGR       420
+#define TRAYCMD_CUSTOMIZE_TASKBAR   421
+#define TRAYCMD_LOCK_TASKBAR        424
+#define TRAYCMD_HELP_AND_SUPPORT    503
+#define TRAYCMD_CONTROL_PANEL       505
+#define TRAYCMD_SHUTDOWN_DIALOG     506
+#define TRAYCMD_PRINTERS_AND_FAXES  510
+#define TRAYCMD_LOCK_DESKTOP        517
+#define TRAYCMD_SWITCH_USER_DIALOG  5000
+#define TRAYCMD_SEARCH_FILES        41093
+#define TRAYCMD_SEARCH_COMPUTERS    41094
+
+// Explorer Tray Application Bar Data Message Commands
+#define TABDMC_APPBAR     0
+#define TABDMC_NOTIFY     1
+#define TABDMC_LOADINPROC 2
+
 void WINAPI ShellDDEInit(BOOL bInit);
-DWORD WINAPI WinList_Init(void);
 
 IStream* WINAPI SHGetViewStream(LPCITEMIDLIST, DWORD, LPCTSTR, LPCTSTR, LPCTSTR);
 
-EXTERN_C HRESULT WINAPI SHCreateSessionKey(REGSAM samDesired, PHKEY phKey);
+HRESULT WINAPI SHCreateSessionKey(REGSAM samDesired, PHKEY phKey);
+
+LONG WINAPI SHRegQueryValueExA(
+    HKEY hkey,
+    LPCSTR lpValueName,
+    LPDWORD lpReserved,
+    LPDWORD lpType,
+    LPBYTE lpData,
+    LPDWORD lpcbData);
+LONG WINAPI SHRegQueryValueExW(
+    HKEY hkey,
+    LPCWSTR pszValue,
+    LPDWORD pdwReserved,
+    LPDWORD pdwType,
+    LPVOID pvData,
+    LPDWORD pcbData);
+#ifdef UNICODE
+    #define SHRegQueryValueEx SHRegQueryValueExW
+#else
+    #define SHRegQueryValueEx SHRegQueryValueExA
+#endif
+
+BOOL WINAPI
+SHIsBadInterfacePtr(
+    _In_ LPCVOID pv,
+    _In_ UINT_PTR ucb);
+
+HRESULT WINAPI
+CopyStreamUI(
+    _In_ IStream *pSrc,
+    _Out_ IStream *pDst,
+    _Inout_opt_ IProgressDialog *pProgress,
+    _In_opt_ DWORDLONG dwlSize);
+
+// Flags for SHGetComputerDisplayNameW
+#define SHGCDN_NOCACHE 0x1
+#define SHGCDN_NOSERVERNAME 0x10000
+
+HRESULT WINAPI
+SHGetComputerDisplayNameW(
+    _In_opt_ LPWSTR pszServerName,
+    _In_ DWORD dwFlags,
+    _Out_writes_z_(cchNameMax) LPWSTR pszName,
+    _In_ DWORD cchNameMax);
+
+/*****************************************************************************
+ * INVALID_FILETITLE_CHARACTERS
+ */
+
+#define INVALID_FILETITLE_CHARACTERSA "\\/:*?\"<>|"
+#define INVALID_FILETITLE_CHARACTERSW L"\\/:*?\"<>|"
+
+#ifdef UNICODE
+    #define INVALID_FILETITLE_CHARACTERS INVALID_FILETITLE_CHARACTERSW
+#else
+    #define INVALID_FILETITLE_CHARACTERS INVALID_FILETITLE_CHARACTERSA
+#endif
 
 /*****************************************************************************
  * Shell Link
@@ -1004,6 +1219,15 @@ typedef struct tagEXP_VISTA_ID_LIST
 #define EXP_SHIM_SIG          0xa0000008
 #define EXP_KNOWN_FOLDER_SIG  0xa000000b
 #define EXP_VISTA_ID_LIST_SIG 0xa000000c
+
+/* Not compatible yet */
+typedef struct SFVM_CUSTOMVIEWINFO_DATA
+{
+    ULONG cbSize;
+    HBITMAP hbmBack;
+    COLORREF clrText;
+    COLORREF clrTextBack;
+} SFVM_CUSTOMVIEWINFO_DATA, *LPSFVM_CUSTOMVIEWINFO_DATA;
 
 #include <poppack.h>
 

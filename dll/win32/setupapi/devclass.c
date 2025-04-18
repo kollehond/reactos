@@ -2,7 +2,7 @@
  * SetupAPI device class-related functions
  *
  * Copyright 2000 Andreas Mohr for CodeWeavers
- *           2005-2006 Hervé Poussineau (hpoussin@reactos.org)
+ *           2005-2006 HervÃ© Poussineau (hpoussin@reactos.org)
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -117,139 +117,6 @@ SetupDiDestroyClassImageList(
     return ret;
 }
 
-/***********************************************************************
- *		SETUP_CreateDevicesListFromEnumerator
- *
- * PARAMS
- *   list [IO] Device info set to fill with discovered devices.
- *   pClassGuid [I] If specified, only devices which belong to this class will be added.
- *   Enumerator [I] Location to search devices to add.
- *   hEnumeratorKey [I] Registry key corresponding to Enumerator key. Must have KEY_ENUMERATE_SUB_KEYS right.
- *
- * RETURNS
- *   Success: ERROR_SUCCESS.
- *   Failure: an error code.
- */
-static LONG
-SETUP_CreateDevicesListFromEnumerator(
-    IN OUT struct DeviceInfoSet *list,
-    IN CONST GUID *pClassGuid OPTIONAL,
-    IN LPCWSTR Enumerator,
-    IN HKEY hEnumeratorKey) /* handle to Enumerator registry key */
-{
-    HKEY hDeviceIdKey = NULL, hInstanceIdKey;
-    WCHAR KeyBuffer[MAX_PATH];
-    WCHAR InstancePath[MAX_PATH];
-    LPWSTR pEndOfInstancePath; /* Pointer into InstancePath buffer */
-    struct DeviceInfo *deviceInfo;
-    DWORD i = 0, j;
-    DWORD dwLength, dwRegType;
-    DWORD rc;
-
-    /* Enumerate device IDs (subkeys of hEnumeratorKey) */
-    while (TRUE)
-    {
-        dwLength = sizeof(KeyBuffer) / sizeof(KeyBuffer[0]);
-        rc = RegEnumKeyExW(hEnumeratorKey, i, KeyBuffer, &dwLength, NULL, NULL, NULL, NULL);
-        if (rc == ERROR_NO_MORE_ITEMS)
-            break;
-        if (rc != ERROR_SUCCESS)
-            goto cleanup;
-        i++;
-
-        /* Open device id sub key */
-        if (hDeviceIdKey != NULL)
-            RegCloseKey(hDeviceIdKey);
-        rc = RegOpenKeyExW(hEnumeratorKey, KeyBuffer, 0, KEY_ENUMERATE_SUB_KEYS, &hDeviceIdKey);
-        if (rc != ERROR_SUCCESS)
-            goto cleanup;
-
-        if (FAILED(StringCchCopyW(InstancePath, _countof(InstancePath), Enumerator)) ||
-            FAILED(StringCchCatW(InstancePath, _countof(InstancePath), BackSlash))  ||
-            FAILED(StringCchCatW(InstancePath, _countof(InstancePath), KeyBuffer))  ||
-            FAILED(StringCchCatW(InstancePath, _countof(InstancePath), BackSlash)))
-        {
-            rc = ERROR_GEN_FAILURE;
-            goto cleanup;
-        }
-
-        pEndOfInstancePath = &InstancePath[strlenW(InstancePath)];
-
-        /* Enumerate instance IDs (subkeys of hDeviceIdKey) */
-        j = 0;
-        while (TRUE)
-        {
-            GUID KeyGuid;
-
-            dwLength = sizeof(KeyBuffer) / sizeof(KeyBuffer[0]);
-            rc = RegEnumKeyExW(hDeviceIdKey, j, KeyBuffer, &dwLength, NULL, NULL, NULL, NULL);
-            if (rc == ERROR_NO_MORE_ITEMS)
-                break;
-            if (rc != ERROR_SUCCESS)
-                goto cleanup;
-            j++;
-
-            /* Open instance id sub key */
-            rc = RegOpenKeyExW(hDeviceIdKey, KeyBuffer, 0, KEY_QUERY_VALUE, &hInstanceIdKey);
-            if (rc != ERROR_SUCCESS)
-                goto cleanup;
-            *pEndOfInstancePath = '\0';
-            strcatW(InstancePath, KeyBuffer);
-
-            /* Read ClassGUID value */
-            dwLength = sizeof(KeyBuffer) - sizeof(WCHAR);
-            rc = RegQueryValueExW(hInstanceIdKey, ClassGUID, NULL, &dwRegType, (LPBYTE)KeyBuffer, &dwLength);
-            RegCloseKey(hInstanceIdKey);
-            if (rc == ERROR_FILE_NOT_FOUND)
-            {
-                if (pClassGuid)
-                    /* Skip this bad entry as we can't verify it */
-                    continue;
-                /* Set a default GUID for this device */
-                memcpy(&KeyGuid, &GUID_NULL, sizeof(GUID));
-            }
-            else if (rc != ERROR_SUCCESS)
-            {
-                goto cleanup;
-            }
-            else if (dwRegType != REG_SZ || dwLength < MAX_GUID_STRING_LEN * sizeof(WCHAR))
-            {
-                rc = ERROR_GEN_FAILURE;
-                goto cleanup;
-            }
-            else
-            {
-                KeyBuffer[MAX_GUID_STRING_LEN - 2] = '\0'; /* Replace the } by a NULL character */
-                if (UuidFromStringW(&KeyBuffer[1], &KeyGuid) != RPC_S_OK)
-                    /* Bad GUID, skip the entry */
-                    continue;
-            }
-
-            if (pClassGuid && !IsEqualIID(&KeyGuid, pClassGuid))
-            {
-                /* Skip this entry as it is not the right device class */
-                continue;
-            }
-
-            /* Add the entry to the list */
-            if (!CreateDeviceInfo(list, InstancePath, &KeyGuid, &deviceInfo))
-            {
-                rc = GetLastError();
-                goto cleanup;
-            }
-            TRACE("Adding '%s' to device info set %p\n", debugstr_w(InstancePath), list);
-            InsertTailList(&list->ListHead, &deviceInfo->ListEntry);
-        }
-    }
-
-    rc = ERROR_SUCCESS;
-
-cleanup:
-    if (hDeviceIdKey != NULL)
-        RegCloseKey(hDeviceIdKey);
-    return rc;
-}
-
 LONG
 SETUP_CreateDevicesList(
     IN OUT struct DeviceInfoSet *list,
@@ -257,91 +124,105 @@ SETUP_CreateDevicesList(
     IN CONST GUID *Class OPTIONAL,
     IN PCWSTR Enumerator OPTIONAL)
 {
-    HKEY HKLM = HKEY_LOCAL_MACHINE;
-    HKEY hEnumKey = NULL;
-    HKEY hEnumeratorKey = NULL;
-    WCHAR KeyBuffer[MAX_PATH];
-    DWORD i;
-    DWORD dwLength;
-    DWORD rc;
+    PWCHAR Buffer = NULL;
+    DWORD BufferLength = 4096;
+    PCWSTR InstancePath;
+    struct DeviceInfo *deviceInfo;
+    WCHAR ClassGuidBuffer[MAX_GUID_STRING_LEN];
+    DWORD ClassGuidBufferSize;
+    GUID ClassGuid;
+    DEVINST dnDevInst;
+    CONFIGRET cr;
 
-    if (Class && IsEqualIID(Class, &GUID_NULL))
-        Class = NULL;
+    Buffer = HeapAlloc(GetProcessHeap(), 0, BufferLength);
+    if (!Buffer)
+       return ERROR_NOT_ENOUGH_MEMORY;
 
-    /* Open Enum key (if applicable) */
-    if (MachineName != NULL)
+    do
     {
-        rc = RegConnectRegistryW(MachineName, HKEY_LOCAL_MACHINE, &HKLM);
-        if (rc != ERROR_SUCCESS)
-            goto cleanup;
-    }
-
-    rc = RegOpenKeyExW(
-        HKLM,
-        REGSTR_PATH_SYSTEMENUM,
-        0,
-        KEY_ENUMERATE_SUB_KEYS,
-        &hEnumKey);
-    if (rc != ERROR_SUCCESS)
-        goto cleanup;
-
-    /* If enumerator is provided, call directly SETUP_CreateDevicesListFromEnumerator.
-     * Else, enumerate all enumerators and call SETUP_CreateDevicesListFromEnumerator
-     * for each one.
-     */
-    if (Enumerator)
-    {
-        rc = RegOpenKeyExW(
-            hEnumKey,
-            Enumerator,
-            0,
-            KEY_ENUMERATE_SUB_KEYS,
-            &hEnumeratorKey);
-        if (rc != ERROR_SUCCESS)
+        cr = CM_Get_Device_ID_List_ExW(Enumerator,
+                                       Buffer,
+                                       BufferLength / sizeof(WCHAR),
+                                       Enumerator ? CM_GETIDLIST_FILTER_ENUMERATOR : CM_GETIDLIST_FILTER_NONE,
+                                       list->hMachine);
+        if (cr == CR_BUFFER_SMALL)
         {
-            if (rc == ERROR_FILE_NOT_FOUND)
-                rc = ERROR_INVALID_DATA;
-            goto cleanup;
+            if (Buffer)
+                HeapFree(GetProcessHeap(), 0, Buffer);
+            BufferLength *= 2;
+            Buffer = HeapAlloc(GetProcessHeap(), 0, BufferLength);
+            if (!Buffer)
+                return ERROR_NOT_ENOUGH_MEMORY;
         }
-        rc = SETUP_CreateDevicesListFromEnumerator(list, Class, Enumerator, hEnumeratorKey);
-    }
-    else
-    {
-        /* Enumerate enumerators */
-        i = 0;
-        while (TRUE)
+        else if (cr != CR_SUCCESS)
         {
-            dwLength = sizeof(KeyBuffer) / sizeof(KeyBuffer[0]);
-            rc = RegEnumKeyExW(hEnumKey, i, KeyBuffer, &dwLength, NULL, NULL, NULL, NULL);
-            if (rc == ERROR_NO_MORE_ITEMS)
-                break;
-            else if (rc != ERROR_SUCCESS)
-                goto cleanup;
-            i++;
-
-            /* Open sub key */
-            if (hEnumeratorKey != NULL)
-                RegCloseKey(hEnumeratorKey);
-            rc = RegOpenKeyExW(hEnumKey, KeyBuffer, 0, KEY_ENUMERATE_SUB_KEYS, &hEnumeratorKey);
-            if (rc != ERROR_SUCCESS)
-                goto cleanup;
-
-            /* Call SETUP_CreateDevicesListFromEnumerator */
-            rc = SETUP_CreateDevicesListFromEnumerator(list, Class, KeyBuffer, hEnumeratorKey);
-            if (rc != ERROR_SUCCESS)
-                goto cleanup;
+            TRACE("CM_Get_Device_ID_List_ExW() failed with status 0x%x\n", cr);
+            if (Buffer)
+                HeapFree(GetProcessHeap(), 0, Buffer);
+            return (cr == CR_REGISTRY_ERROR) ? ERROR_INVALID_DATA : GetErrorCodeFromCrCode(cr);
         }
-        rc = ERROR_SUCCESS;
+    }
+    while (cr != CR_SUCCESS);
+
+    for (InstancePath = Buffer; *InstancePath != UNICODE_NULL; InstancePath += wcslen(InstancePath) + 1)
+    {
+        /* Check that device really exists */
+        TRACE("Checking %S\n", InstancePath);
+        cr = CM_Locate_DevNode_Ex(&dnDevInst,
+                                  (DEVINSTID_W)InstancePath,
+                                  CM_LOCATE_DEVNODE_NORMAL,
+                                  list->hMachine);
+        if (cr != CR_SUCCESS)
+        {
+            ERR("CM_Locate_DevNode_ExW('%S') failed with status 0x%x\n", InstancePath, cr);
+            continue;
+        }
+
+        /* Retrieve GUID of this device */
+        ClassGuidBufferSize = sizeof(ClassGuidBuffer);
+        cr = CM_Get_DevNode_Registry_Property_ExW(dnDevInst,
+                                                  CM_DRP_CLASSGUID,
+                                                  NULL,
+                                                  ClassGuidBuffer,
+                                                  &ClassGuidBufferSize,
+                                                  0,
+                                                  list->hMachine);
+        if (cr == CR_SUCCESS)
+        {
+            ClassGuidBuffer[MAX_GUID_STRING_LEN - 2] = '\0'; /* Replace the } by a NULL character */
+            if (UuidFromStringW(&ClassGuidBuffer[1], &ClassGuid) != RPC_S_OK)
+            {
+                /* Bad GUID, skip the entry */
+                ERR("Invalid ClassGUID '%S' for device %S\n", ClassGuidBuffer, InstancePath);
+                continue;
+            }
+        }
+        else
+        {
+            TRACE("Using default class GUID_NULL for device %S\n", InstancePath);
+            memcpy(&ClassGuid, &GUID_NULL, sizeof(GUID));
+        }
+
+        if (Class && !IsEqualIID(&ClassGuid, Class))
+        {
+            TRACE("Skipping %S due to wrong class GUID\n", InstancePath);
+            continue;
+        }
+
+        /* Good! Create a device info element */
+        if (!CreateDeviceInfo(list, InstancePath, &ClassGuid, &deviceInfo))
+        {
+            ERR("Failed to create info for %S\n", InstancePath);
+            HeapFree(GetProcessHeap(), 0, Buffer);
+            return GetLastError();
+        }
+
+        TRACE("Adding device %s to list\n", debugstr_w(InstancePath));
+        InsertTailList(&list->ListHead, &deviceInfo->ListEntry);
     }
 
-cleanup:
-    if (HKLM != HKEY_LOCAL_MACHINE)
-        RegCloseKey(HKLM);
-    if (hEnumKey != NULL)
-        RegCloseKey(hEnumKey);
-    if (hEnumeratorKey != NULL)
-        RegCloseKey(hEnumeratorKey);
-    return rc;
+    HeapFree(GetProcessHeap(), 0, Buffer);
+    return ERROR_SUCCESS;
 }
 
 static BOOL
@@ -470,7 +351,7 @@ SetupDiGetClassImageListExA(
     return ret;
 }
 
-static BOOL WINAPI 
+static BOOL WINAPI
 SETUP_GetClassIconInfo(IN CONST GUID *ClassGuid, OUT PINT OutIndex, OUT LPWSTR *OutDllName)
 {
     LPWSTR Buffer = NULL;
@@ -1228,6 +1109,138 @@ SETUP_GetClassDevPropertySheetsCallback(
     return PropPageData->DontCancel;
 }
 
+static DWORD
+SETUP_GetValueString(
+    IN HKEY hKey,
+    IN LPWSTR lpValueName,
+    OUT LPWSTR *lpString)
+{
+    LPWSTR lpBuffer;
+    DWORD dwLength = 0;
+    DWORD dwRegType;
+    DWORD rc;
+
+    *lpString = NULL;
+
+    RegQueryValueExW(hKey, lpValueName, NULL, &dwRegType, NULL, &dwLength);
+
+    if (dwLength == 0 || dwRegType != REG_SZ)
+        return ERROR_FILE_NOT_FOUND;
+
+    lpBuffer = HeapAlloc(GetProcessHeap(), 0, dwLength + sizeof(WCHAR));
+    if (lpBuffer == NULL)
+        return ERROR_NOT_ENOUGH_MEMORY;
+
+    rc = RegQueryValueExW(hKey, lpValueName, NULL, NULL, (LPBYTE)lpBuffer, &dwLength);
+    if (rc != ERROR_SUCCESS)
+    {
+        HeapFree(GetProcessHeap(), 0, lpBuffer);
+        return rc;
+    }
+
+    lpBuffer[dwLength / sizeof(WCHAR)] = UNICODE_NULL;
+
+    *lpString = lpBuffer;
+
+    return ERROR_SUCCESS;
+}
+
+static
+BOOL
+SETUP_CallInstaller(
+    IN DI_FUNCTION InstallFunction,
+    IN HDEVINFO DeviceInfoSet,
+    IN PSP_DEVINFO_DATA DeviceInfoData OPTIONAL,
+    IN PSP_ADDPROPERTYPAGE_DATA PageData)
+{
+    PSP_CLASSINSTALL_HEADER pClassInstallParams = NULL;
+    DWORD dwSize = 0;
+    DWORD dwError;
+    BOOL ret = TRUE;
+
+    /* Get the size of the old class install parameters */
+    if (!SetupDiGetClassInstallParams(DeviceInfoSet,
+                                      DeviceInfoData,
+                                      NULL,
+                                      0,
+                                      &dwSize))
+    {
+        dwError = GetLastError();
+        if (dwError != ERROR_INSUFFICIENT_BUFFER)
+        {
+            ERR("SetupDiGetClassInstallParams failed (Error %lu)\n", dwError);
+            return FALSE;
+        }
+    }
+
+    /* Allocate a buffer for the old class install parameters */
+    pClassInstallParams = HeapAlloc(GetProcessHeap(), 0, dwSize);
+    if (pClassInstallParams == NULL)
+    {
+        ERR("Failed to allocate the parameters buffer!\n");
+        return FALSE;
+    }
+
+    /* Save the old class install parameters */
+    if (!SetupDiGetClassInstallParams(DeviceInfoSet,
+                                      DeviceInfoData,
+                                      pClassInstallParams,
+                                      dwSize,
+                                      &dwSize))
+    {
+        ERR("SetupDiGetClassInstallParams failed (Error %lu)\n", GetLastError());
+        ret = FALSE;
+        goto done;
+    }
+
+    /* Set the new class install parameters */
+    if (!SetupDiSetClassInstallParams(DeviceInfoSet,
+                                      DeviceInfoData,
+                                      &PageData->ClassInstallHeader,
+                                      sizeof(SP_ADDPROPERTYPAGE_DATA)))
+    {
+        ERR("SetupDiSetClassInstallParams failed (Error %lu)\n", dwError);
+        ret = FALSE;
+        goto done;
+    }
+
+    /* Call the installer */
+    ret = SetupDiCallClassInstaller(InstallFunction,
+                                    DeviceInfoSet,
+                                    DeviceInfoData);
+    if (ret == FALSE)
+    {
+        ERR("SetupDiCallClassInstaller failed\n");
+        goto done;
+    }
+
+    /* Read the new class installer parameters */
+    if (!SetupDiGetClassInstallParams(DeviceInfoSet,
+                                      DeviceInfoData,
+                                      &PageData->ClassInstallHeader,
+                                      sizeof(SP_ADDPROPERTYPAGE_DATA),
+                                      NULL))
+    {
+        ERR("SetupDiGetClassInstallParams failed (Error %lu)\n", GetLastError());
+        ret = FALSE;
+        goto done;
+    }
+
+done:
+    /* Restore and free the old class install parameters */
+    if (pClassInstallParams != NULL)
+    {
+        SetupDiSetClassInstallParams(DeviceInfoSet,
+                                     DeviceInfoData,
+                                     pClassInstallParams,
+                                     dwSize);
+
+        HeapFree(GetProcessHeap(), 0, pClassInstallParams);
+    }
+
+    return ret;
+}
+
 /***********************************************************************
  *		SetupDiGetClassDevPropertySheetsW(SETUPAPI.@)
  */
@@ -1240,7 +1253,8 @@ SetupDiGetClassDevPropertySheetsW(
     OUT PDWORD RequiredSize OPTIONAL,
     IN DWORD PropertySheetType)
 {
-    struct DeviceInfoSet *list;
+    struct DeviceInfoSet *devInfoSet = NULL;
+    struct DeviceInfo *devInfo = NULL;
     BOOL ret = FALSE;
 
     TRACE("%p %p %p 0%lx %p 0x%lx\n", DeviceInfoSet, DeviceInfoData,
@@ -1251,7 +1265,7 @@ SetupDiGetClassDevPropertySheetsW(
         SetLastError(ERROR_INVALID_HANDLE);
     else if (((struct DeviceInfoSet *)DeviceInfoSet)->magic != SETUP_DEVICE_INFO_SET_MAGIC)
         SetLastError(ERROR_INVALID_HANDLE);
-    else if ((list = (struct DeviceInfoSet *)DeviceInfoSet)->magic != SETUP_DEVICE_INFO_SET_MAGIC)
+    else if ((devInfoSet = (struct DeviceInfoSet *)DeviceInfoSet)->magic != SETUP_DEVICE_INFO_SET_MAGIC)
         SetLastError(ERROR_INVALID_HANDLE);
     else if (!PropertySheetHeader)
         SetLastError(ERROR_INVALID_PARAMETER);
@@ -1259,7 +1273,7 @@ SetupDiGetClassDevPropertySheetsW(
         SetLastError(ERROR_INVALID_FLAGS);
     else if (DeviceInfoData && DeviceInfoData->cbSize != sizeof(SP_DEVINFO_DATA))
         SetLastError(ERROR_INVALID_USER_BUFFER);
-    else if (!DeviceInfoData && IsEqualIID(&list->ClassGuid, &GUID_NULL))
+    else if (!DeviceInfoData && IsEqualIID(&devInfoSet->ClassGuid, &GUID_NULL))
         SetLastError(ERROR_INVALID_PARAMETER);
     else if (PropertySheetType != DIGCDP_FLAG_ADVANCED
           && PropertySheetType != DIGCDP_FLAG_BASIC
@@ -1274,74 +1288,67 @@ SetupDiGetClassDevPropertySheetsW(
         HMODULE hModule = NULL;
         PROPERTY_PAGE_PROVIDER pPropPageProvider = NULL;
         struct ClassDevPropertySheetsData PropPageData;
-        DWORD dwLength, dwRegType;
-        DWORD InitialNumberOfPages;
+        SP_ADDPROPERTYPAGE_DATA InstallerPropPageData;
+        DWORD InitialNumberOfPages, i;
         DWORD rc;
 
         if (DeviceInfoData)
-            hKey = SetupDiOpenDevRegKey(DeviceInfoSet, DeviceInfoData, DICS_FLAG_GLOBAL, 0, DIREG_DRV, KEY_QUERY_VALUE);
-        else
-        {
-            hKey = SetupDiOpenClassRegKeyExW(&list->ClassGuid, KEY_QUERY_VALUE,
-                DIOCR_INSTALLER, list->MachineName + 2, NULL);
-        }
-        if (hKey == INVALID_HANDLE_VALUE)
-            goto cleanup;
+            devInfo = (struct DeviceInfo *)DeviceInfoData->Reserved;
 
-        rc = RegQueryValueExW(hKey, REGSTR_VAL_ENUMPROPPAGES_32, NULL, &dwRegType, NULL, &dwLength);
-        if (rc == ERROR_FILE_NOT_FOUND)
+        /* Get the class property page provider */
+        if (devInfoSet->hmodClassPropPageProvider == NULL)
         {
-            /* No registry key. As it is optional, don't say it's a bad error */
-            if (RequiredSize)
-                *RequiredSize = 0;
-            ret = TRUE;
-            goto cleanup;
-        }
-        else if (rc != ERROR_SUCCESS && dwRegType != REG_SZ)
-        {
-            SetLastError(rc);
-            goto cleanup;
-        }
-
-        PropPageProvider = HeapAlloc(GetProcessHeap(), 0, dwLength + sizeof(WCHAR));
-        if (!PropPageProvider)
-        {
-            SetLastError(ERROR_NOT_ENOUGH_MEMORY);
-            goto cleanup;
-        }
-        rc = RegQueryValueExW(hKey, REGSTR_VAL_ENUMPROPPAGES_32, NULL, NULL, (LPBYTE)PropPageProvider, &dwLength);
-        if (rc != ERROR_SUCCESS)
-        {
-            SetLastError(rc);
-            goto cleanup;
-        }
-        PropPageProvider[dwLength / sizeof(WCHAR)] = 0;
-
-        rc = GetFunctionPointer(PropPageProvider, &hModule, (PVOID*)&pPropPageProvider);
-        if (rc != ERROR_SUCCESS)
-        {
-            SetLastError(ERROR_INVALID_PROPPAGE_PROVIDER);
-            goto cleanup;
-        }
-
-        if (DeviceInfoData)
-        {
-            struct DeviceInfo *devInfo = (struct DeviceInfo *)DeviceInfoData->Reserved;
-
-            if (devInfo->hmodDevicePropPageProvider == NULL)
+            hKey = SetupDiOpenClassRegKeyExW(devInfo ? &devInfo->ClassGuid : &devInfoSet->ClassGuid, KEY_QUERY_VALUE,
+                    DIOCR_INSTALLER, NULL/*devInfoSet->MachineName + 2*/, NULL);
+            if (hKey != INVALID_HANDLE_VALUE)
             {
-                devInfo->hmodDevicePropPageProvider = hModule;
-                devInfo->pDevicePropPageProvider = pPropPageProvider;
+                rc = SETUP_GetValueString(hKey, REGSTR_VAL_ENUMPROPPAGES_32, &PropPageProvider);
+                if (rc == ERROR_SUCCESS)
+                {
+                    rc = GetFunctionPointer(PropPageProvider, &hModule, (PVOID*)&pPropPageProvider);
+                    if (rc != ERROR_SUCCESS)
+                    {
+                        SetLastError(ERROR_INVALID_PROPPAGE_PROVIDER);
+                        goto cleanup;
+                    }
+
+                    devInfoSet->hmodClassPropPageProvider = hModule;
+                    devInfoSet->pClassPropPageProvider = pPropPageProvider;
+
+                    HeapFree(GetProcessHeap(), 0, PropPageProvider);
+                    PropPageProvider = NULL;
+                }
+
+                RegCloseKey(hKey);
+                hKey = INVALID_HANDLE_VALUE;
             }
         }
-        else
-        {
-            struct DeviceInfoSet *devInfoSet = (struct DeviceInfoSet *)DeviceInfoSet;
 
-            if (devInfoSet->hmodClassPropPageProvider == NULL)
+        /* Get the device property page provider */
+        if (devInfo != NULL && devInfo->hmodDevicePropPageProvider == NULL)
+        {
+            hKey = SETUPDI_OpenDrvKey(devInfoSet->HKLM, devInfo, KEY_QUERY_VALUE);
+            if (hKey != INVALID_HANDLE_VALUE)
             {
-                devInfoSet->hmodClassPropPageProvider = hModule;
-                devInfoSet->pClassPropPageProvider = pPropPageProvider;
+                rc = SETUP_GetValueString(hKey, REGSTR_VAL_ENUMPROPPAGES_32, &PropPageProvider);
+                if (rc == ERROR_SUCCESS)
+                {
+                    rc = GetFunctionPointer(PropPageProvider, &hModule, (PVOID*)&pPropPageProvider);
+                    if (rc != ERROR_SUCCESS)
+                    {
+                        SetLastError(ERROR_INVALID_PROPPAGE_PROVIDER);
+                        goto cleanup;
+                    }
+
+                    devInfo->hmodDevicePropPageProvider = hModule;
+                    devInfo->pDevicePropPageProvider = pPropPageProvider;
+
+                    HeapFree(GetProcessHeap(), 0, PropPageProvider);
+                    PropPageProvider = NULL;
+                }
+
+                RegCloseKey(hKey);
+                hKey = INVALID_HANDLE_VALUE;
             }
         }
 
@@ -1357,7 +1364,37 @@ SetupDiGetClassDevPropertySheetsW(
         PropPageData.NumberOfPages = 0;
         PropPageData.DontCancel = (RequiredSize != NULL) ? TRUE : FALSE;
 
-        pPropPageProvider(&Request, SETUP_GetClassDevPropertySheetsCallback, (LPARAM)&PropPageData);
+        /* Call the class property page provider */
+        if (devInfoSet->pClassPropPageProvider != NULL)
+            ((PROPERTY_PAGE_PROVIDER)devInfoSet->pClassPropPageProvider)(&Request, SETUP_GetClassDevPropertySheetsCallback, (LPARAM)&PropPageData);
+
+        /* Call the device property page provider */
+        if (devInfo != NULL && devInfo->pDevicePropPageProvider != NULL)
+            ((PROPERTY_PAGE_PROVIDER)devInfo->pDevicePropPageProvider)(&Request, SETUP_GetClassDevPropertySheetsCallback, (LPARAM)&PropPageData);
+
+        /* Call the class installer and add the returned pages */
+        ZeroMemory(&InstallerPropPageData, sizeof(SP_ADDPROPERTYPAGE_DATA));
+        InstallerPropPageData.ClassInstallHeader.cbSize = sizeof(SP_CLASSINSTALL_HEADER);
+        InstallerPropPageData.ClassInstallHeader.InstallFunction = DIF_ADDPROPERTYPAGE_ADVANCED;
+        InstallerPropPageData.hwndWizardDlg = PropertySheetHeader->hwndParent;
+
+        if (SETUP_CallInstaller(DIF_ADDPROPERTYPAGE_ADVANCED,
+                                DeviceInfoSet,
+                                DeviceInfoData,
+                                &InstallerPropPageData))
+        {
+            for (i = 0; i < InstallerPropPageData.NumDynamicPages; i++)
+            {
+                if (PropPageData.PropertySheetHeader->nPages < PropertySheetHeaderPageListSize)
+                {
+                    PropPageData.PropertySheetHeader->phpage[PropPageData.PropertySheetHeader->nPages] =
+                        InstallerPropPageData.DynamicPages[i];
+                    PropPageData.PropertySheetHeader->nPages++;
+                }
+            }
+
+            PropPageData.NumberOfPages += InstallerPropPageData.NumDynamicPages;
+        }
 
         if (RequiredSize)
             *RequiredSize = PropPageData.NumberOfPages;
@@ -1374,9 +1411,331 @@ SetupDiGetClassDevPropertySheetsW(
 cleanup:
         if (hKey != INVALID_HANDLE_VALUE)
             RegCloseKey(hKey);
-        HeapFree(GetProcessHeap(), 0, PropPageProvider);
+
+        if (PropPageProvider != NULL)
+            HeapFree(GetProcessHeap(), 0, PropPageProvider);
     }
 
     TRACE("Returning %d\n", ret);
     return ret;
+}
+
+/***********************************************************************
+ *		SetupDiGetClassRegistryPropertyA(SETUPAPI.@)
+ */
+BOOL WINAPI
+SetupDiGetClassRegistryPropertyA(
+    IN CONST GUID *ClassGuid,
+    IN DWORD Property,
+    OUT PDWORD PropertyRegDataType OPTIONAL,
+    OUT PBYTE PropertyBuffer,
+    IN  DWORD PropertyBufferSize,
+    OUT PDWORD RequiredSize OPTIONAL,
+    IN PCSTR MachineName OPTIONAL,
+    IN PVOID Reserved)
+{
+    HMACHINE hMachine = NULL;
+    DWORD PropLength = 0;
+    DWORD Error = ERROR_SUCCESS;
+    CONFIGRET cr;
+
+    TRACE("%s %lu %p %p %lu %p %s %p\n",
+          debugstr_guid(ClassGuid), Property, PropertyRegDataType, PropertyBuffer,
+          PropertyBufferSize, RequiredSize, MachineName, Reserved);
+
+    if (Reserved != NULL)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    if (MachineName)
+    {
+        cr = CM_Connect_MachineA(MachineName, &hMachine);
+        if (cr != CR_SUCCESS)
+            goto done;
+    }
+
+    if (Property >= SPCRP_MAXIMUM_PROPERTY)
+    {
+        cr = CR_INVALID_PROPERTY;
+        goto done;
+    }
+
+    PropLength = PropertyBufferSize;
+    cr = CM_Get_Class_Registry_PropertyA((LPGUID)ClassGuid,
+                                         Property + (CM_DRP_DEVICEDESC - SPDRP_DEVICEDESC),
+                                         PropertyRegDataType,
+                                         PropertyBuffer,
+                                         &PropLength,
+                                         0,
+                                         hMachine);
+    if ((cr == CR_SUCCESS) || (cr == CR_BUFFER_SMALL))
+    {
+        if (RequiredSize)
+            *RequiredSize = PropLength;
+    }
+
+done:
+    if (cr != CR_SUCCESS)
+    {
+        switch (cr)
+        {
+                case CR_INVALID_DEVINST :
+                    Error = ERROR_NO_SUCH_DEVINST;
+                    break;
+
+                case CR_INVALID_PROPERTY :
+                    Error = ERROR_INVALID_REG_PROPERTY;
+                    break;
+
+                case CR_BUFFER_SMALL :
+                    Error = ERROR_INSUFFICIENT_BUFFER;
+                    break;
+
+                default :
+                    Error = GetErrorCodeFromCrCode(cr);
+        }
+    }
+
+    if (hMachine != NULL)
+        CM_Disconnect_Machine(hMachine);
+
+    SetLastError(Error);
+    return (cr == CR_SUCCESS);
+}
+
+/***********************************************************************
+ *		SetupDiGetClassRegistryPropertyW(SETUPAPI.@)
+ */
+BOOL WINAPI
+SetupDiGetClassRegistryPropertyW(
+    IN CONST GUID *ClassGuid,
+    IN DWORD Property,
+    OUT PDWORD PropertyRegDataType OPTIONAL,
+    OUT PBYTE PropertyBuffer,
+    IN  DWORD PropertyBufferSize,
+    OUT PDWORD RequiredSize OPTIONAL,
+    IN PCWSTR MachineName OPTIONAL,
+    IN PVOID Reserved)
+{
+    HMACHINE hMachine = NULL;
+    DWORD PropLength = 0;
+    DWORD Error = ERROR_SUCCESS;
+    CONFIGRET cr;
+
+    TRACE("%s %lu %p %p %lu %p %s %p\n",
+          debugstr_guid(ClassGuid), Property, PropertyRegDataType, PropertyBuffer,
+          PropertyBufferSize, RequiredSize, debugstr_w(MachineName), Reserved);
+
+    if (Reserved != NULL)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    if (MachineName)
+    {
+        cr = CM_Connect_MachineW(MachineName, &hMachine);
+        if (cr != CR_SUCCESS)
+            goto done;
+    }
+
+    if (Property >= SPCRP_MAXIMUM_PROPERTY)
+    {
+        cr = CR_INVALID_PROPERTY;
+        goto done;
+    }
+
+    PropLength = PropertyBufferSize;
+    cr = CM_Get_Class_Registry_PropertyW((LPGUID)ClassGuid,
+                                         Property + (CM_DRP_DEVICEDESC - SPDRP_DEVICEDESC),
+                                         PropertyRegDataType,
+                                         PropertyBuffer,
+                                         &PropLength,
+                                         0,
+                                         hMachine);
+    if ((cr == CR_SUCCESS) || (cr == CR_BUFFER_SMALL))
+    {
+        if (RequiredSize)
+            *RequiredSize = PropLength;
+    }
+
+done:
+    if (cr != CR_SUCCESS)
+    {
+        switch (cr)
+        {
+                case CR_INVALID_DEVINST :
+                    Error = ERROR_NO_SUCH_DEVINST;
+                    break;
+
+                case CR_INVALID_PROPERTY :
+                    Error = ERROR_INVALID_REG_PROPERTY;
+                    break;
+
+                case CR_BUFFER_SMALL :
+                    Error = ERROR_INSUFFICIENT_BUFFER;
+                    break;
+
+                default :
+                    Error = GetErrorCodeFromCrCode(cr);
+        }
+    }
+
+    if (hMachine != NULL)
+        CM_Disconnect_Machine(hMachine);
+
+    SetLastError(Error);
+    return (cr == CR_SUCCESS);
+}
+
+/***********************************************************************
+ *		SetupDiSetClassRegistryPropertyA(SETUPAPI.@)
+ */
+BOOL WINAPI
+SetupDiSetClassRegistryPropertyA(
+    IN CONST GUID *ClassGuid,
+    IN DWORD Property,
+    IN CONST BYTE *PropertyBuffer OPTIONAL,
+    IN DWORD PropertyBufferSize,
+    IN PCSTR MachineName OPTIONAL,
+    IN PVOID Reserved)
+{
+    HMACHINE hMachine = NULL;
+    DWORD Error = ERROR_SUCCESS;
+    CONFIGRET cr;
+
+    TRACE("%s %lu %p %lu %s %p\n",
+          debugstr_guid(ClassGuid), Property, PropertyBuffer,
+          PropertyBufferSize, MachineName, Reserved);
+
+    if (Reserved != NULL)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    if (MachineName)
+    {
+        cr = CM_Connect_MachineA(MachineName, &hMachine);
+        if (cr != CR_SUCCESS)
+           goto done;
+    }
+
+    if (Property >= SPCRP_MAXIMUM_PROPERTY)
+    {
+        cr = CR_INVALID_PROPERTY;
+        goto done;
+    }
+
+    cr = CM_Set_Class_Registry_PropertyA((LPGUID)ClassGuid,
+                                         Property + (CM_DRP_DEVICEDESC - SPDRP_DEVICEDESC),
+                                         PropertyBuffer,
+                                         PropertyBufferSize,
+                                         0,
+                                         hMachine);
+
+done:
+    if (cr != CR_SUCCESS)
+    {
+        switch (cr)
+        {
+                case CR_INVALID_DEVINST:
+                    Error = ERROR_NO_SUCH_DEVINST;
+                    break;
+
+                case CR_INVALID_PROPERTY:
+                    Error = ERROR_INVALID_REG_PROPERTY;
+                    break;
+
+                case CR_BUFFER_SMALL:
+                    Error = ERROR_INSUFFICIENT_BUFFER;
+                    break;
+
+                default :
+                    Error = GetErrorCodeFromCrCode(cr);
+        }
+    }
+
+    if (hMachine != NULL)
+        CM_Disconnect_Machine(hMachine);
+
+    SetLastError(Error);
+    return (cr == CR_SUCCESS);
+}
+
+/***********************************************************************
+ *		SetupDiSetClassRegistryPropertyW(SETUPAPI.@)
+ */
+BOOL WINAPI
+SetupDiSetClassRegistryPropertyW(
+    IN CONST GUID *ClassGuid,
+    IN DWORD Property,
+    IN CONST BYTE *PropertyBuffer OPTIONAL,
+    IN DWORD PropertyBufferSize,
+    IN PCWSTR MachineName OPTIONAL,
+    IN PVOID Reserved)
+{
+    HMACHINE hMachine = NULL;
+    DWORD Error = ERROR_SUCCESS;
+    CONFIGRET cr;
+
+    TRACE("%s %lu %p %lu %s %p\n",
+          debugstr_guid(ClassGuid), Property, PropertyBuffer,
+          PropertyBufferSize, debugstr_w(MachineName), Reserved);
+
+    if (Reserved != NULL)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    if (MachineName)
+    {
+        cr = CM_Connect_MachineW(MachineName, &hMachine);
+        if (cr != CR_SUCCESS)
+           goto done;
+    }
+
+    if (Property >= SPCRP_MAXIMUM_PROPERTY)
+    {
+        cr = CR_INVALID_PROPERTY;
+        goto done;
+    }
+
+    cr = CM_Set_Class_Registry_PropertyW((LPGUID)ClassGuid,
+                                         Property + (CM_DRP_DEVICEDESC - SPDRP_DEVICEDESC),
+                                         PropertyBuffer,
+                                         PropertyBufferSize,
+                                         0,
+                                         hMachine);
+
+done:
+    if (cr != CR_SUCCESS)
+    {
+        switch (cr)
+        {
+                case CR_INVALID_DEVINST:
+                    Error = ERROR_NO_SUCH_DEVINST;
+                    break;
+
+                case CR_INVALID_PROPERTY:
+                    Error = ERROR_INVALID_REG_PROPERTY;
+                    break;
+
+                case CR_BUFFER_SMALL:
+                    Error = ERROR_INSUFFICIENT_BUFFER;
+                    break;
+
+                default :
+                    Error = GetErrorCodeFromCrCode(cr);
+        }
+    }
+
+    if (hMachine != NULL)
+        CM_Disconnect_Machine(hMachine);
+
+    SetLastError(Error);
+    return (cr == CR_SUCCESS);
 }

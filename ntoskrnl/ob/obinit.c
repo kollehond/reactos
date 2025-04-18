@@ -46,18 +46,22 @@ GENERIC_MAPPING ObpSymbolicLinkMapping =
 PDEVICE_MAP ObSystemDeviceMap = NULL;
 ULONG ObpTraceLevel = 0;
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 PsInitializeQuotaSystem(VOID);
 
 ULONG ObpInitializationPhase;
 
+ULONG ObpObjectSecurityMode = 0;
+ULONG ObpProtectionMode = 0;
+
 /* PRIVATE FUNCTIONS *********************************************************/
 
 static
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 ObpCreateKernelObjectsSD(OUT PSECURITY_DESCRIPTOR *SecurityDescriptor)
 {
     PSECURITY_DESCRIPTOR Sd = NULL;
@@ -126,8 +130,8 @@ done:
     return Status;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
-INIT_FUNCTION
 NTAPI
 ObInit2(VOID)
 {
@@ -193,8 +197,8 @@ ObInit2(VOID)
     return TRUE;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
-INIT_FUNCTION
 NTAPI
 ObInitSystem(VOID)
 {
@@ -382,11 +386,9 @@ ObPostPhase0:
     Status = NtClose(Handle);
     if (!NT_SUCCESS(Status)) return FALSE;
 
-    /* Initialize lookup context */
+    /* Initialize the lookup context and lock it */
     ObpInitializeLookupContext(&Context);
-
-    /* Lock it */
-    ObpAcquireDirectoryLockExclusive(ObpTypeDirectoryObject, &Context);
+    ObpAcquireLookupContextLock(&Context, ObpTypeDirectoryObject);
 
     /* Loop the object types */
     ListHead = &ObpTypeObjectType->TypeList;

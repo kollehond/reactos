@@ -9,7 +9,7 @@
 #include <win32k.h>
 DBG_DEFAULT_CHANNEL(UserDisplay);
 
-BOOL gbBaseVideo = 0;
+BOOL gbBaseVideo = FALSE;
 static PPROCESSINFO gpFullscreen = NULL;
 
 static const PWCHAR KEY_VIDEO = L"\\Registry\\Machine\\HARDWARE\\DEVICEMAP\\VIDEO";
@@ -73,7 +73,6 @@ InitDisplayDriver(
     WCHAR awcBuffer[128];
     ULONG cbSize;
     HKEY hkey;
-    DEVMODEW dmDefault;
     DWORD dwVga;
 
     TRACE("InitDisplayDriver(%S, %S);\n",
@@ -126,9 +125,6 @@ InitDisplayDriver(
         RtlInitUnicodeString(&ustrDescription, L"<unknown>");
     }
 
-    /* Query the default settings */
-    RegReadDisplaySettings(hkey, &dmDefault);
-
     /* Query if this is a VGA compatible driver */
     cbSize = sizeof(DWORD);
     Status = RegQueryValue(hkey, L"VgaCompatible", REG_DWORD, &dwVga, &cbSize);
@@ -141,8 +137,7 @@ InitDisplayDriver(
     RtlInitUnicodeString(&ustrDeviceName, pwszDeviceName);
     pGraphicsDevice = EngpRegisterGraphicsDevice(&ustrDeviceName,
                                                  &ustrDisplayDrivers,
-                                                 &ustrDescription,
-                                                 &dmDefault);
+                                                 &ustrDescription);
     if (pGraphicsDevice && dwVga)
     {
         pGraphicsDevice->StateFlags |= DISPLAY_DEVICE_VGA_COMPATIBLE;
@@ -155,134 +150,66 @@ NTSTATUS
 NTAPI
 InitVideo(VOID)
 {
-    ULONG iDevNum, iVGACompatible = -1, ulMaxObjectNumber = 0;
-    WCHAR awcDeviceName[20];
-    WCHAR awcBuffer[256];
     NTSTATUS Status;
-    PGRAPHICS_DEVICE pGraphicsDevice;
-    ULONG cbValue;
     HKEY hkey;
 
     TRACE("----------------------------- InitVideo() -------------------------------\n");
 
-    /* Open the key for the boot command line */
-    Status = RegOpenKey(L"\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\Control", &hkey);
+    /* Check if VGA mode is requested, by finding the special volatile key created by VIDEOPRT */
+    Status = RegOpenKey(L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\GraphicsDrivers\\BaseVideo", &hkey);
     if (NT_SUCCESS(Status))
-    {
-        cbValue = 256;
-        Status = RegQueryValue(hkey, L"SystemStartOptions", REG_SZ, awcBuffer, &cbValue);
-        if (NT_SUCCESS(Status))
-        {
-            /* Check if VGA mode is requested. */
-            if (wcsstr(awcBuffer, L"BASEVIDEO") != 0)
-            {
-                ERR("VGA mode requested.\n");
-                gbBaseVideo = TRUE;
-            }
-        }
-
         ZwClose(hkey);
-    }
-
-    /* Open the key for the adapters */
-    Status = RegOpenKey(KEY_VIDEO, &hkey);
-    if (!NT_SUCCESS(Status))
-    {
-        ERR("Could not open HARDWARE\\DEVICEMAP\\VIDEO registry key:0x%lx\n", Status);
-        return Status;
-    }
-
-    /* Read the name of the VGA adapter */
-    cbValue = 20;
-    Status = RegQueryValue(hkey, L"VgaCompatible", REG_SZ, awcDeviceName, &cbValue);
-    if (NT_SUCCESS(Status))
-    {
-        iVGACompatible = _wtoi(&awcDeviceName[13]);
-        ERR("VGA adapter = %lu\n", iVGACompatible);
-    }
-
-    /* Get the maximum mumber of adapters */
-    if (!RegReadDWORD(hkey, L"MaxObjectNumber", &ulMaxObjectNumber))
-    {
-        ERR("Could not read MaxObjectNumber, defaulting to 0.\n");
-    }
-
-    TRACE("Found %lu devices\n", ulMaxObjectNumber + 1);
-
-    /* Loop through all adapters */
-    for (iDevNum = 0; iDevNum <= ulMaxObjectNumber; iDevNum++)
-    {
-        /* Create the adapter's key name */
-        swprintf(awcDeviceName, L"\\Device\\Video%lu", iDevNum);
-
-        /* Read the reg key name */
-        cbValue = sizeof(awcBuffer);
-        Status = RegQueryValue(hkey, awcDeviceName, REG_SZ, awcBuffer, &cbValue);
-        if (!NT_SUCCESS(Status))
-        {
-            ERR("failed to query the registry path:0x%lx\n", Status);
-            continue;
-        }
-
-        /* Initialize the driver for this device */
-        pGraphicsDevice = InitDisplayDriver(awcDeviceName, awcBuffer);
-        if (!pGraphicsDevice) continue;
-
-        /* Check if this is a VGA compatible adapter */
-        if (pGraphicsDevice->StateFlags & DISPLAY_DEVICE_VGA_COMPATIBLE)
-        {
-            /* Save this as the VGA adapter */
-            if (!gpVgaGraphicsDevice)
-                gpVgaGraphicsDevice = pGraphicsDevice;
-            TRACE("gpVgaGraphicsDevice = %p\n", gpVgaGraphicsDevice);
-        }
-        else
-        {
-            /* Set the first one as primary device */
-            if (!gpPrimaryGraphicsDevice)
-                gpPrimaryGraphicsDevice = pGraphicsDevice;
-            TRACE("gpPrimaryGraphicsDevice = %p\n", gpPrimaryGraphicsDevice);
-        }
-    }
-
-    /* Close the device map registry key */
-    ZwClose(hkey);
-
-    /* Was VGA mode requested? */
+    gbBaseVideo = NT_SUCCESS(Status);
     if (gbBaseVideo)
-    {
-        /* Check if we found a VGA compatible device */
-        if (gpVgaGraphicsDevice)
-        {
-            /* Set the VgaAdapter as primary */
-            gpPrimaryGraphicsDevice = gpVgaGraphicsDevice;
-            // FIXME: DEVMODE
-        }
-        else
-        {
-            ERR("Could not find VGA compatible driver. Trying normal.\n");
-        }
-    }
+        ERR("VGA mode requested.\n");
 
-    /* Check if we had any success */
-    if (!gpPrimaryGraphicsDevice)
-    {
-        /* Check if there is a VGA device we skipped */
-        if (gpVgaGraphicsDevice)
-        {
-            /* There is, use the VGA device */
-            gpPrimaryGraphicsDevice = gpVgaGraphicsDevice;
-        }
-        else
-        {
-            ERR("No usable display driver was found.\n");
-            return STATUS_UNSUCCESSFUL;
-        }
-    }
+    /* Initialize all display devices */
+    Status = EngpUpdateGraphicsDeviceList();
+    if (!NT_SUCCESS(Status))
+        return Status;
 
     InitSysParams();
 
-    return 1;
+    return STATUS_SUCCESS;
+}
+
+VOID
+UserRefreshDisplay(IN PPDEVOBJ ppdev)
+{
+    ULONG_PTR ulResult;
+    // PVOID pvOldCursor;
+
+    // TODO: Re-enable the cursor reset code once this function becomes called
+    // from within a Win32 thread... Indeed UserSetCursor() requires this, but
+    // at the moment this function is directly called from a separate thread
+    // from within videoprt, instead of by a separate win32k system thread.
+
+    if (!ppdev)
+        return;
+
+    PDEVOBJ_vReference(ppdev);
+
+    /* Remove mouse pointer */
+    // pvOldCursor = UserSetCursor(NULL, TRUE);
+
+    /* Do the mode switch -- Use the actual same current mode */
+    ulResult = PDEVOBJ_bSwitchMode(ppdev, ppdev->pdmwDev);
+    ASSERT(ulResult);
+
+    /* Restore mouse pointer, no hooks called */
+    // pvOldCursor = UserSetCursor(pvOldCursor, TRUE);
+    // ASSERT(pvOldCursor == NULL);
+
+    /* Update the system metrics */
+    InitMetrics();
+
+    /* Set new size of the monitor */
+    // UserUpdateMonitorSize((HDEV)ppdev);
+
+    //co_IntShowDesktop(pdesk, ppdev->gdiinfo.ulHorzRes, ppdev->gdiinfo.ulVertRes);
+    UserRedrawDesktop();
+
+    PDEVOBJ_vRelease(ppdev);
 }
 
 NTSTATUS
@@ -294,16 +221,27 @@ UserEnumDisplayDevices(
     DWORD dwFlags)
 {
     PGRAPHICS_DEVICE pGraphicsDevice;
-    ULONG cbSize;
+    PDEVICE_OBJECT pdo;
+    PWCHAR pHardwareId;
+    ULONG cbSize, dwLength;
     HKEY hkey;
     NTSTATUS Status;
 
+    if (!pustrDevice)
+    {
+        /* Check if some devices have been added since last time */
+        EngpUpdateGraphicsDeviceList();
+    }
+
     /* Ask gdi for the GRAPHICS_DEVICE */
-    pGraphicsDevice = EngpFindGraphicsDevice(pustrDevice, iDevNum, 0);
+    pGraphicsDevice = EngpFindGraphicsDevice(pustrDevice, iDevNum);
     if (!pGraphicsDevice)
     {
         /* No device found */
-        ERR("No GRAPHICS_DEVICE found\n");
+        if (iDevNum == 0)
+            ERR("No GRAPHICS_DEVICE found for '%wZ', iDevNum %lu\n", pustrDevice, iDevNum);
+        else
+            TRACE("No GRAPHICS_DEVICE found for '%wZ', iDevNum %lu\n", pustrDevice, iDevNum);
         return STATUS_UNSUCCESSFUL;
     }
 
@@ -331,8 +269,77 @@ UserEnumDisplayDevices(
     RtlStringCbCopyW(pdispdev->DeviceName, sizeof(pdispdev->DeviceName), pGraphicsDevice->szWinDeviceName);
     RtlStringCbCopyW(pdispdev->DeviceString, sizeof(pdispdev->DeviceString), pGraphicsDevice->pwszDescription);
     pdispdev->StateFlags = pGraphicsDevice->StateFlags;
-    // FIXME: fill in DEVICE ID
     pdispdev->DeviceID[0] = UNICODE_NULL;
+
+    /* Fill in DeviceID */
+    if (!pustrDevice)
+        pdo = pGraphicsDevice->PhysDeviceHandle;
+    else
+#if 0
+        pdo = pGraphicsDevice->pvMonDev[iDevNum].pdo;
+#else
+        /* FIXME: pvMonDev not initialized, see EngpRegisterGraphicsDevice */
+        pdo = NULL;
+#endif
+
+    if (pdo != NULL)
+    {
+        Status = IoGetDeviceProperty(pdo,
+                                     DevicePropertyHardwareID,
+                                     0,
+                                     NULL,
+                                     &dwLength);
+
+        if (Status == STATUS_BUFFER_TOO_SMALL)
+        {
+            pHardwareId = ExAllocatePoolWithTag(PagedPool,
+                                                dwLength,
+                                                USERTAG_DISPLAYINFO);
+            if (!pHardwareId)
+            {
+                EngSetLastError(ERROR_NOT_ENOUGH_MEMORY);
+                return STATUS_INSUFFICIENT_RESOURCES;
+            }
+
+            Status = IoGetDeviceProperty(pdo,
+                                         DevicePropertyHardwareID,
+                                         dwLength,
+                                         pHardwareId,
+                                         &dwLength);
+
+            if (!NT_SUCCESS(Status))
+            {
+                ERR("IoGetDeviceProperty() failed with status 0x%08lx\n", Status);
+            }
+            else
+            {
+                /* For video adapters it should be the first Hardware ID
+                 * which usually is the longest one and unique enough */
+                RtlStringCbCopyW(pdispdev->DeviceID, sizeof(pdispdev->DeviceID), pHardwareId);
+
+                if (pustrDevice)
+                {
+                    /* For monitors it should be the first Hardware ID,
+                     * which we already have obtained above,
+                     * concatenated with the unique driver registry key */
+
+                    RtlStringCbCatW(pdispdev->DeviceID, sizeof(pdispdev->DeviceID), L"\\");
+
+                    /* FIXME: DevicePropertyDriverKeyName string should be appended */
+                    pHardwareId[0] = UNICODE_NULL;
+                    RtlStringCbCatW(pdispdev->DeviceID, sizeof(pdispdev->DeviceID), pHardwareId);
+                }
+
+                TRACE("Hardware ID: %ls\n", pdispdev->DeviceID);
+            }
+
+            ExFreePoolWithTag(pHardwareId, USERTAG_DISPLAYINFO);
+        }
+        else
+        {
+            ERR("IoGetDeviceProperty() failed with status 0x%08lx\n", Status);
+        }
+    }
 
     return STATUS_SUCCESS;
 }
@@ -469,7 +476,7 @@ UserEnumDisplaySettings(
           pustrDevice, iModeNum);
 
     /* Ask GDI for the GRAPHICS_DEVICE */
-    pGraphicsDevice = EngpFindGraphicsDevice(pustrDevice, 0, 0);
+    pGraphicsDevice = EngpFindGraphicsDevice(pustrDevice, 0);
     ppdev = EngpGetPDEV(pustrDevice);
 
     if (!pGraphicsDevice || !ppdev)
@@ -557,7 +564,7 @@ UserEnumRegistryDisplaySettings(
         ZwClose(hkey);
         return STATUS_SUCCESS;
     }
-    return Status ;
+    return Status;
 }
 
 NTSTATUS
@@ -568,6 +575,7 @@ NtUserEnumDisplaySettings(
     OUT LPDEVMODEW lpDevMode,
     IN DWORD dwFlags)
 {
+    UNICODE_STRING ustrDeviceUser;
     UNICODE_STRING ustrDevice;
     WCHAR awcDevice[CCHDEVICENAME];
     NTSTATUS Status;
@@ -592,7 +600,7 @@ NtUserEnumDisplaySettings(
     }
     _SEH2_END;
 
-    if (lpDevMode->dmSize != sizeof(DEVMODEW))
+    if (cbSize != sizeof(DEVMODEW))
     {
         return STATUS_BUFFER_TOO_SMALL;
     }
@@ -605,15 +613,17 @@ NtUserEnumDisplaySettings(
         _SEH2_TRY
         {
             /* Probe the UNICODE_STRING and the buffer */
-            ProbeForReadUnicodeString(pustrDevice);
+            ustrDeviceUser = ProbeForReadUnicodeString(pustrDevice);
 
-            if (!pustrDevice->Length || !pustrDevice->Buffer)
+            if (!ustrDeviceUser.Length || !ustrDeviceUser.Buffer)
                 ExRaiseStatus(STATUS_NO_MEMORY);
 
-            ProbeForRead(pustrDevice->Buffer, pustrDevice->Length, sizeof(UCHAR));
+            ProbeForRead(ustrDeviceUser.Buffer,
+                         ustrDeviceUser.Length,
+                         sizeof(UCHAR));
 
             /* Copy the string */
-            RtlCopyUnicodeString(&ustrDevice, pustrDevice);
+            RtlCopyUnicodeString(&ustrDevice, &ustrDeviceUser);
         }
         _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
         {
@@ -674,6 +684,7 @@ NtUserEnumDisplaySettings(
 
     return Status;
 }
+
 VOID
 UserUpdateFullscreen(
     DWORD flags)
@@ -699,6 +710,7 @@ UserChangeDisplaySettings(
     PPDEVOBJ ppdev;
     WORD OrigBC;
     //PDESKTOP pdesk;
+    PDEVMODEW newDevMode = NULL;
 
     /* If no DEVMODE is given, use registry settings */
     if (!pdm)
@@ -712,9 +724,13 @@ UserChangeDisplaySettings(
         }
     }
     else if (pdm->dmSize < FIELD_OFFSET(DEVMODEW, dmFields))
-        return DISP_CHANGE_BADMODE; /* This is what winXP SP3 returns */
+    {
+        return DISP_CHANGE_BADMODE; /* This is what WinXP SP3 returns */
+    }
     else
+    {
         dm = *pdm;
+    }
 
     /* Save original bit count */
     OrigBC = gpsi->BitCount;
@@ -735,18 +751,17 @@ UserChangeDisplaySettings(
     }
 
     /* Fixup values */
-    if(dm.dmBitsPerPel == 0 || !(dm.dmFields & DM_BITSPERPEL))
+    if (dm.dmBitsPerPel == 0 || !(dm.dmFields & DM_BITSPERPEL))
     {
         dm.dmBitsPerPel = ppdev->pdmwDev->dmBitsPerPel;
         dm.dmFields |= DM_BITSPERPEL;
     }
 
-    if((dm.dmFields & DM_DISPLAYFREQUENCY) && (dm.dmDisplayFrequency == 0))
+    if ((dm.dmFields & DM_DISPLAYFREQUENCY) && (dm.dmDisplayFrequency == 0))
         dm.dmDisplayFrequency = ppdev->pdmwDev->dmDisplayFrequency;
 
     /* Look for the requested DEVMODE */
-    pdm = PDEVOBJ_pdmMatchDevMode(ppdev, &dm);
-    if (!pdm)
+    if (!LDEVOBJ_bProbeAndCaptureDevmode(ppdev->pGraphicsDevice, &dm, &newDevMode, FALSE))
     {
         ERR("Could not find a matching DEVMODE\n");
         lResult = DISP_CHANGE_BADMODE;
@@ -767,7 +782,7 @@ UserChangeDisplaySettings(
         if (NT_SUCCESS(Status))
         {
             /* Store the settings */
-            RegWriteDisplaySettings(hkey, pdm);
+            RegWriteDisplaySettings(hkey, newDevMode);
 
             /* Close the registry key */
             ZwClose(hkey);
@@ -779,10 +794,19 @@ UserChangeDisplaySettings(
         }
     }
 
+    /* Check if DEVMODE matches the current mode */
+    if (newDevMode->dmSize == ppdev->pdmwDev->dmSize &&
+        RtlCompareMemory(newDevMode, ppdev->pdmwDev, newDevMode->dmSize) == newDevMode->dmSize &&
+        !(flags & CDS_RESET))
+    {
+        ERR("DEVMODE matches, nothing to do\n");
+        goto leave;
+    }
+
     /* Shall we apply the settings? */
     if (!(flags & CDS_NORESET))
     {
-        ULONG ulResult;
+        ULONG_PTR ulResult;
         PVOID pvOldCursor;
         TEXTMETRICW tmw;
 
@@ -790,44 +814,63 @@ UserChangeDisplaySettings(
         pvOldCursor = UserSetCursor(NULL, TRUE);
 
         /* Do the mode switch */
-        ulResult = PDEVOBJ_bSwitchMode(ppdev, pdm);
+        ulResult = PDEVOBJ_bSwitchMode(ppdev, newDevMode);
 
         /* Restore mouse pointer, no hooks called */
         pvOldCursor = UserSetCursor(pvOldCursor, TRUE);
         ASSERT(pvOldCursor == NULL);
 
-        /* Check for failure */
+        /* Check for success or failure */
         if (!ulResult)
         {
+            /* Setting mode failed */
             ERR("Failed to set mode\n");
-            lResult = (lResult == DISP_CHANGE_NOTUPDATED) ?
-                DISP_CHANGE_FAILED : DISP_CHANGE_RESTART;
 
-            goto leave;
-        }
-
-        UserUpdateFullscreen(flags);
-
-        /* Update the system metrics */
-        InitMetrics();
-
-        /* Set new size of the monitor */
-        UserUpdateMonitorSize((HDEV)ppdev);
-
-        /* Update the SERVERINFO */
-        gpsi->dmLogPixels = ppdev->gdiinfo.ulLogPixelsY;
-        gpsi->Planes      = ppdev->gdiinfo.cPlanes;
-        gpsi->BitsPixel   = ppdev->gdiinfo.cBitsPixel;
-        gpsi->BitCount    = gpsi->Planes * gpsi->BitsPixel;
-        if (ppdev->gdiinfo.flRaster & RC_PALETTE)
-        {
-            gpsi->PUSIFlags |= PUSIF_PALETTEDISPLAY;
+            /* Set the correct return value */
+            if ((flags & CDS_UPDATEREGISTRY) && (lResult != DISP_CHANGE_NOTUPDATED))
+                lResult = DISP_CHANGE_RESTART;
+            else
+                lResult = DISP_CHANGE_FAILED;
         }
         else
-            gpsi->PUSIFlags &= ~PUSIF_PALETTEDISPLAY;
-        // Font is realized and this dc was previously set to internal DC_ATTR.
-        gpsi->cxSysFontChar = IntGetCharDimensions(hSystemBM, &tmw, (DWORD*)&gpsi->cySysFontChar);
-        gpsi->tmSysFont     = tmw;
+        {
+            /* Setting mode succeeded */
+            lResult = DISP_CHANGE_SUCCESSFUL;
+            ExFreePoolWithTag(ppdev->pdmwDev, GDITAG_DEVMODE);
+            ppdev->pdmwDev = newDevMode;
+
+            UserUpdateFullscreen(flags);
+
+            /* Update the system metrics */
+            InitMetrics();
+
+            /* Set new size of the monitor */
+            UserUpdateMonitorSize((HDEV)ppdev);
+
+            /* Update the SERVERINFO */
+            gpsi->dmLogPixels = ppdev->gdiinfo.ulLogPixelsY;
+            gpsi->Planes      = ppdev->gdiinfo.cPlanes;
+            gpsi->BitsPixel   = ppdev->gdiinfo.cBitsPixel;
+            gpsi->BitCount    = gpsi->Planes * gpsi->BitsPixel;
+            gpsi->aiSysMet[SM_CXSCREEN] = ppdev->gdiinfo.ulHorzRes;
+            gpsi->aiSysMet[SM_CYSCREEN] = ppdev->gdiinfo.ulVertRes;
+            if (ppdev->gdiinfo.flRaster & RC_PALETTE)
+            {
+                gpsi->PUSIFlags |= PUSIF_PALETTEDISPLAY;
+            }
+            else
+            {
+                gpsi->PUSIFlags &= ~PUSIF_PALETTEDISPLAY;
+            }
+            // Font is realized and this dc was previously set to internal DC_ATTR.
+            gpsi->cxSysFontChar = IntGetCharDimensions(hSystemBM, &tmw, (DWORD*)&gpsi->cySysFontChar);
+            gpsi->tmSysFont     = tmw;
+        }
+
+        /*
+         * Refresh the display on success and even on failure,
+         * since the display may have been messed up.
+         */
 
         /* Remove all cursor clipping */
         UserClipCursor(NULL);
@@ -836,20 +879,23 @@ UserChangeDisplaySettings(
         //IntHideDesktop(pdesk);
 
         /* Send WM_DISPLAYCHANGE to all toplevel windows */
-        UserSendNotifyMessage( HWND_BROADCAST,
-                               WM_DISPLAYCHANGE,
-                               gpsi->BitCount,
-                               MAKELONG(gpsi->aiSysMet[SM_CXSCREEN], gpsi->aiSysMet[SM_CYSCREEN]) );
+        co_IntSendMessageTimeout( HWND_BROADCAST,
+                                  WM_DISPLAYCHANGE,
+                                  gpsi->BitCount,
+                                  MAKELONG(gpsi->aiSysMet[SM_CXSCREEN], gpsi->aiSysMet[SM_CYSCREEN]),
+                                  SMTO_NORMAL,
+                                  100,
+                                  &ulResult );
 
         ERR("BitCount New %d Orig %d ChkNew %d\n",gpsi->BitCount,OrigBC,ppdev->gdiinfo.cBitsPixel);
 
         /* Not full screen and different bit count, send messages */
         if (!(flags & CDS_FULLSCREEN) &&
-              gpsi->BitCount != OrigBC )
+            gpsi->BitCount != OrigBC)
         {
-           ERR("Detect settings changed.\n");
-           UserSendNotifyMessage( HWND_BROADCAST, WM_SETTINGCHANGE, 0, 0 );
-           UserSendNotifyMessage( HWND_BROADCAST, WM_SYSCOLORCHANGE, 0, 0 );
+            ERR("Detect settings changed.\n");
+            UserSendNotifyMessage(HWND_BROADCAST, WM_SETTINGCHANGE, 0, 0);
+            UserSendNotifyMessage(HWND_BROADCAST, WM_SYSCOLORCHANGE, 0, 0);
         }
 
         //co_IntShowDesktop(pdesk, ppdev->gdiinfo.ulHorzRes, ppdev->gdiinfo.ulVertRes);
@@ -858,6 +904,9 @@ UserChangeDisplaySettings(
     }
 
 leave:
+    if (newDevMode && newDevMode != ppdev->pdmwDev)
+        ExFreePoolWithTag(newDevMode, GDITAG_DEVMODE);
+
     /* Release the PDEV */
     PDEVOBJ_vRelease(ppdev);
 
@@ -898,6 +947,11 @@ NtUserChangeDisplaySettings(
 
     /* Check flags */
     if ((dwflags & (CDS_GLOBAL|CDS_NORESET)) && !(dwflags & CDS_UPDATEREGISTRY))
+    {
+        return DISP_CHANGE_BADFLAGS;
+    }
+
+    if ((dwflags & CDS_RESET) && (dwflags & CDS_NORESET))
     {
         return DISP_CHANGE_BADFLAGS;
     }
@@ -976,4 +1030,3 @@ NtUserChangeDisplaySettings(
 
     return lRet;
 }
-

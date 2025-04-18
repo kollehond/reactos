@@ -86,9 +86,9 @@ TestNotification(void)
         skip("Could not instantiate IUserNotification\n");
         return;
     }
-    
+
     /* Set an invalid icon for the notification icon */
-    hr = pUserNotif->SetIconInfo((HICON)0xdeadbeef, L"Tooltip text");
+    hr = pUserNotif->SetIconInfo((HICON)UlongToHandle(0xdeadbeef), L"Tooltip text");
     ok_hr(hr, S_OK);
 
 #if 0
@@ -196,12 +196,12 @@ START_TEST(CUserNotification)
     ok(hThread != NULL, "CreateThread failed with error 0x%lu\n", GetLastError());
     if (!hThread)
     {
-        skip("Could not create the CUserNotification test thread!");
+        skip("Could not create the CUserNotification test thread!\n");
         return;
     }
 
-    /* Wait a maximum of 1:30 for the thread to finish (the timeout tests take some time) */
-    dwWait = WaitForSingleObject(hThread, 90 * 1000);
+    /* Wait a maximum of 60 seconds for the thread to finish (the timeout tests take some time) */
+    dwWait = WaitForSingleObject(hThread, 60 * 1000);
     ok(dwWait == WAIT_OBJECT_0, "WaitForSingleObject returned %lu, expected WAIT_OBJECT_0\n", dwWait);
 
     /* Cleanup and return */

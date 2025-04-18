@@ -19,7 +19,7 @@ typedef struct _DISK_INFORMATION
     PDEVICE_OBJECT DeviceObject;
     ULONG SectorSize;
     DISK_GEOMETRY_EX DiskGeometry;
-    PUSHORT Buffer;
+    PUCHAR Buffer;
     ULONGLONG SectorCount;
 } DISK_INFORMATION, *PDISK_INFORMATION;
 
@@ -41,6 +41,7 @@ typedef struct _EFI_PARTITION_HEADER
     ULONG SizeOfPartitionEntry;  // 84
     ULONG PartitionEntryCRC32;   // 88
 } EFI_PARTITION_HEADER, *PEFI_PARTITION_HEADER;
+C_ASSERT(sizeof(EFI_PARTITION_HEADER) == 92);
 #include <poppack.h>
 
 typedef struct _EFI_PARTITION_ENTRY
@@ -52,6 +53,7 @@ typedef struct _EFI_PARTITION_ENTRY
     ULONGLONG Attributes;  // 48
     WCHAR Name[0x24];      // 56
 } EFI_PARTITION_ENTRY, *PEFI_PARTITION_ENTRY;
+C_ASSERT(sizeof(EFI_PARTITION_ENTRY) == 128);
 
 typedef struct _PARTITION_TABLE_ENTRY
 {
@@ -66,7 +68,9 @@ typedef struct _PARTITION_TABLE_ENTRY
     ULONG SectorCountBeforePartition;
     ULONG PartitionSectorCount;
 } PARTITION_TABLE_ENTRY, *PPARTITION_TABLE_ENTRY;
+C_ASSERT(sizeof(PARTITION_TABLE_ENTRY) == 16);
 
+#include <pshpack1.h>
 typedef struct _MASTER_BOOT_RECORD
 {
     UCHAR MasterBootRecordCodeAndData[0x1B8]; // 0
@@ -75,9 +79,9 @@ typedef struct _MASTER_BOOT_RECORD
     PARTITION_TABLE_ENTRY PartitionTable[4];  // 446
     USHORT MasterBootRecordMagic;             // 510
 } MASTER_BOOT_RECORD, *PMASTER_BOOT_RECORD;
+C_ASSERT(sizeof(MASTER_BOOT_RECORD) == 512);
+#include <poppack.h>
 
-/* Tag for Fstub allocations */
-#define TAG_FSTUB 'BtsF'
 /* Partition entry size (bytes) - FIXME: It's hardcoded as Microsoft does, but according to specs, it shouldn't be */
 #define PARTITION_ENTRY_SIZE 128
 /* Defines "EFI PART" */
@@ -124,7 +128,7 @@ NTAPI
 FstubReadSector(IN PDEVICE_OBJECT DeviceObject,
                 IN ULONG SectorSize,
                 IN ULONGLONG StartingSector OPTIONAL,
-                OUT PUSHORT Buffer
+                OUT PVOID Buffer
 );
 
 NTSTATUS
@@ -160,7 +164,7 @@ NTAPI
 FstubWriteSector(IN PDEVICE_OBJECT DeviceObject,
                  IN ULONG SectorSize,
                  IN ULONGLONG StartingSector OPTIONAL,
-                 IN PUSHORT Buffer
+                 IN PVOID Buffer
 );
 
 VOID
@@ -169,6 +173,7 @@ FstubAdjustPartitionCount(IN ULONG SectorSize,
                           IN OUT PULONG PartitionCount)
 {
     ULONG Count;
+
     PAGED_CODE();
 
     ASSERT(SectorSize);
@@ -203,10 +208,11 @@ NTSTATUS
 NTAPI
 FstubAllocateDiskInformation(IN PDEVICE_OBJECT DeviceObject,
                              OUT PDISK_INFORMATION * DiskBuffer,
-                             PDISK_GEOMETRY_EX DiskGeometry OPTIONAL)
+                             IN PDISK_GEOMETRY_EX DiskGeometry OPTIONAL)
 {
     NTSTATUS Status;
     PDISK_INFORMATION DiskInformation;
+
     PAGED_CODE();
 
     ASSERT(DeviceObject);
@@ -267,6 +273,7 @@ FstubConvertExtendedToLayout(IN PDRIVE_LAYOUT_INFORMATION_EX LayoutEx)
 {
     ULONG i;
     PDRIVE_LAYOUT_INFORMATION DriveLayout;
+
     PAGED_CODE();
 
     ASSERT(LayoutEx);
@@ -337,12 +344,13 @@ FstubCreateDiskMBR(IN PDEVICE_OBJECT DeviceObject,
     NTSTATUS Status;
     PDISK_INFORMATION Disk = NULL;
     PMASTER_BOOT_RECORD MasterBootRecord;
+
     PAGED_CODE();
 
     ASSERT(DeviceObject);
 
     /* Allocate internal structure */
-    Status = FstubAllocateDiskInformation(DeviceObject, &Disk, 0);
+    Status = FstubAllocateDiskInformation(DeviceObject, &Disk, NULL);
     if (!NT_SUCCESS(Status))
     {
         return Status;
@@ -361,7 +369,7 @@ FstubCreateDiskMBR(IN PDEVICE_OBJECT DeviceObject,
     /* Fill the buffer with needed information, we won't overwrite boot code */
     MasterBootRecord = (PMASTER_BOOT_RECORD)Disk->Buffer;
     MasterBootRecord->Signature = DiskInfo->Signature;
-    RtlZeroMemory(MasterBootRecord->PartitionTable, sizeof(PARTITION_TABLE_ENTRY) * 4);
+    RtlZeroMemory(MasterBootRecord->PartitionTable, sizeof(PARTITION_TABLE_ENTRY) * NUM_PARTITION_TABLE_ENTRIES);
     MasterBootRecord->MasterBootRecordMagic = BOOT_RECORD_SIGNATURE;
 
     /* Finally, write MBR */
@@ -384,13 +392,14 @@ FstubCreateDiskEFI(IN PDEVICE_OBJECT DeviceObject,
     PDISK_INFORMATION Disk = NULL;
     ULONGLONG FirstUsableLBA, LastUsableLBA;
     ULONG MaxPartitionCount, SectorsForPartitions;
+
     PAGED_CODE();
 
     ASSERT(DeviceObject);
     ASSERT(DiskInfo);
 
     /* Allocate internal structure */
-    Status = FstubAllocateDiskInformation(DeviceObject, &Disk, 0);
+    Status = FstubAllocateDiskInformation(DeviceObject, &Disk, NULL);
     if (!NT_SUCCESS(Status))
     {
         return Status;
@@ -451,12 +460,13 @@ FstubCreateDiskRaw(IN PDEVICE_OBJECT DeviceObject)
     PDISK_INFORMATION Disk = NULL;
     PARTITION_STYLE PartitionStyle;
     PMASTER_BOOT_RECORD MasterBootRecord;
+
     PAGED_CODE();
 
     ASSERT(DeviceObject);
 
     /* Allocate internal structure */
-    Status = FstubAllocateDiskInformation(DeviceObject, &Disk, 0);
+    Status = FstubAllocateDiskInformation(DeviceObject, &Disk, NULL);
     if (!NT_SUCCESS(Status))
     {
         return Status;
@@ -548,6 +558,7 @@ FstubDbgPrintDriveLayoutEx(IN PDRIVE_LAYOUT_INFORMATION_EX DriveLayout)
 {
     ULONG i;
     CHAR Guid[EFI_GUID_STRING_SIZE];
+
     PAGED_CODE();
 
     DPRINT("FSTUB: DRIVE_LAYOUT_INFORMATION_EX: %p\n", DriveLayout);
@@ -589,6 +600,7 @@ FstubDbgPrintPartitionEx(IN PPARTITION_INFORMATION_EX PartitionEntry,
                          IN ULONG PartitionNumber)
 {
     CHAR Guid[EFI_GUID_STRING_SIZE];
+
     PAGED_CODE();
 
     DPRINT("Printing partition %lu\n", PartitionNumber);
@@ -628,6 +640,7 @@ FstubDbgPrintSetPartitionEx(IN PSET_PARTITION_INFORMATION_EX PartitionEntry,
                             IN ULONG PartitionNumber)
 {
     CHAR Guid[EFI_GUID_STRING_SIZE];
+
     PAGED_CODE();
 
     DPRINT("FSTUB: SET_PARTITION_INFORMATION_EX: %p\n", PartitionEntry);
@@ -659,6 +672,7 @@ FstubDetectPartitionStyle(IN PDISK_INFORMATION Disk,
 {
     NTSTATUS Status;
     PPARTITION_DESCRIPTOR PartitionDescriptor;
+
     PAGED_CODE();
 
     ASSERT(IS_VALID_DISK_INFO(Disk));
@@ -675,10 +689,9 @@ FstubDetectPartitionStyle(IN PDISK_INFORMATION Disk,
     }
 
     /* Get the partition descriptor array */
-    PartitionDescriptor = (PPARTITION_DESCRIPTOR)
-                          &(Disk->Buffer[PARTITION_TABLE_OFFSET]);
+    PartitionDescriptor = (PPARTITION_DESCRIPTOR)&Disk->Buffer[PARTITION_TABLE_OFFSET];
     /* If we have not the 0xAA55 then it's raw partition */
-    if (Disk->Buffer[BOOT_SIGNATURE_OFFSET] != BOOT_RECORD_SIGNATURE)
+    if (*(PUINT16)&Disk->Buffer[BOOT_SIGNATURE_OFFSET] != BOOT_RECORD_SIGNATURE)
     {
         *PartitionStyle = PARTITION_STYLE_RAW;
     }
@@ -718,11 +731,12 @@ NTAPI
 FstubGetDiskGeometry(IN PDEVICE_OBJECT DeviceObject,
                      OUT PDISK_GEOMETRY_EX Geometry)
 {
-    PIRP Irp;
     NTSTATUS Status;
+    PIRP Irp;
     PKEVENT Event = NULL;
     PDISK_GEOMETRY_EX DiskGeometry = NULL;
     PIO_STATUS_BLOCK IoStatusBlock = NULL;
+
     PAGED_CODE();
 
     ASSERT(DeviceObject);
@@ -817,6 +831,7 @@ FstubReadHeaderEFI(IN PDISK_INFORMATION Disk,
     ULONGLONG StartingSector;
     PEFI_PARTITION_HEADER EFIHeader;
     ULONG i, HeaderCRC32, PreviousCRC32, SectoredPartitionEntriesSize, LonelyPartitions;
+
     PAGED_CODE();
 
     ASSERT(Disk);
@@ -867,7 +882,7 @@ FstubReadHeaderEFI(IN PDISK_INFORMATION Disk,
     /* Then zero the one in EFI header. This is needed to compute header checksum */
     EFIHeader->HeaderCRC32 = 0;
     /* Compute header checksum and compare with the one present in partition table */
-    if (RtlComputeCrc32(0, (PUCHAR)Disk->Buffer, sizeof(EFI_PARTITION_HEADER)) != HeaderCRC32)
+    if (RtlComputeCrc32(0, Disk->Buffer, sizeof(EFI_PARTITION_HEADER)) != HeaderCRC32)
     {
         DPRINT("EFI::Not matching header checksum!\n");
         return STATUS_DISK_CORRUPT_ERROR;
@@ -900,7 +915,7 @@ FstubReadHeaderEFI(IN PDISK_INFORMATION Disk,
         Status = FstubReadSector(Disk->DeviceObject,
                                  Disk->SectorSize,
                                  EFIHeader->PartitionEntryLBA + i,
-                                 (PUSHORT)Sector);
+                                 Sector);
         if (!NT_SUCCESS(Status))
         {
             ExFreePoolWithTag(Sector, TAG_FSTUB);
@@ -920,7 +935,7 @@ FstubReadHeaderEFI(IN PDISK_INFORMATION Disk,
         Status = FstubReadSector(Disk->DeviceObject,
                                  Disk->SectorSize,
                                  EFIHeader->PartitionEntryLBA + i,
-                                 (PUSHORT)Sector);
+                                 Sector);
         if (!NT_SUCCESS(Status))
         {
             ExFreePoolWithTag(Sector, TAG_FSTUB);
@@ -957,7 +972,7 @@ NTSTATUS
 NTAPI
 FstubReadPartitionTableEFI(IN PDISK_INFORMATION Disk,
                            IN BOOLEAN ReadBackupTable,
-                           OUT struct _DRIVE_LAYOUT_INFORMATION_EX** DriveLayout)
+                           OUT PDRIVE_LAYOUT_INFORMATION_EX* DriveLayout)
 {
     NTSTATUS Status;
     ULONG NumberOfEntries;
@@ -971,6 +986,7 @@ FstubReadPartitionTableEFI(IN PDISK_INFORMATION Disk,
 #endif
     PDRIVE_LAYOUT_INFORMATION_EX DriveLayoutEx = NULL;
     ULONG i, PartitionCount, PartitionIndex, PartitionsPerSector;
+
     PAGED_CODE();
 
     ASSERT(Disk);
@@ -1108,12 +1124,13 @@ NTSTATUS
 NTAPI
 FstubReadPartitionTableMBR(IN PDISK_INFORMATION Disk,
                            IN BOOLEAN ReturnRecognizedPartitions,
-                           OUT struct _DRIVE_LAYOUT_INFORMATION_EX** ReturnedDriveLayout)
+                           OUT PDRIVE_LAYOUT_INFORMATION_EX* ReturnedDriveLayout)
 {
-    ULONG i;
     NTSTATUS Status;
+    ULONG i;
     PDRIVE_LAYOUT_INFORMATION DriveLayout = NULL;
     PDRIVE_LAYOUT_INFORMATION_EX DriveLayoutEx = NULL;
+
     PAGED_CODE();
 
     ASSERT(IS_VALID_DISK_INFO(Disk));
@@ -1175,14 +1192,15 @@ NTAPI
 FstubReadSector(IN PDEVICE_OBJECT DeviceObject,
                 IN ULONG SectorSize,
                 IN ULONGLONG StartingSector OPTIONAL,
-                OUT PUSHORT Buffer)
+                OUT PVOID Buffer)
 {
+    NTSTATUS Status;
     PIRP Irp;
     KEVENT Event;
-    NTSTATUS Status;
     LARGE_INTEGER StartingOffset;
     IO_STATUS_BLOCK IoStatusBlock;
     PIO_STACK_LOCATION IoStackLocation;
+
     PAGED_CODE();
 
     ASSERT(DeviceObject);
@@ -1231,6 +1249,7 @@ FstubSetPartitionInformationEFI(IN PDISK_INFORMATION Disk,
 {
     NTSTATUS Status;
     PDRIVE_LAYOUT_INFORMATION_EX Layout = NULL;
+
     PAGED_CODE();
 
     ASSERT(Disk);
@@ -1280,6 +1299,7 @@ FstubVerifyPartitionTableEFI(IN PDISK_INFORMATION Disk,
     PEFI_PARTITION_HEADER EFIHeader, ReadEFIHeader;
     BOOLEAN PrimaryValid = FALSE, BackupValid = FALSE, WriteBackup;
     ULONGLONG ReadPosition, WritePosition, SectorsForPartitions, PartitionIndex;
+
     PAGED_CODE();
 
     EFIHeader = ExAllocatePoolWithTag(NonPagedPool, sizeof(EFI_PARTITION_HEADER), TAG_FSTUB);
@@ -1407,6 +1427,7 @@ FstubWriteBootSectorEFI(IN PDISK_INFORMATION Disk)
     NTSTATUS Status;
     ULONG Signature = 0;
     PMASTER_BOOT_RECORD MasterBootRecord;
+
     PAGED_CODE();
 
     ASSERT(Disk);
@@ -1461,9 +1482,10 @@ FstubWriteEntryEFI(IN PDISK_INFORMATION Disk,
                    IN BOOLEAN ForceWrite,
                    OUT PULONG PartitionEntryCRC32 OPTIONAL)
 {
+    NTSTATUS Status = STATUS_SUCCESS;
     ULONG Offset;
     ULONGLONG FirstEntryLBA;
-    NTSTATUS Status = STATUS_SUCCESS;
+
     PAGED_CODE();
 
     ASSERT(Disk);
@@ -1530,6 +1552,7 @@ FstubWriteHeaderEFI(IN PDISK_INFORMATION Disk,
                     IN BOOLEAN WriteBackupTable)
 {
     PEFI_PARTITION_HEADER EFIHeader;
+
     PAGED_CODE();
 
     ASSERT(Disk);
@@ -1620,6 +1643,7 @@ FstubWritePartitionTableEFI(IN PDISK_INFORMATION Disk,
     NTSTATUS Status;
     EFI_PARTITION_ENTRY Entry;
     ULONG i, WrittenPartitions, SectoredPartitionEntriesSize, PartitionEntryCRC32;
+
     PAGED_CODE();
 
     ASSERT(Disk);
@@ -1694,6 +1718,7 @@ FstubWritePartitionTableMBR(IN PDISK_INFORMATION Disk,
 {
     NTSTATUS Status;
     PDRIVE_LAYOUT_INFORMATION DriveLayout;
+
     PAGED_CODE();
 
     ASSERT(IS_VALID_DISK_INFO(Disk));
@@ -1723,14 +1748,15 @@ NTAPI
 FstubWriteSector(IN PDEVICE_OBJECT DeviceObject,
                  IN ULONG SectorSize,
                  IN ULONGLONG StartingSector OPTIONAL,
-                 IN PUSHORT Buffer)
+                 IN PVOID Buffer)
 {
+    NTSTATUS Status;
     PIRP Irp;
     KEVENT Event;
-    NTSTATUS Status;
     LARGE_INTEGER StartingOffset;
     IO_STATUS_BLOCK IoStatusBlock;
     PIO_STACK_LOCATION IoStackLocation;
+
     PAGED_CODE();
 
     ASSERT(DeviceObject);
@@ -1779,9 +1805,10 @@ FstubWriteSector(IN PDEVICE_OBJECT DeviceObject,
 NTSTATUS
 NTAPI
 IoCreateDisk(IN PDEVICE_OBJECT DeviceObject,
-             IN struct _CREATE_DISK* Disk)
+             IN PCREATE_DISK Disk)
 {
     PARTITION_STYLE PartitionStyle;
+
     PAGED_CODE();
 
     ASSERT(DeviceObject);
@@ -1810,6 +1837,7 @@ NTAPI
 IoGetBootDiskInformation(IN OUT PBOOTDISK_INFORMATION BootDiskInformation,
                          IN ULONG Size)
 {
+    NTSTATUS Status = STATUS_SUCCESS;
     PIRP Irp;
     KEVENT Event;
     PLIST_ENTRY NextEntry;
@@ -1819,7 +1847,6 @@ IoGetBootDiskInformation(IN OUT PBOOTDISK_INFORMATION BootDiskInformation,
     UNICODE_STRING DeviceStringW;
     IO_STATUS_BLOCK IoStatusBlock;
     CHAR Buffer[128], ArcBuffer[128];
-    NTSTATUS Status = STATUS_SUCCESS;
     BOOLEAN SingleDisk, IsBootDiskInfoEx;
     PARC_DISK_SIGNATURE ArcDiskSignature;
     PARC_DISK_INFORMATION ArcDiskInformation;
@@ -1828,9 +1855,10 @@ IoGetBootDiskInformation(IN OUT PBOOTDISK_INFORMATION BootDiskInformation,
     ULONG DiskCount, DiskNumber, Signature, PartitionNumber;
     ANSI_STRING ArcBootString, ArcSystemString, DeviceStringA, ArcNameStringA;
     extern PLOADER_PARAMETER_BLOCK IopLoaderBlock;
+
     PAGED_CODE();
 
-    /* Get loader block. If it's null, we come to late */
+    /* Get loader block. If it's null, we come too late */
     if (!IopLoaderBlock)
     {
         return STATUS_TOO_LATE;
@@ -1843,14 +1871,16 @@ IoGetBootDiskInformation(IN OUT PBOOTDISK_INFORMATION BootDiskInformation,
     }
 
     /* Init some useful stuff:
-     * Get arc disks information
-     * Check whether we have a single disk
+     * Get ARC disks information
+     * Check whether we have a single disk on the machine
      * Check received structure size (extended or not?)
      * Init boot strings (system/boot)
      * Finaly, get disk count
      */
     ArcDiskInformation = IopLoaderBlock->ArcDiskInformation;
-    SingleDisk = IsListEmpty(&(ArcDiskInformation->DiskSignatureListHead));
+    SingleDisk = (ArcDiskInformation->DiskSignatureListHead.Flink->Flink ==
+                 &ArcDiskInformation->DiskSignatureListHead);
+
     IsBootDiskInfoEx = (Size >= sizeof(BOOTDISK_INFORMATION_EX));
     RtlInitAnsiString(&ArcBootString, IopLoaderBlock->ArcBootDeviceName);
     RtlInitAnsiString(&ArcSystemString, IopLoaderBlock->ArcHalDeviceName);
@@ -1892,7 +1922,7 @@ IoGetBootDiskInformation(IN OUT PBOOTDISK_INFORMATION BootDiskInformation,
                                             NULL,
                                             0,
                                             &DiskGeometry,
-                                            sizeof(DISK_GEOMETRY),
+                                            sizeof(DiskGeometry),
                                             FALSE,
                                             &Event,
                                             &IoStatusBlock);
@@ -1933,7 +1963,7 @@ IoGetBootDiskInformation(IN OUT PBOOTDISK_INFORMATION BootDiskInformation,
             DiskGeometry.BytesPerSector = 512;
         }
 
-        /* Now, for each arc disk, try to find the matching */
+        /* Now, for each ARC disk, try to find the matching */
         for (NextEntry = ArcDiskInformation->DiskSignatureListHead.Flink;
              NextEntry != &ArcDiskInformation->DiskSignatureListHead;
              NextEntry = NextEntry->Flink)
@@ -1941,7 +1971,7 @@ IoGetBootDiskInformation(IN OUT PBOOTDISK_INFORMATION BootDiskInformation,
             ArcDiskSignature = CONTAINING_RECORD(NextEntry,
                                                  ARC_DISK_SIGNATURE,
                                                  ListEntry);
-            /* If they matches, ie
+            /* If they match, i.e.
              * - There's only one disk for both BIOS and detected
              * - Signatures are matching
              * - This is MBR
@@ -1951,7 +1981,7 @@ IoGetBootDiskInformation(IN OUT PBOOTDISK_INFORMATION BootDiskInformation,
                 (IopVerifyDiskSignature(DriveLayout, ArcDiskSignature, &Signature))) &&
                 (DriveLayout->PartitionStyle == PARTITION_STYLE_MBR))
             {
-                /* Create arc name */
+                /* Create ARC name */
                 sprintf(ArcBuffer, "\\ArcName\\%s", ArcDiskSignature->ArcName);
                 RtlInitAnsiString(&ArcNameStringA, ArcBuffer);
 
@@ -1973,7 +2003,7 @@ IoGetBootDiskInformation(IN OUT PBOOTDISK_INFORMATION BootDiskInformation,
                         Signature = DriveLayout->Mbr.Signature;
                     }
 
-                    /* Create partial arc name */
+                    /* Create partial ARC name */
                     sprintf(ArcBuffer, "%spartition(%lu)", ArcDiskSignature->ArcName, PartitionNumber);
                     RtlInitAnsiString(&ArcNameStringA, ArcBuffer);
 
@@ -2001,7 +2031,7 @@ IoGetBootDiskInformation(IN OUT PBOOTDISK_INFORMATION BootDiskInformation,
                                                             NULL,
                                                             0,
                                                             &PartitionInformation,
-                                                            sizeof(PARTITION_INFORMATION_EX),
+                                                            sizeof(PartitionInformation),
                                                             FALSE,
                                                             &Event,
                                                             &IoStatusBlock);
@@ -2032,7 +2062,7 @@ IoGetBootDiskInformation(IN OUT PBOOTDISK_INFORMATION BootDiskInformation,
                         /* If called passed a BOOTDISK_INFORMATION_EX structure, give more intel */
                         if (IsBootDiskInfoEx)
                         {
-                            /* Is PT MBR or GPT? */
+                            /* Is partition style MBR or GPT? */
                             if (DriveLayout->PartitionStyle == PARTITION_STYLE_GPT)
                             {
                                 ((PBOOTDISK_INFORMATION_EX)BootDiskInformation)->BootDeviceGuid = DriveLayout->Gpt.DiskId;
@@ -2072,7 +2102,7 @@ IoGetBootDiskInformation(IN OUT PBOOTDISK_INFORMATION BootDiskInformation,
                                                             NULL,
                                                             0,
                                                             &PartitionInformation,
-                                                            sizeof(PARTITION_INFORMATION_EX),
+                                                            sizeof(PartitionInformation),
                                                             FALSE,
                                                             &Event,
                                                             &IoStatusBlock);
@@ -2103,7 +2133,7 @@ IoGetBootDiskInformation(IN OUT PBOOTDISK_INFORMATION BootDiskInformation,
                         /* If called passed a BOOTDISK_INFORMATION_EX structure, give more intel */
                         if (IsBootDiskInfoEx)
                         {
-                            /* Is PT MBR or GPT? */
+                            /* Is partition style MBR or GPT? */
                             if (DriveLayout->PartitionStyle == PARTITION_STYLE_GPT)
                             {
                                 ((PBOOTDISK_INFORMATION_EX)BootDiskInformation)->SystemDeviceGuid = DriveLayout->Gpt.DiskId;
@@ -2112,7 +2142,7 @@ IoGetBootDiskInformation(IN OUT PBOOTDISK_INFORMATION BootDiskInformation,
                             else
                             {
                                 ((PBOOTDISK_INFORMATION_EX)BootDiskInformation)->SystemDeviceIsGpt = FALSE;
-                           }
+                            }
                         }
 
                         /* Dereference FileObject */
@@ -2125,7 +2155,7 @@ IoGetBootDiskInformation(IN OUT PBOOTDISK_INFORMATION BootDiskInformation,
             }
         }
 
-        /* Finally, release drive layout structure */
+        /* Finally, release drive layout */
         ExFreePool(DriveLayout);
     }
 
@@ -2142,11 +2172,12 @@ IoReadDiskSignature(IN PDEVICE_OBJECT DeviceObject,
                     IN ULONG BytesPerSector,
                     OUT PDISK_SIGNATURE Signature)
 {
-    PULONG Buffer;
     NTSTATUS Status;
+    PUCHAR Buffer;
     ULONG HeaderCRC32, i, CheckSum;
     PEFI_PARTITION_HEADER EFIHeader;
     PPARTITION_DESCRIPTOR PartitionDescriptor;
+
     PAGED_CODE();
 
     /* Ensure we'll read at least 512 bytes */
@@ -2166,7 +2197,7 @@ IoReadDiskSignature(IN PDEVICE_OBJECT DeviceObject,
     Status = FstubReadSector(DeviceObject,
                              BytesPerSector,
                              0ULL,
-                             (PUSHORT)Buffer);
+                             Buffer);
     if (!NT_SUCCESS(Status))
     {
         goto Cleanup;
@@ -2185,7 +2216,7 @@ IoReadDiskSignature(IN PDEVICE_OBJECT DeviceObject,
         Status = FstubReadSector(DeviceObject,
                                  BytesPerSector,
                                  1ULL,
-                                 (PUSHORT)Buffer);
+                                 Buffer);
         if (!NT_SUCCESS(Status))
         {
             goto Cleanup;
@@ -2209,7 +2240,7 @@ IoReadDiskSignature(IN PDEVICE_OBJECT DeviceObject,
         /* Then zero the one in EFI header. This is needed to compute header checksum */
         EFIHeader->HeaderCRC32 = 0;
         /* Compute header checksum and compare with the one present in partition table */
-        if (RtlComputeCrc32(0, (PUCHAR)Buffer, sizeof(EFI_PARTITION_HEADER)) != HeaderCRC32)
+        if (RtlComputeCrc32(0, Buffer, sizeof(EFI_PARTITION_HEADER)) != HeaderCRC32)
         {
             Status = STATUS_DISK_CORRUPT_ERROR;
             goto Cleanup;
@@ -2222,14 +2253,15 @@ IoReadDiskSignature(IN PDEVICE_OBJECT DeviceObject,
     else
     {
         /* Compute MBR checksum */
-        for (i = 0, CheckSum = 0; i < 512 / sizeof(ULONG) ; i++)
+        for (i = 0, CheckSum = 0; i < 512; i += sizeof(UINT32))
         {
-            CheckSum += Buffer[i];
+            CheckSum += *(PUINT32)&Buffer[i];
         }
+        CheckSum = ~CheckSum + 1;
 
         /* Set partition table style to MBR and return signature (offset 440) and checksum */
         Signature->PartitionStyle = PARTITION_STYLE_MBR;
-        Signature->Mbr.Signature = Buffer[PARTITION_TABLE_OFFSET / 2 - 1];
+        Signature->Mbr.Signature = *(PUINT32)&Buffer[DISK_SIGNATURE_OFFSET];
         Signature->Mbr.CheckSum = CheckSum;
     }
 
@@ -2245,25 +2277,26 @@ Cleanup:
 NTSTATUS
 NTAPI
 IoReadPartitionTableEx(IN PDEVICE_OBJECT DeviceObject,
-                       IN struct _DRIVE_LAYOUT_INFORMATION_EX** DriveLayout)
+                       IN PDRIVE_LAYOUT_INFORMATION_EX* DriveLayout)
 {
     NTSTATUS Status;
     PDISK_INFORMATION Disk;
     PARTITION_STYLE PartitionStyle;
+
     PAGED_CODE();
 
     ASSERT(DeviceObject);
     ASSERT(DriveLayout);
 
     /* First of all, allocate internal structure */
-    Status = FstubAllocateDiskInformation(DeviceObject, &Disk, 0);
+    Status = FstubAllocateDiskInformation(DeviceObject, &Disk, NULL);
     if (!NT_SUCCESS(Status))
     {
         return Status;
     }
     ASSERT(Disk);
 
-    /* Then, detect partition style (MBR? GTP/EFI? RAW?) */
+    /* Then, detect partition style (MBR? GPT/EFI? RAW?) */
     Status = FstubDetectPartitionStyle(Disk, &PartitionStyle);
     if (!NT_SUCCESS(Status))
     {
@@ -2280,18 +2313,18 @@ IoReadPartitionTableEx(IN PDEVICE_OBJECT DeviceObject,
             break;
 
         case PARTITION_STYLE_GPT:
-             /* Read primary table */
-             Status = FstubReadPartitionTableEFI(Disk, FALSE, DriveLayout);
-             /* If it failed, try reading backup table */
-             if (!NT_SUCCESS(Status))
-             {
-                 Status = FstubReadPartitionTableEFI(Disk, TRUE, DriveLayout);
-             }
-             break;
+            /* Read primary table */
+            Status = FstubReadPartitionTableEFI(Disk, FALSE, DriveLayout);
+            /* If it failed, try reading backup table */
+            if (!NT_SUCCESS(Status))
+            {
+                Status = FstubReadPartitionTableEFI(Disk, TRUE, DriveLayout);
+            }
+            break;
 
         default:
-             DPRINT("Unknown partition type\n");
-             Status = STATUS_UNSUCCESSFUL;
+            DPRINT("Unknown partition type\n");
+            Status = STATUS_UNSUCCESSFUL;
     }
 
     /* It's over, internal structure not needed anymore */
@@ -2313,11 +2346,12 @@ NTSTATUS
 NTAPI
 IoSetPartitionInformationEx(IN PDEVICE_OBJECT DeviceObject,
                             IN ULONG PartitionNumber,
-                            IN struct _SET_PARTITION_INFORMATION_EX* PartitionInfo)
+                            IN PSET_PARTITION_INFORMATION_EX PartitionInfo)
 {
     NTSTATUS Status;
     PDISK_INFORMATION Disk;
     PARTITION_STYLE PartitionStyle;
+
     PAGED_CODE();
 
     ASSERT(DeviceObject);
@@ -2382,6 +2416,7 @@ IoVerifyPartitionTable(IN PDEVICE_OBJECT DeviceObject,
     NTSTATUS Status;
     PDISK_INFORMATION Disk;
     PARTITION_STYLE PartitionStyle;
+
     PAGED_CODE();
 
     ASSERT(DeviceObject);
@@ -2429,14 +2464,15 @@ IoVerifyPartitionTable(IN PDEVICE_OBJECT DeviceObject,
 NTSTATUS
 NTAPI
 IoWritePartitionTableEx(IN PDEVICE_OBJECT DeviceObject,
-                        IN struct _DRIVE_LAYOUT_INFORMATION_EX* DriveLayout)
+                        IN PDRIVE_LAYOUT_INFORMATION_EX DriveLayout)
 {
-    GUID DiskGuid;
     NTSTATUS Status;
+    GUID DiskGuid;
     ULONG NumberOfEntries;
     PDISK_INFORMATION Disk;
     PEFI_PARTITION_HEADER EfiHeader;
     ULONGLONG SectorsForPartitions, FirstUsableLBA, LastUsableLBA;
+
     PAGED_CODE();
 
     ASSERT(DeviceObject);
@@ -2446,7 +2482,7 @@ IoWritePartitionTableEx(IN PDEVICE_OBJECT DeviceObject,
     FstubDbgPrintDriveLayoutEx(DriveLayout);
 
     /* Allocate internal structure */
-    Status = FstubAllocateDiskInformation(DeviceObject, &Disk, 0);
+    Status = FstubAllocateDiskInformation(DeviceObject, &Disk, NULL);
     if (!NT_SUCCESS(Status))
     {
         return Status;
@@ -2496,7 +2532,7 @@ IoWritePartitionTableEx(IN PDEVICE_OBJECT DeviceObject,
                                                          FALSE,
                                                          DriveLayout->PartitionCount,
                                                          DriveLayout->PartitionEntry);
-                    /* If it succeed, also update backup table */
+                    /* If it succeeded, also update backup table */
                     if (NT_SUCCESS(Status))
                     {
                         Status = FstubWritePartitionTableEFI(Disk,

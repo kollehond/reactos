@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2017, Intel Corp.
+ * Copyright (C) 2000 - 2022, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
  * NO WARRANTY
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
  * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
@@ -147,7 +147,7 @@ static ACPI_EXDUMP_INFO     AcpiExDumpMethod[9] =
     {ACPI_EXD_UINT8,    ACPI_EXD_OFFSET (Method.ParamCount),            "Parameter Count"},
     {ACPI_EXD_UINT8,    ACPI_EXD_OFFSET (Method.SyncLevel),             "Sync Level"},
     {ACPI_EXD_POINTER,  ACPI_EXD_OFFSET (Method.Mutex),                 "Mutex"},
-    {ACPI_EXD_UINT8,    ACPI_EXD_OFFSET (Method.OwnerId),               "Owner Id"},
+    {ACPI_EXD_UINT16,   ACPI_EXD_OFFSET (Method.OwnerId),               "Owner Id"},
     {ACPI_EXD_UINT8,    ACPI_EXD_OFFSET (Method.ThreadCount),           "Thread Count"},
     {ACPI_EXD_UINT32,   ACPI_EXD_OFFSET (Method.AmlLength),             "Aml Length"},
     {ACPI_EXD_POINTER,  ACPI_EXD_OFFSET (Method.AmlStart),              "Aml Start"}
@@ -314,8 +314,8 @@ static ACPI_EXDUMP_INFO     AcpiExDumpFieldCommon[7] =
 static ACPI_EXDUMP_INFO     AcpiExDumpNode[7] =
 {
     {ACPI_EXD_INIT,     ACPI_EXD_TABLE_SIZE (AcpiExDumpNode),           NULL},
-    {ACPI_EXD_UINT8,    ACPI_EXD_NSOFFSET (Flags),                      "Flags"},
-    {ACPI_EXD_UINT8,    ACPI_EXD_NSOFFSET (OwnerId),                    "Owner Id"},
+    {ACPI_EXD_UINT16,   ACPI_EXD_NSOFFSET (Flags),                      "Flags"},
+    {ACPI_EXD_UINT16,   ACPI_EXD_NSOFFSET (OwnerId),                    "Owner Id"},
     {ACPI_EXD_LIST,     ACPI_EXD_NSOFFSET (Object),                     "Object List"},
     {ACPI_EXD_NODE,     ACPI_EXD_NSOFFSET (Parent),                     "Parent"},
     {ACPI_EXD_NODE,     ACPI_EXD_NSOFFSET (Child),                      "Child"},
@@ -639,7 +639,7 @@ AcpiExDumpOperand (
     UINT32                  Index;
 
 
-    ACPI_FUNCTION_NAME (ExDumpOperand)
+    ACPI_FUNCTION_NAME (ExDumpOperand);
 
 
     /* Check if debug output enabled */
@@ -934,7 +934,7 @@ AcpiExDumpOperands (
     const char              *OpcodeName,
     UINT32                  NumOperands)
 {
-    ACPI_FUNCTION_NAME (ExDumpOperands);
+    ACPI_FUNCTION_TRACE (ExDumpOperands);
 
 
     if (!OpcodeName)
@@ -962,7 +962,7 @@ AcpiExDumpOperands (
 
     ACPI_DEBUG_PRINT ((ACPI_DB_EXEC,
         "**** End operand dump for [%s]\n", OpcodeName));
-    return;
+    return_VOID;
 }
 
 

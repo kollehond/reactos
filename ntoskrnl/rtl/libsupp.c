@@ -13,9 +13,6 @@
 #define NDEBUG
 #include <debug.h>
 
-#define TAG_ATMT 'TotA' /* Atom table */
-#define TAG_RTHL 'LHtR' /* Heap Lock */
-
 extern ULONG NtGlobalFlag;
 
 typedef struct _RTL_RANGE_ENTRY
@@ -37,17 +34,24 @@ RtlPcToFileHeader(
 {
     PLDR_DATA_TABLE_ENTRY LdrEntry;
     BOOLEAN InSystem;
+    KIRQL OldIrql;
 
     /* Get the base for this file */
     if ((ULONG_PTR)PcValue > (ULONG_PTR)MmHighestUserAddress)
     {
+        /* Acquire the loaded module spinlock */
+        KeAcquireSpinLock(&PsLoadedModuleSpinLock, &OldIrql);
+
         /* We are in kernel */
         *BaseOfImage = KiPcToFileHeader(PcValue, &LdrEntry, FALSE, &InSystem);
+
+        /* Release lock */
+        KeReleaseSpinLock(&PsLoadedModuleSpinLock, OldIrql);
     }
     else
     {
-        /* We are in user land */
-        *BaseOfImage = KiRosPcToUserFileHeader(PcValue, &LdrEntry);
+        /* User mode is not handled here! */
+        *BaseOfImage = NULL;
     }
 
     return *BaseOfImage;
@@ -107,10 +111,6 @@ RtlpAllocateMemory(ULONG Bytes,
                                  Tag);
 }
 
-
-#define TAG_USTR        'RTSU'
-#define TAG_ASTR        'RTSA'
-#define TAG_OSTR        'RTSO'
 VOID
 NTAPI
 RtlpFreeMemory(PVOID Mem,
@@ -506,7 +506,6 @@ RtlWalkFrameChain(OUT PVOID *Callers,
 
 #endif
 
-#if defined(_M_AMD64) || defined(_M_ARM)
 VOID
 NTAPI
 RtlpGetStackLimits(
@@ -514,10 +513,14 @@ RtlpGetStackLimits(
     OUT PULONG_PTR HighLimit)
 {
     PKTHREAD CurrentThread = KeGetCurrentThread();
-    *HighLimit = (ULONG_PTR)CurrentThread->InitialStack;
     *LowLimit = (ULONG_PTR)CurrentThread->StackLimit;
-}
+#ifdef _M_IX86
+    *HighLimit = (ULONG_PTR)CurrentThread->InitialStack -
+        sizeof(FX_SAVE_AREA);
+#else
+    *HighLimit = (ULONG_PTR)CurrentThread->InitialStack;
 #endif
+}
 
 /* RTL Atom Tables ************************************************************/
 
@@ -691,6 +694,49 @@ RtlpGetAtomEntry(PRTL_ATOM_TABLE AtomTable, ULONG Index)
    return Entry;
 }
 
+/* Ldr SEH-Protected access to IMAGE_NT_HEADERS */
+
+/* Rtl SEH-Free version of this */
+NTSTATUS
+NTAPI
+RtlpImageNtHeaderEx(
+    _In_ ULONG Flags,
+    _In_ PVOID Base,
+    _In_ ULONG64 Size,
+    _Out_ PIMAGE_NT_HEADERS *OutHeaders);
+
+/*
+ * @implemented
+ * @note: This is here, so that we do not drag SEH into rosload, freeldr and bootmgfw
+ */
+NTSTATUS
+NTAPI
+RtlImageNtHeaderEx(
+    _In_ ULONG Flags,
+    _In_ PVOID Base,
+    _In_ ULONG64 Size,
+    _Out_ PIMAGE_NT_HEADERS *OutHeaders)
+{
+    NTSTATUS Status;
+
+    /* Assume failure. This is also done in RtlpImageNtHeaderEx, but this is guarded by SEH. */
+    if (OutHeaders != NULL)
+        *OutHeaders = NULL;
+
+    _SEH2_TRY
+    {
+        Status = RtlpImageNtHeaderEx(Flags, Base, Size, OutHeaders);
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        /* Fail with the SEH error */
+        Status = _SEH2_GetExceptionCode();
+    }
+    _SEH2_END;
+
+    return Status;
+}
+
 /*
  * Ldr Resource support code
  */
@@ -779,5 +825,20 @@ RtlCallVectoredContinueHandlers(_In_ PEXCEPTION_RECORD ExceptionRecord,
     /* No vectored continue handlers either in kernel mode */
     return;
 }
+
+#ifdef _M_AMD64
+
+PRUNTIME_FUNCTION
+NTAPI
+RtlpLookupDynamicFunctionEntry(
+    _In_ DWORD64 ControlPc,
+    _Out_ PDWORD64 ImageBase,
+    _In_ PUNWIND_HISTORY_TABLE HistoryTable)
+{
+    /* No support for dynamic function tables in the kernel */
+    return NULL;
+}
+
+#endif
 
 /* EOF */

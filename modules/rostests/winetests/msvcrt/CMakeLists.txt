@@ -1,8 +1,5 @@
 
-add_definitions(
-    -DWINETEST_USE_DBGSTR_LONGLONG
-    -D_CRT_NONSTDC_NO_DEPRECATE
-    -D__msvcrt_ulong=ULONG)
+remove_definitions(-D_CRT_NON_CONFORMING_SWPRINTFS)
 
 list(APPEND SOURCE
     cpp.c
@@ -14,26 +11,41 @@ list(APPEND SOURCE
     heap.c
     locale.c
     misc.c
-    printf.c
     scanf.c
     signal.c
     string.c
-    time.c
-    precomp.h)
+    time.c)
 
-add_executable(msvcrt_winetest ${SOURCE} testlist.c)
+list(APPEND PCH_SKIP_SOURCE
+    printf.c
+    testlist.c)
 
-if(USE_CLANG_CL OR (NOT MSVC))
-    add_target_compile_flags(msvcrt_winetest "-Wno-format")
+add_executable(msvcrt_winetest
+    ${SOURCE}
+    ${PCH_SKIP_SOURCE})
+
+target_compile_definitions(msvcrt_winetest PRIVATE
+    WINETEST_USE_DBGSTR_LONGLONG
+    _CRT_NONSTDC_NO_DEPRECATE
+    _USE_MATH_DEFINES
+    WIN32_NO_STATUS=
+    __msvcrt_ulong=ULONG)
+
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(msvcrt_winetest PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-format -Wno-overflow>)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(msvcrt_winetest PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-stringop-truncation>)
+    endif()
+endif()
+
+if(MSVC)
+    # 'swscanf' : unknown type field character '\xe1' in format specifier
+    target_compile_options(msvcrt_winetest PRIVATE /wd4476)
 endif()
 
 set_module_type(msvcrt_winetest win32cui)
-add_importlibs(msvcrt_winetest advapi32 msvcrt kernel32)
+add_importlibs(msvcrt_winetest advapi32 msvcrt kernel32 ntdll)
+target_link_libraries(msvcrt_winetest oldnames)
 
-if(MSVC)
-    target_link_libraries(msvcrt_winetest oldnames)
-    add_importlibs(msvcrt_winetest ntdll)
-endif()
-
-add_pch(msvcrt_winetest precomp.h SOURCE)
+add_pch(msvcrt_winetest precomp.h "${PCH_SKIP_SOURCE}")
 add_rostests_file(TARGET msvcrt_winetest)

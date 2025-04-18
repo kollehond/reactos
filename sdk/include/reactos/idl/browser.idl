@@ -133,7 +133,7 @@ typedef struct _BROWSER_STATISTICS_STRUCT
 #endif
     endpoint("ncacn_np:[\\pipe\\browser]")
 #ifndef __midl
-    ,implicit_handle(handle_t hBinding)
+    ,implicit_handle(handle_t browser_hBinding)
 #endif
 ]
 interface browser
@@ -161,9 +161,9 @@ interface browser
     NET_API_STATUS
     __stdcall
     I_BrowserrQueryOtherDomains(
-         [in, string, unique] BROWSER_IDENTIFY_HANDLE ServerName,
-         [in, out] LPSERVER_ENUM_STRUCT EnumStruct,
-         [out] LPDWORD TotalEntries);
+        [in, string, unique] BROWSER_IDENTIFY_HANDLE ServerName,
+        [in, out] LPSERVER_ENUM_STRUCT EnumStruct,
+        [out] LPDWORD TotalEntries);
 
     /* Function 3 */
     NET_API_STATUS
@@ -189,12 +189,13 @@ interface browser
     NET_API_STATUS
     __stdcall
     I_BrowserrResetStatistics(
-         [in, string, unique] BROWSER_IDENTIFY_HANDLE ServerName);
+        [in, string, unique] BROWSER_IDENTIFY_HANDLE ServerName);
 
-    /* Function 7 (NetrBrowserStatisticsClear) */
+    /* Function 7 - Not used on wire */
     NET_API_STATUS
     __stdcall
-    BrowserOpnum7NotUsedOnWire(void);
+    NetrBrowserStatisticsClear(
+        [in, string, unique] BROWSER_IDENTIFY_HANDLE ServerName);
 
     /* Function 8 */
     NET_API_STATUS

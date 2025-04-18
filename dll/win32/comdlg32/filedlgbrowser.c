@@ -41,6 +41,9 @@
 #include "servprov.h"
 #include "wine/debug.h"
 #include "wine/heap.h"
+#ifdef __REACTOS__
+EXTERN_C HRESULT DoUpdateAutoCompleteWithCWD(const FileOpenDlgInfos *info, LPCITEMIDLIST pidl);
+#endif
 
 WINE_DEFAULT_DEBUG_CHANNEL(commdlg);
 
@@ -143,6 +146,9 @@ static void COMDLG32_UpdateCurrentDir(const FileOpenDlgInfos *fodInfos)
         if (SUCCEEDED(res))
             SetCurrentDirectoryW(wszCurrentDir);
     }
+#ifdef __REACTOS__
+    DoUpdateAutoCompleteWithCWD(fodInfos, fodInfos->ShellInfos.pidlAbsCurrent);
+#endif
     
     IShellFolder_Release(psfDesktop);
 }
@@ -774,9 +780,9 @@ static HRESULT WINAPI IShellBrowserImpl_ICommDlgBrowser_OnDefaultCommand(ICommDl
     {
         HRESULT hRes;
 
-        ULONG  ulAttr = SFGAO_FOLDER | SFGAO_HASSUBFOLDER;
+        ULONG  ulAttr = SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_FILESYSANCESTOR;
         IShellFolder_GetAttributesOf(fodInfos->Shell.FOIShellFolder, 1, (LPCITEMIDLIST *)&pidl, &ulAttr);
-	if (ulAttr & (SFGAO_FOLDER | SFGAO_HASSUBFOLDER) )
+	if ((ulAttr & (SFGAO_FOLDER | SFGAO_HASSUBFOLDER)) && (ulAttr & SFGAO_FILESYSANCESTOR))
 	{
             hRes = IShellBrowser_BrowseObject(&This->IShellBrowser_iface,pidl,SBSP_RELATIVE);
             if(fodInfos->ofnInfos->Flags & OFN_EXPLORER)

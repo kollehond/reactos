@@ -32,11 +32,14 @@
 #include <windef.h>
 #include <wdmguid.h>
 
-#define TAG_VIDEO_PORT  'PDIV'
-#define TAG_VIDEO_PORT_BUFFER  '\0mpV'
-#define TAG_REQUEST_PACKET 'qRpV'
+/* PSEH for SEH Support */
+#include <pseh/pseh2.h>
 
-#define GUID_STRING_LENGTH 38 * sizeof(WCHAR)
+#define TAG_VIDEO_PORT          'PDIV'
+#define TAG_VIDEO_PORT_BUFFER   '\0mpV'
+#define TAG_REQUEST_PACKET      'qRpV'
+
+#define GUID_STRING_LENGTH (38 * sizeof(WCHAR))
 
 typedef struct _VIDEO_PORT_ADDRESS_MAPPING
 {
@@ -102,8 +105,12 @@ typedef struct _VIDEO_PORT_DEVICE_EXTENSTION
    AGP_BUS_INTERFACE_STANDARD AgpInterface;
    KMUTEX DeviceLock;
    LIST_ENTRY DmaAdapterList, ChildDeviceList;
+   LIST_ENTRY HwResetListEntry;
    ULONG SessionId;
-   CHAR MiniPortDeviceExtension[1];
+   USHORT AdapterNumber;
+   USHORT DisplayNumber;
+   ULONG NumberOfSecondaryDisplays;
+   CHAR POINTER_ALIGNMENT MiniPortDeviceExtension[1];
 } VIDEO_PORT_DEVICE_EXTENSION, *PVIDEO_PORT_DEVICE_EXTENSION;
 
 typedef struct _VIDEO_PORT_CHILD_EXTENSION
@@ -204,11 +211,6 @@ IntVideoPortDispatchSystemControl(
    IN PDEVICE_OBJECT DeviceObject,
    IN PIRP Irp);
 
-NTSTATUS NTAPI
-IntVideoPortDispatchWrite(
-   IN PDEVICE_OBJECT DeviceObject,
-   IN PIRP Irp);
-
 VOID NTAPI
 IntVideoPortUnload(PDRIVER_OBJECT DriverObject);
 
@@ -232,7 +234,12 @@ IntVideoPortSetupInterrupt(
 NTSTATUS NTAPI
 IntVideoPortFilterResourceRequirements(
    IN PDEVICE_OBJECT DeviceObject,
+   IN PIO_STACK_LOCATION IrpStack,
    IN PIRP Irp);
+
+VOID
+IntVideoPortReleaseResources(
+    _In_ PVIDEO_PORT_DEVICE_EXTENSION DeviceExtension);
 
 NTSTATUS NTAPI
 IntVideoPortMapPhysicalMemory(
@@ -244,10 +251,12 @@ IntVideoPortMapPhysicalMemory(
 
 /* videoprt.c */
 
-extern ULONG CsrssInitialized;
-extern PKPROCESS Csrss;
+extern PKPROCESS CsrProcess;
 extern ULONG VideoPortDeviceNumber;
+extern BOOLEAN VideoPortUseNewKey;
 extern KMUTEX VideoPortInt10Mutex;
+extern KSPIN_LOCK HwResetAdaptersLock;
+extern LIST_ENTRY HwResetAdaptersList;
 
 VOID FASTCALL
 IntAttachToCSRSS(PKPROCESS *CallingProcess, PKAPC_STATE ApcState);
@@ -257,10 +266,12 @@ IntDetachFromCSRSS(PKPROCESS *CallingProcess, PKAPC_STATE ApcState);
 
 NTSTATUS NTAPI
 IntVideoPortCreateAdapterDeviceObject(
-   IN PDRIVER_OBJECT DriverObject,
-   IN PVIDEO_PORT_DRIVER_EXTENSION DriverExtension,
-   IN PDEVICE_OBJECT PhysicalDeviceObject  OPTIONAL,
-   OUT PDEVICE_OBJECT *DeviceObject  OPTIONAL);
+   _In_ PDRIVER_OBJECT DriverObject,
+   _In_ PVIDEO_PORT_DRIVER_EXTENSION DriverExtension,
+   _In_opt_ PDEVICE_OBJECT PhysicalDeviceObject,
+   _In_ USHORT AdapterNumber,
+   _In_ USHORT DisplayNumber,
+   _Out_opt_ PDEVICE_OBJECT *DeviceObject);
 
 NTSTATUS NTAPI
 IntVideoPortFindAdapter(
@@ -272,6 +283,11 @@ PVOID NTAPI
 IntVideoPortGetProcAddress(
    IN PVOID HwDeviceExtension,
    IN PUCHAR FunctionName);
+
+NTSTATUS NTAPI
+IntVideoPortEnumerateChildren(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp);
 
 /* int10.c */
 
@@ -342,6 +358,7 @@ NTSTATUS
 NTAPI
 IntCreateRegistryPath(
     IN PCUNICODE_STRING DriverRegistryPath,
+    IN ULONG DeviceNumber,
     OUT PUNICODE_STRING DeviceRegistryPath);
 
 

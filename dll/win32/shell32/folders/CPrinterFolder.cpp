@@ -102,17 +102,28 @@ static LPITEMIDLIST _ILCreatePrinterItem(PRINTER_INFO_4W *pi)
     PIDLPrinterStruct * p;
     int size0 = (char*)&tmp.u.cprinter.szName - (char*)&tmp.u.cprinter;
     int size = size0;
+    SIZE_T cchPrinterName = 0;
+    SIZE_T cchServerName = 0;
+
+    if (pi->pPrinterName)
+        cchPrinterName = wcslen(pi->pPrinterName);
+    if (pi->pServerName)
+        cchServerName = wcslen(pi->pServerName);
+    if ((cchPrinterName + cchServerName) > (MAXUSHORT - 2))
+    {
+        return NULL;
+    }
 
     tmp.type = 0x00;
     tmp.u.cprinter.dummy = 0xFF;
     if (pi->pPrinterName)
-        tmp.u.cprinter.offsServer = wcslen(pi->pPrinterName) + 1;
+        tmp.u.cprinter.offsServer = cchPrinterName + 1;
     else
         tmp.u.cprinter.offsServer = 1;
 
     size += tmp.u.cprinter.offsServer * sizeof(WCHAR);
     if (pi->pServerName)
-        size += (wcslen(pi->pServerName) + 1) * sizeof(WCHAR);
+        size += (cchServerName + 1) * sizeof(WCHAR);
     else
         size += sizeof(WCHAR);
 
@@ -421,11 +432,11 @@ HRESULT WINAPI CPrinterFolder::GetDefaultColumn(DWORD dwRes, ULONG *pSort, ULONG
     return S_OK;
 }
 
-HRESULT WINAPI CPrinterFolder::GetDefaultColumnState(UINT iColumn, DWORD *pcsFlags)
+HRESULT WINAPI CPrinterFolder::GetDefaultColumnState(UINT iColumn, SHCOLSTATEF *pcsFlags)
 {
     if (!pcsFlags || iColumn >= PrinterSHELLVIEWCOLUMNS)
         return E_INVALIDARG;
-    *pcsFlags = PrinterSFHeader[iColumn].pcsFlags;
+    *pcsFlags = PrinterSFHeader[iColumn].colstate;
     return S_OK;
 
 }
@@ -479,7 +490,7 @@ HRESULT WINAPI CPrinterFolder::GetClassID(CLSID *lpClassId)
 /************************************************************************
  *    CPrinterFolder::Initialize
  */
-HRESULT WINAPI CPrinterFolder::Initialize(LPCITEMIDLIST pidl)
+HRESULT WINAPI CPrinterFolder::Initialize(PCIDLIST_ABSOLUTE pidl)
 {
     if (pidlRoot)
         SHFree((LPVOID)pidlRoot);
@@ -491,7 +502,7 @@ HRESULT WINAPI CPrinterFolder::Initialize(LPCITEMIDLIST pidl)
 /**************************************************************************
  *    CPrinterFolder::GetCurFolder
  */
-HRESULT WINAPI CPrinterFolder::GetCurFolder(LPITEMIDLIST * pidl)
+HRESULT WINAPI CPrinterFolder::GetCurFolder(PIDLIST_ABSOLUTE * pidl)
 {
     TRACE ("(%p)->(%p)\n", this, pidl);
 

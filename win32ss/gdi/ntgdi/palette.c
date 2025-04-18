@@ -12,6 +12,9 @@
 #define NDEBUG
 #include <debug.h>
 
+#define PAL_SETPOWNER 0x8000
+#define MAX_PALCOLORS 65536
+
 static UINT SystemPaletteUse = SYSPAL_NOSTATIC;  /* The program need save the pallete and restore it */
 
 PALETTE gpalRGB, gpalBGR, gpalRGB555, gpalRGB565, *gppalMono, *gppalDefault;
@@ -57,7 +60,7 @@ unsigned short GetNumberOfBits(unsigned int dwMask)
 }
 
 // Create the system palette
-INIT_FUNCTION
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
 InitPaletteImpl(VOID)
@@ -612,7 +615,7 @@ NtGdiResizePalette(
     XLATEOBJ *NewXlateObj = (int*) HeapReAlloc(GetProcessHeap(), 0, XlateObj, cEntries * sizeof(int));
     if(NewXlateObj == NULL)
     {
-      ERR("Can not resize logicalToSystem -- out of memory!");
+      ERR("Can not resize logicalToSystem -- out of memory!\n");
       GDI_ReleaseObj( hPal );
       return FALSE;
     }
@@ -727,7 +730,7 @@ UINT
 FASTCALL
 IntGdiRealizePalette(HDC hDC)
 {
-    UINT i, realize = 0;
+    UINT realize = 0;
     PDC pdc;
     PALETTE *ppalSurf, *ppalDC;
 
@@ -766,13 +769,8 @@ IntGdiRealizePalette(HDC hDC)
 
     ASSERT(ppalDC->flFlags & PAL_INDEXED);
 
-    // FIXME: Should we resize ppalSurf if it's too small?
-    realize = (ppalDC->NumColors < ppalSurf->NumColors) ? ppalDC->NumColors : ppalSurf->NumColors;
-
-    for (i=0; i<realize; i++)
-    {
-        InterlockedExchange((LONG*)&ppalSurf->IndexedColors[i], *(LONG*)&ppalDC->IndexedColors[i]);
-    }
+    DPRINT1("RealizePalette unimplemented for %s\n", 
+            (pdc->dctype == DCTYPE_MEMORY ? "memory managed DCs" : "device DCs"));
 
 cleanup:
     DC_UnlockDc(pdc);
@@ -963,7 +961,7 @@ IntSetPaletteEntries(
     PPALETTE palGDI;
     ULONG numEntries;
 
-    if ((UINT_PTR)hpal & GDI_HANDLE_STOCK_MASK)
+    if (GDI_HANDLE_IS_STOCKOBJ(hpal))
     {
     	return 0;
     }
@@ -1247,7 +1245,7 @@ NtGdiUnrealizeObject(HGDIOBJ hgdiobj)
    PPALETTE palGDI;
 
    if ( !hgdiobj ||
-        ((UINT_PTR)hgdiobj & GDI_HANDLE_STOCK_MASK) ||
+        GDI_HANDLE_IS_STOCKOBJ(hgdiobj) ||
         !GDI_HANDLE_IS_TYPE(hgdiobj, GDI_OBJECT_TYPE_PALETTE) )
       return Ret;
 
@@ -1263,5 +1261,58 @@ NtGdiUnrealizeObject(HGDIOBJ hgdiobj)
    return Ret;
 }
 
+__kernel_entry
+HPALETTE
+APIENTRY
+NtGdiEngCreatePalette(
+    _In_ ULONG iMode,
+    _In_ ULONG cColors,
+    _In_ ULONG *pulColors,
+    _In_ FLONG flRed,
+    _In_ FLONG flGreen,
+    _In_ FLONG flBlue)
+{
+    HPALETTE hPal = NULL;
+    ULONG *pulcSafe, ulColors[WINDDI_MAXSETPALETTECOLORS];
+
+    if ( cColors > MAX_PALCOLORS ) return NULL;
+
+    if ( cColors <= WINDDI_MAXSETPALETTECOLORS )
+    {
+        pulcSafe = ulColors;
+    }
+    else
+    {
+        pulcSafe = ExAllocatePoolWithTag(PagedPool, cColors * sizeof(ULONG), GDITAG_UMPD );
+    }
+
+        _SEH2_TRY
+    {
+        ProbeForRead( pulColors, cColors * sizeof(ULONG), 1);
+        RtlCopyMemory( pulcSafe, pulColors, cColors * sizeof(ULONG) );
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        SetLastNtError(_SEH2_GetExceptionCode());
+        if ( cColors > WINDDI_MAXSETPALETTECOLORS ) ExFreePoolWithTag( pulcSafe, GDITAG_UMPD );
+        _SEH2_YIELD(return hPal);
+    }
+    _SEH2_END;
+
+    hPal = EngCreatePalette( iMode/*|PAL_SETPOWNER*/, cColors, pulcSafe, flRed, flGreen, flBlue );
+
+    if ( cColors > WINDDI_MAXSETPALETTECOLORS ) ExFreePoolWithTag( pulcSafe, GDITAG_UMPD );
+
+    return hPal;
+}
+
+__kernel_entry
+BOOL
+APIENTRY
+NtGdiEngDeletePalette(
+    _In_ HPALETTE hPal)
+{
+    return EngDeletePalette(hPal);
+}
 
 /* EOF */

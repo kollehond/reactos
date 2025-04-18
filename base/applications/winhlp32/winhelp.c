@@ -66,19 +66,18 @@ static void WINHELP_InitFonts(HWND hWnd)
         {-12, 0, 0, 0, 700, 0, 0, 0, DEFAULT_CHARSET, 0, 0, 0, 32, {'H','e','l','v',0}},
         {-10, 0, 0, 0, 700, 0, 0, 0, DEFAULT_CHARSET, 0, 0, 0, 32, {'H','e','l','v',0}},
         { -8, 0, 0, 0, 400, 0, 0, 0, DEFAULT_CHARSET, 0, 0, 0, 32, {'H','e','l','v',0}}};
-#define FONTS_LEN (sizeof(logfontlist)/sizeof(*logfontlist))
 
-    static HFONT fonts[FONTS_LEN];
+    static HFONT fonts[ARRAY_SIZE(logfontlist)];
     static BOOL init = FALSE;
 
-    win->fonts_len = FONTS_LEN;
+    win->fonts_len = ARRAY_SIZE(logfontlist);
     win->fonts = fonts;
 
     if (!init)
     {
         UINT i;
 
-        for (i = 0; i < FONTS_LEN; i++)
+        for (i = 0; i < ARRAY_SIZE(logfontlist); i++)
 	{
             fonts[i] = CreateFontIndirectW(&logfontlist[i]);
 	}
@@ -179,7 +178,7 @@ BOOL WINHELP_GetOpenFileName(LPSTR lpszFile, int len)
     openfilename.nMaxFileTitle     = 0;
     openfilename.lpstrInitialDir   = szDir;
     openfilename.lpstrTitle        = 0;
-    openfilename.Flags             = OFN_ENABLESIZING | OFN_HIDEREADONLY | OFN_READONLY;
+    openfilename.Flags             = OFN_EXPLORER | OFN_ENABLESIZING | OFN_HIDEREADONLY | OFN_READONLY;
     openfilename.nFileOffset       = 0;
     openfilename.nFileExtension    = 0;
     openfilename.lpstrDefExt       = 0;
@@ -275,12 +274,16 @@ HLPFILE_WINDOWINFO*     WINHELP_GetWindowInfo(HLPFILE* hlpfile, LPCSTR name)
         strcpy(mwi.type, "primary");
         strcpy(mwi.name, "main");
         if (hlpfile && hlpfile->lpszTitle[0])
+#ifdef __REACTOS__
+            snprintf(mwi.caption, sizeof(mwi.caption), "%s", hlpfile->lpszTitle);
+#else
         {
             char        tmp[128];
             LoadStringA(Globals.hInstance, STID_WINE_HELP, tmp, sizeof(tmp));
             snprintf(mwi.caption, sizeof(mwi.caption), "%s %s - %s",
                      hlpfile->lpszTitle, tmp, hlpfile->lpszPath);
         }
+#endif
         else
             LoadStringA(Globals.hInstance, STID_WINE_HELP, mwi.caption, sizeof(mwi.caption));
         mwi.origin.x = mwi.origin.y = mwi.size.cx = mwi.size.cy = CW_USEDEFAULT;
@@ -595,7 +598,7 @@ static void WINHELP_RememberPage(WINHELP_WINDOW* win, WINHELP_WNDPAGE* wpage)
 
     if (!Globals.history.index || Globals.history.set[0].page != wpage->page)
     {
-        num = sizeof(Globals.history.set) / sizeof(Globals.history.set[0]);
+        num = ARRAY_SIZE(Globals.history.set);
         /* we're full, remove latest entry */
         if (Globals.history.index == num)
         {
@@ -610,7 +613,7 @@ static void WINHELP_RememberPage(WINHELP_WINDOW* win, WINHELP_WNDPAGE* wpage)
     }
     if (win->hHistoryWnd) InvalidateRect(win->hHistoryWnd, NULL, TRUE);
 
-    num = sizeof(win->back.set) / sizeof(win->back.set[0]);
+    num = ARRAY_SIZE(win->back.set);
     if (win->back.index == num)
     {
         /* we're full, remove latest entry */
@@ -1136,7 +1139,7 @@ static LRESULT CALLBACK WINHELP_HistoryWndProc(HWND hWnd, UINT msg, WPARAM wPara
         GetWindowRect(hWnd, &r);
 
         r.right = r.left + 30 * tm.tmAveCharWidth;
-        r.bottom = r.top + (sizeof(Globals.history.set) / sizeof(Globals.history.set[0])) * tm.tmHeight;
+        r.bottom = r.top + ARRAY_SIZE(Globals.history.set) * tm.tmHeight;
         AdjustWindowRect(&r, GetWindowLongW(hWnd, GWL_STYLE), FALSE);
         if (r.left < 0) {r.right -= r.left; r.left = 0;}
         if (r.top < 0) {r.bottom -= r.top; r.top = 0;}

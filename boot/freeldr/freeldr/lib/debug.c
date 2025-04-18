@@ -20,7 +20,7 @@
 #include <freeldr.h>
 #include <debug.h>
 
-#if DBG && !defined(_M_ARM)
+#if DBG
 
 // #define DEBUG_ALL
 // #define DEBUG_WARN
@@ -43,17 +43,30 @@ static UCHAR DbgChannels[DBG_CHANNELS_COUNT];
 ULONG DebugPort = RS232;
 
 /* Serial debug connection */
-ULONG ComPort  = 0; // The COM port initializer chooses the first available port starting from COM4 down to COM1.
+#if defined(SARCH_PC98)
+ULONG BaudRate = 9600;
+#else
 ULONG BaudRate = 115200;
+#endif
+
+ULONG ComPort  = 0; // The COM port initializer chooses the first available port starting from COM4 down to COM1.
 ULONG PortIrq  = 0; // Not used at the moment.
 
 BOOLEAN DebugStartOfLine = TRUE;
 
-VOID DebugInit(BOOLEAN MainInit)
+#ifdef UEFIBOOT
+VOID
+ARMWriteToUART(UCHAR Data);
+#endif
+
+VOID
+DebugInit(
+    _In_ PCSTR DebugString)
 {
-    PCHAR CommandLine, PortString, BaudString, IrqString;
+    static BOOLEAN Initialized = FALSE;
+    PSTR CommandLine, PortString, BaudString, IrqString;
     ULONG Value;
-    CHAR  DebugString[256];
+    CHAR DbgStringBuffer[256];
 
     /* Always reset the debugging channels */
 
@@ -77,33 +90,20 @@ VOID DebugInit(BOOLEAN MainInit)
     DbgChannels[DPRINT_WINDOWS] = MAX_LEVEL;
 #endif
 
-    /* Check for pre- or main initialization phase */
-    if (!MainInit)
+    CommandLine = NULL;
+    if (!DebugString || !*DebugString)
     {
-        /* Pre-initialization phase: use the FreeLdr command-line debugging string */
-        CommandLine = (PCHAR)CmdLineGetDebugString();
-
-        /* If no command-line is provided, initialize the debug port with default settings */
-        if (CommandLine == NULL)
+        /* No command-line is provided: during pre-initialization,
+         * initialize the debug port with default settings;
+         * otherwise just return during main initialization */
+        if (!Initialized)
             goto Done;
-
-        strcpy(DebugString, CommandLine);
-    }
-    else
-    {
-        /* Main initialization phase: use the FreeLdr INI debugging string */
-
-        ULONG_PTR SectionId;
-
-        if (!IniOpenSection("FreeLoader", &SectionId))
-            return;
-
-        if (!IniReadSettingByName(SectionId, "Debug", DebugString, sizeof(DebugString)))
-            return;
+        return;
     }
 
-    /* Get the Command Line */
-    CommandLine = DebugString;
+    /* Get a copy of the command-line */
+    strcpy(DbgStringBuffer, DebugString);
+    CommandLine = DbgStringBuffer;
 
     /* Upcase it */
     _strupr(CommandLine);
@@ -187,6 +187,8 @@ VOID DebugInit(BOOLEAN MainInit)
     }
 
 Done:
+    Initialized = TRUE;
+
     /* Try to initialize the port; if it fails, remove the corresponding flag */
     if (DebugPort & RS232)
     {
@@ -326,6 +328,12 @@ DebugDumpBuffer(ULONG Mask, PVOID Buffer, ULONG Length)
     }
 }
 
+VOID
+DebugDisableScreenPort(VOID)
+{
+    DebugPort &= ~SCREEN;
+}
+
 static BOOLEAN
 DbgAddDebugChannel(CHAR* channel, CHAR* level, CHAR op)
 {
@@ -416,10 +424,44 @@ DbgParseDebugChannels(PCHAR Value)
 
 #else
 
+#undef DebugInit
+VOID
+DebugInit(
+    _In_ PCSTR DebugString)
+{
+    UNREFERENCED_PARAMETER(DebugString);
+}
+
 ULONG
 DbgPrint(PCCH Format, ...)
 {
+    UNREFERENCED_PARAMETER(Format);
     return 0;
+}
+
+VOID
+DbgPrint2(ULONG Mask, ULONG Level, const char *File, ULONG Line, char *Format, ...)
+{
+    UNREFERENCED_PARAMETER(Mask);
+    UNREFERENCED_PARAMETER(Level);
+    UNREFERENCED_PARAMETER(File);
+    UNREFERENCED_PARAMETER(Line);
+    UNREFERENCED_PARAMETER(Format);
+}
+
+VOID
+DebugDumpBuffer(ULONG Mask, PVOID Buffer, ULONG Length)
+{
+    UNREFERENCED_PARAMETER(Mask);
+    UNREFERENCED_PARAMETER(Buffer);
+    UNREFERENCED_PARAMETER(Length);
+}
+
+#undef DbgParseDebugChannels
+VOID
+DbgParseDebugChannels(PCHAR Value)
+{
+    UNREFERENCED_PARAMETER(Value);
 }
 
 #endif // DBG
@@ -511,6 +553,9 @@ char *BugCodeStrings[] =
     "MISSING_HARDWARE_REQUIREMENTS",
     "FREELDR_IMAGE_CORRUPTION",
     "MEMORY_INIT_FAILURE",
+#ifdef UEFIBOOT
+    "EXIT_BOOTSERVICES_FAILURE",
+#endif
 };
 
 ULONG_PTR BugCheckInfo[5];

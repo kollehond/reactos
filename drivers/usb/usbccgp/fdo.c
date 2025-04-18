@@ -119,7 +119,7 @@ FDO_DeviceRelations(
     if (IoStack->Parameters.QueryDeviceRelations.Type != BusRelations)
     {
         /* FDO always only handles bus relations */
-        return USBCCGP_SyncForwardIrp(FDODeviceExtension->NextDeviceObject, Irp);
+        return STATUS_SUCCESS;
     }
 
     /* Go through array and count device objects */
@@ -159,6 +159,7 @@ FDO_DeviceRelations(
 
     /* Store result */
     Irp->IoStatus.Information = (ULONG_PTR)DeviceRelations;
+    Irp->IoStatus.Status = STATUS_SUCCESS;
 
     /* Request completed successfully */
     return STATUS_SUCCESS;
@@ -188,8 +189,15 @@ FDO_CreateChildPdo(
     }
 
     /* Create pdo for each function */
-    for(Index = 0; Index < FDODeviceExtension->FunctionDescriptorCount; Index++)
+    for (Index = 0; Index < FDODeviceExtension->FunctionDescriptorCount; Index++)
     {
+        if (FDODeviceExtension->FunctionDescriptor[Index].NumberOfInterfaces == 0)
+        {
+            // Ignore invalid devices
+            DPRINT1("[USBCCGP] Found descriptor with 0 interfaces\n");
+            continue;
+        }
+
         /* Create the PDO */
         Status = IoCreateDevice(FDODeviceExtension->DriverObject,
                                 sizeof(PDO_DEVICE_EXTENSION),
@@ -252,7 +260,14 @@ FDO_StartDevice(
     ASSERT(FDODeviceExtension->Common.IsFDO);
 
     /* First start lower device */
-    Status = USBCCGP_SyncForwardIrp(FDODeviceExtension->NextDeviceObject, Irp);
+    if (IoForwardIrpSynchronously(FDODeviceExtension->NextDeviceObject, Irp))
+    {
+        Status = Irp->IoStatus.Status;
+    }
+    else
+    {
+        Status = STATUS_UNSUCCESSFUL;
+    }
 
     if (!NT_SUCCESS(Status))
     {
@@ -338,6 +353,13 @@ FDO_CloseConfiguration(
     FDODeviceExtension = (PFDO_DEVICE_EXTENSION)DeviceObject->DeviceExtension;
     ASSERT(FDODeviceExtension->Common.IsFDO);
 
+    /* Nothing to do if we're not configured */
+    if (FDODeviceExtension->ConfigurationDescriptor == NULL ||
+        FDODeviceExtension->InterfaceList == NULL)
+    {
+        return STATUS_SUCCESS;
+    }
+
     /* Now allocate the urb */
     Urb = USBD_CreateConfigurationRequestEx(FDODeviceExtension->ConfigurationDescriptor,
                                             FDODeviceExtension->InterfaceList);
@@ -389,16 +411,15 @@ FDO_HandlePnp(
             FDO_CloseConfiguration(DeviceObject);
 
             /* Send the IRP down the stack */
-            Status = USBCCGP_SyncForwardIrp(FDODeviceExtension->NextDeviceObject,
-                                            Irp);
-            if (NT_SUCCESS(Status))
-            {
-                /* Detach from the device stack */
-                IoDetachDevice(FDODeviceExtension->NextDeviceObject);
+            Irp->IoStatus.Status = STATUS_SUCCESS;
+            IoSkipCurrentIrpStackLocation(Irp);
+            Status = IoCallDriver(FDODeviceExtension->NextDeviceObject, Irp);
 
-                /* Delete the device object */
-                IoDeleteDevice(DeviceObject);
-            }
+            /* Detach from the device stack */
+            IoDetachDevice(FDODeviceExtension->NextDeviceObject);
+
+            /* Delete the device object */
+            IoDeleteDevice(DeviceObject);
 
             /* Request completed */
             break;
@@ -413,7 +434,14 @@ FDO_HandlePnp(
         {
             /* Handle device relations */
             Status = FDO_DeviceRelations(DeviceObject, Irp);
-            break;
+            if (!NT_SUCCESS(Status))
+            {
+                break;
+            }
+
+            /* Forward irp to next device object */
+            IoSkipCurrentIrpStackLocation(Irp);
+            return IoCallDriver(FDODeviceExtension->NextDeviceObject, Irp);
         }
         case IRP_MN_QUERY_CAPABILITIES:
         {
@@ -421,11 +449,15 @@ FDO_HandlePnp(
             RtlCopyMemory(IoStack->Parameters.DeviceCapabilities.Capabilities,
                           &FDODeviceExtension->Capabilities,
                           sizeof(DEVICE_CAPABILITIES));
-            Status = USBCCGP_SyncForwardIrp(FDODeviceExtension->NextDeviceObject, Irp);
-            if (NT_SUCCESS(Status))
+            Status = STATUS_UNSUCCESSFUL;
+
+            if (IoForwardIrpSynchronously(FDODeviceExtension->NextDeviceObject, Irp))
             {
-                /* Surprise removal ok */
-                IoStack->Parameters.DeviceCapabilities.Capabilities->SurpriseRemovalOK = TRUE;
+                Status = Irp->IoStatus.Status;
+                if (NT_SUCCESS(Status))
+                {
+                    IoStack->Parameters.DeviceCapabilities.Capabilities->SurpriseRemovalOK = TRUE;
+                }
             }
             break;
        }
@@ -513,7 +545,7 @@ FDO_HandleResetCyclePort(
         KeReleaseSpinLock(&FDODeviceExtension->Lock, OldLevel);
 
         /* Forward request synchronized */
-        USBCCGP_SyncForwardIrp(FDODeviceExtension->NextDeviceObject, Irp);
+        NT_VERIFY(IoForwardIrpSynchronously(FDODeviceExtension->NextDeviceObject, Irp));
 
         /* Reacquire lock */
         KeAcquireSpinLock(&FDODeviceExtension->Lock, &OldLevel);

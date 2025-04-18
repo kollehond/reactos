@@ -1,6 +1,20 @@
 
 add_definitions(-D__ROS_LONG64__)
 
+if(MSVC)
+    add_compile_options(
+        /wd4090 # C4090: 'function': different 'const' qualifiers
+        /wd4146 # C4146: unary minus operator applied to unsigned type, result still unsigned
+        /wd4189 # C4189: 'x': local variable is initialized but not referenced
+        /wd4267 # C4267: '=': conversion from 'size_t' to 'int', possible loss of data
+        /wd4305) # C4305: '=': truncation from 'double' to 'FLOAT'
+    if(ARCH STREQUAL "amd64")
+        add_compile_options(
+            /wd4312 # C4312: 'type cast': conversion from 'unsigned int' to 'char *' of greater size
+            )
+    endif()
+endif()
+
 add_subdirectory(advapi32)
 add_subdirectory(advpack)
 add_subdirectory(amstream)
@@ -19,9 +33,13 @@ add_subdirectory(credui)
 add_subdirectory(crypt32)
 add_subdirectory(cryptnet)
 add_subdirectory(cryptui)
+add_subdirectory(d3dcompiler_43)
 add_subdirectory(d3drm)
+add_subdirectory(d3dx9_36)
+add_subdirectory(dbghelp)
 add_subdirectory(devenum)
 add_subdirectory(dinput)
+add_subdirectory(dinput8)
 add_subdirectory(dnsapi)
 add_subdirectory(dplayx)
 add_subdirectory(dsound)
@@ -81,9 +99,7 @@ add_subdirectory(reg)
 add_subdirectory(regedit)
 add_subdirectory(riched20)
 add_subdirectory(riched32)
-if(NOT ARCH STREQUAL "amd64")
-    add_subdirectory(rpcrt4)
-endif()
+add_subdirectory(rpcrt4)
 add_subdirectory(rsaenh)
 add_subdirectory(schannel)
 add_subdirectory(scrrun)
@@ -99,6 +115,7 @@ add_subdirectory(spoolss)
 add_subdirectory(sti)
 add_subdirectory(sxs)
 add_subdirectory(twain_32)
+add_subdirectory(ucrtbase)
 add_subdirectory(urlmon)
 add_subdirectory(user32)
 add_subdirectory(userenv)

@@ -170,7 +170,7 @@ __fastcall
 UDFDecompressUnicode(
     IN OUT PUNICODE_STRING UName,
     IN uint8* CS0,
-    IN uint32 Length,
+    IN SIZE_T Length,
     OUT uint16* valueCRC
     )
 {
@@ -240,7 +240,7 @@ __fastcall
 UDFCompressUnicode(
     IN PUNICODE_STRING UName,
     IN OUT uint8** _CS0,
-    IN OUT uint32* Length
+    IN OUT PSIZE_T Length
     )
 {
     uint8* CS0;
@@ -336,7 +336,7 @@ BOOLEAN
 UDFUnicodeInString(
     IN uint8* string, // String to search through.
     IN WCHAR ch       // Unicode char to search for.
-    ) 
+    )
 {
     BOOLEAN found = FALSE;
 
@@ -356,7 +356,7 @@ UDFUnicodeInString(
     DOS file name.
 */
 #ifdef _MSC_VER
-#pragma warning(push)               
+#pragma warning(push)
 #pragma warning(disable:4035)               // re-enable below
 #endif
 
@@ -422,7 +422,7 @@ ERR_IIC2:
     UDFDOSName(Vcb, DosName, UdfName, KeepIntact);
 }*/
 
-void 
+void
 __fastcall
 UDFDOSName(
     IN PVCB Vcb,
@@ -460,7 +460,7 @@ UDFDOSName(
     }
 }
 
-void 
+void
 __fastcall
 UDFDOSName100(
     IN OUT PUNICODE_STRING DosName,
@@ -497,7 +497,7 @@ UDFDOSName100(
                      (udfName[lastPeriodIndex] == UNICODE_PERIOD ||
                       udfName[lastPeriodIndex] == UNICODE_SPACE))
                     lastPeriodIndex--;
-                // Now search for last remaining period. 
+                // Now search for last remaining period.
                 while(lastPeriodIndex >= 0 &&
                       udfName[lastPeriodIndex] != UNICODE_PERIOD)
                     lastPeriodIndex--;
@@ -577,7 +577,7 @@ UDFDOSName100(
     RtlUpcaseUnicodeString(DosName, DosName, FALSE);
 } // end UDFDOSName100()
 
-void 
+void
 __fastcall
 UDFDOSName200(
     IN OUT PUNICODE_STRING DosName,
@@ -615,7 +615,7 @@ UDFDOSName200(
                      (udfName[lastPeriodIndex] == UNICODE_PERIOD ||
                       udfName[lastPeriodIndex] == UNICODE_SPACE))
                     lastPeriodIndex--;
-                // Now search for last remaining period. 
+                // Now search for last remaining period.
                 while(lastPeriodIndex >= 0 &&
                       udfName[lastPeriodIndex] != UNICODE_PERIOD)
                     lastPeriodIndex--;
@@ -695,7 +695,7 @@ UDFDOSName200(
 } // end UDFDOSName200()
 
 
-void 
+void
 __fastcall
 UDFDOSName201(
     IN OUT PUNICODE_STRING DosName,
@@ -820,7 +820,7 @@ UDFDOSName201(
             /* calculate its corresponding BCS character byte */
             /* length (zero if the char is not legal or */
             /* undisplayable on this system). */
-            
+
             charLen = (UDFIsIllegalChar(current)
                        /*|| !UnicodeIsPrint(current)*/) ? 0 : 1;
 
@@ -887,7 +887,7 @@ UDFDOSName201(
 
 /*    if (needsCRC == FALSE && extLen == 0) { */
         /* If this is the name of a DOS device, a CRC code should */
-        /* be appended to the file name. 
+        /* be appended to the file name.
         if (IsDeviceName(udfName, udfLen))
             needsCRC = TRUE;
     }*/
@@ -1115,7 +1115,8 @@ UDFBuildFileIdent(
 {
     PFILE_IDENT_DESC FileId;
     uint8* CS0;
-    uint32 Nlen, l;
+    SIZE_T Nlen;
+    uint32 l;
     // prepare filename
     UDFCompressUnicode(fn, &CS0, &Nlen);
     if(!CS0) return STATUS_INSUFFICIENT_RESOURCES;
@@ -1605,18 +1606,18 @@ UDFWriteFile__(
     IN PVCB Vcb,
     IN PUDF_FILE_INFO FileInfo,
     IN int64 Offset,
-    IN uint32 Length,
+    IN SIZE_T Length,
     IN BOOLEAN Direct,
     IN int8* Buffer,
-    OUT uint32* WrittenBytes
+    OUT PSIZE_T WrittenBytes
     )
 {
     int64 t, elen;
     OSSTATUS status;
     int8* OldInIcb = NULL;
     ValidateFileInfo(FileInfo);
-    uint32 ReadBytes;
-    uint32 _WrittenBytes;
+    SIZE_T ReadBytes;
+    SIZE_T _WrittenBytes;
     PUDF_DATALOC_INFO Dloc;
     // unwind staff
     BOOLEAN WasInIcb = FALSE;
@@ -1689,7 +1690,7 @@ UDFWriteFile__(
         Vcb->LowFreeSpace ? "LowSpace" : ""));
     if(UDFIsADirectory(FileInfo) && !WasInIcb && !Vcb->LowFreeSpace) {
         FileInfo->Dloc->DataLoc.Flags |= EXTENT_FLAG_ALLOC_SEQUENTIAL;
-        status = UDFResizeExtent(Vcb, PartNum, (t*2+Vcb->WriteBlockSize-1) & ~(Vcb->WriteBlockSize-1), FALSE, &(Dloc->DataLoc));
+        status = UDFResizeExtent(Vcb, PartNum, (t*2+Vcb->WriteBlockSize-1) & ~(SIZE_T)(Vcb->WriteBlockSize-1), FALSE, &(Dloc->DataLoc));
         if(OS_SUCCESS(status)) {
             AdPrint(("  preallocated space for Dir\n"));
             FileInfo->Dloc->DataLoc.Flags |= EXTENT_FLAG_PREALLOCATED;
@@ -1718,8 +1719,8 @@ UDFWriteFile__(
             }
         }
         if(OldInIcb) {
-            MyFreePool__(OldInIcb);
             UDFWriteExtent(Vcb, &(Dloc->DataLoc), 0, (uint32)OldLen, FALSE, OldInIcb, &_WrittenBytes);
+            MyFreePool__(OldInIcb);
         }
         if((int64)OldLen != Dloc->DataLoc.Length) {
             // restore file size
@@ -1738,8 +1739,8 @@ UDFWriteFile__(
         if(!OS_SUCCESS(status))
             return status;
     }
-    // ufff... 
-    // & now we'll write out data to well prepared extent... 
+    // ufff...
+    // & now we'll write out data to well prepared extent...
     // ... like all normal people do...
     ExtPrint(("  write user data\n"));
     if(!OS_SUCCESS(status = UDFWriteExtent(Vcb, &(Dloc->DataLoc), Offset, Length, FALSE, Buffer, WrittenBytes)))
@@ -2019,7 +2020,7 @@ UDFOpenFile__(
     PDIR_INDEX_ITEM DirNdx;
     PUDF_FILE_INFO FileInfo;
     PUDF_FILE_INFO ParFileInfo;
-    uint32 ReadBytes;
+    SIZE_T ReadBytes;
     *_FileInfo = NULL;
     if(!hDirNdx) return STATUS_NOT_A_DIRECTORY;
 
@@ -2230,7 +2231,7 @@ UDFOpenRootFile__(
         FileInfo->Dloc->AllocLoc.Mapping = UDFExtentToMapping(&FEExt);
         if(!(FileInfo->Dloc->AllocLoc.Mapping)) return STATUS_INSUFFICIENT_RESOURCES;
     }
-    if(!OS_SUCCESS(status = UDFLoadExtInfo(Vcb, (PFILE_ENTRY)(FileInfo->Dloc->FileEntry), &FELoc, 
+    if(!OS_SUCCESS(status = UDFLoadExtInfo(Vcb, (PFILE_ENTRY)(FileInfo->Dloc->FileEntry), &FELoc,
                        &(FileInfo->Dloc->DataLoc), &(FileInfo->Dloc->AllocLoc) ) ))
         return status;
     FileInfo->Dloc->FileEntryLen = (uint32)
@@ -2410,7 +2411,7 @@ UDFCleanUpFile__(
                Dloc->SDirInfo->Dloc) {
                 DirNdx2 = UDFDirIndex(Dloc->SDirInfo->Dloc->DirIndex, 1);
                 if(DirNdx2 && (DirNdx2->FileInfo == FileInfo)) {
-                    DirNdx2->FileInfo = 
+                    DirNdx2->FileInfo =
                         Parallel ? ParFileInfo : NULL;
                     ASSERT(!DirNdx2->FileInfo->RefCount);
                 }
@@ -2597,7 +2598,7 @@ UDFCreateFile__(
     PUDF_FILE_INFO FileInfo;
     *_FileInfo = NULL;
     BOOLEAN undel = FALSE;
-    uint32 ReadBytes;
+    SIZE_T ReadBytes;
 //    BOOLEAN PackDir = FALSE;
     BOOLEAN FEAllocated = FALSE;
 
@@ -2904,10 +2905,10 @@ UDFReadFile__(
     IN PVCB Vcb,
     IN PUDF_FILE_INFO FileInfo,
     IN int64 Offset,   // offset in extent
-    IN uint32 Length,
+    IN SIZE_T Length,
     IN BOOLEAN Direct,
     OUT int8* Buffer,
-    OUT uint32* ReadBytes
+    OUT PSIZE_T ReadBytes
     )
 {
     ValidateFileInfo(FileInfo);
@@ -2925,9 +2926,9 @@ UDFZeroFile__(
     IN PVCB Vcb,
     IN PUDF_FILE_INFO FileInfo,
     IN int64 Offset,   // offset in extent
-    IN uint32 Length,
+    IN SIZE_T Length,
     IN BOOLEAN Direct,
-    OUT uint32* ReadBytes
+    OUT PSIZE_T ReadBytes
     )
 {
     ValidateFileInfo(FileInfo);
@@ -2944,9 +2945,9 @@ UDFSparseFile__(
     IN PVCB Vcb,
     IN PUDF_FILE_INFO FileInfo,
     IN int64 Offset,   // offset in extent
-    IN uint32 Length,
+    IN SIZE_T Length,
     IN BOOLEAN Direct,
-    OUT uint32* ReadBytes
+    OUT PSIZE_T ReadBytes
     )
 {
     ValidateFileInfo(FileInfo);
@@ -2966,7 +2967,8 @@ UDFPadLastSector(
     if(!ExtInfo || !(ExtInfo->Mapping) || !(ExtInfo->Length)) return STATUS_INVALID_PARAMETER;
 
     PEXTENT_MAP Extent = ExtInfo->Mapping;   // Extent array
-    uint32 to_write, Lba, sect_offs, flags, WrittenBytes;
+    SIZE_T to_write, WrittenBytes;
+    uint32 Lba, sect_offs, flags;
     OSSTATUS status;
     // Length should not be zero
     int64 Offset = ExtInfo->Length + ExtInfo->Offset;
@@ -3201,7 +3203,7 @@ UDFRenameMoveFile__(
            (j==FileInfo->Index) ) {
             // case-only rename
             uint8* CS0;
-            uint32 Nlen, /* l, FIXME ReactOS */ IUl;
+            SIZE_T Nlen, /* l, FIXME ReactOS */ IUl;
 
             // prepare filename
             UDFCompressUnicode(fn, &CS0, &Nlen);
@@ -3216,12 +3218,12 @@ UDFRenameMoveFile__(
 #if 0
             l = (sizeof(FILE_IDENT_DESC) + Nlen + IUl + 3) & ~((uint32)3);
 #endif
-            
+
             RtlCopyMemory( ((uint8*)(DirNdx2->FileInfo->FileIdent+1))+IUl, CS0, Nlen);
             RtlCopyMemory(DirNdx2->FName.Buffer, fn->Buffer, fn->Length);
-            
+
             if(CS0) MyFreePool__(CS0);
-            
+
             DirNdx2->FI_Flags |= UDF_FI_FLAG_FI_MODIFIED;
             UDFBuildHashEntry(Vcb, &(DirNdx2->FName), &(DirNdx2->hashes), HASH_ALL);
             return STATUS_SUCCESS;
@@ -3390,7 +3392,7 @@ UDFRecordDirectory__(
     UDF_DATALOC_INFO Dloc;
     UNICODE_STRING PName;
     uint32 PartNum;
-    uint32 WrittenBytes;
+    SIZE_T WrittenBytes;
     PDIR_INDEX_ITEM CurDirNdx;
     uint32 lba;
 
@@ -3469,7 +3471,7 @@ UDFResizeFile__(
     IN int64 NewLength
     )
 {
-    uint32 WrittenBytes;
+    SIZE_T WrittenBytes;
     OSSTATUS status;
     uint32 PartNum;
     int8* OldInIcb = NULL;
@@ -3607,7 +3609,7 @@ UDFLoadVAT(
     PUDF_FILE_INFO VatFileInfo;
     uint32 len, i=0, j, to_read;
     uint32 Offset, hdrOffset;
-    uint32 ReadBytes;
+    SIZE_T ReadBytes;
     uint32 root;
     uint16 PartNum;
 //    uint32 VatFirstLba = 0;
@@ -3738,7 +3740,7 @@ err_vat_15:
         // initialize VAT
         // !!! NOTE !!!
         // Both VAT copies - in-memory & on-disc
-        // contain _relative_ addresses 
+        // contain _relative_ addresses
         len = Vcb->NWA - root;
         for(i=0; i<=len; i++) {
             Vcb->Vat[i] = i;
@@ -3867,7 +3869,7 @@ UDFFlushFE(
 {
     int8* NewAllocDescs;
     OSSTATUS status;
-    uint32 WrittenBytes;
+    SIZE_T WrittenBytes;
     uint16 AllocMode;
     uint32 lba;
 
@@ -3983,7 +3985,7 @@ relocate_FE:
 
                 EXTENT_INFO _FEExtInfo;
                 // calculate the length required
-                
+
                 // allocate block for FE
                 if(OS_SUCCESS(UDFAllocateFESpace(Vcb, FileInfo->ParentFile, PartNum, &_FEExtInfo, (uint32)(FileInfo->Dloc->FELoc.Length)) )) {
                     UDFPrint(("  relocate %x -> %x\n",
@@ -4020,7 +4022,7 @@ relocate_FE:
                             DirNdx->FI_Flags |= UDF_FI_FLAG_FI_MODIFIED;
                         }
                     }
-                    // this will update 
+                    // this will update
                     UDFPrint(("  retry flush...\n"));
                     goto retry_flush_FE;
                 }
@@ -4055,7 +4057,7 @@ UDFFlushFI(
     PUDF_FILE_INFO DirInfo = FileInfo->ParentFile;
     PDIR_INDEX_ITEM DirNdx;
     OSSTATUS status;
-    uint32 WrittenBytes;
+    SIZE_T WrittenBytes;
     // use WrittenBytes variable to store LBA of FI to be recorded
     #define lba   WrittenBytes
 
@@ -4276,14 +4278,14 @@ UDFCompareFileInfo(
  */
 
 #ifdef _MSC_VER
-#pragma warning(push)               
+#pragma warning(push)
 #pragma warning(disable:4035)               // re-enable below
 #endif
 
 #if defined(_X86_) && defined(_MSC_VER) && !defined(__clang__)
 __declspec (naked)
 #endif // _X86_
-uint32 
+uint32
 __fastcall
 crc32(
     IN uint8* s,  // ECX
@@ -4329,7 +4331,7 @@ EO_CRC:
 #else  // NO X86 optimization , use generic C/C++
     uint32 i;
     uint32 crc32val = 0;
-  
+
     for(i=0; i<len; i++, s++) {
         crc32val =
             crc32_tab[(crc32val ^ (*s)) & 0xff] ^ (crc32val >> 8);
@@ -4349,7 +4351,7 @@ EO_CRC:
 #if defined(_X86_) && defined(_MSC_VER) && !defined(__clang__)
 __declspec (naked)
 #endif // _X86_
-uint16 
+uint16
 __fastcall
 UDFUnicodeCksum(
     PWCHAR s, // ECX
@@ -4378,7 +4380,7 @@ uCRC_loop:
 
         mov   dl,ah            // dl = (Crc >> 8)
         xor   dl,[esi+1]       // dl = ((Crc >> 8) ^ (*s >> 8)) & 0xff
-        mov   ah,al            
+        mov   ah,al
         mov   al,dh            // ax = (Crc << 8)
         xor   ax,[word ptr ebx+edx*2]  // ax = ...........
 
@@ -4398,7 +4400,7 @@ EO_uCRC:
         pop   edx
         pop   ecx
         pop   ebx
-        
+
         ret
     }
 #else  // NO X86 optimization , use generic C/C++
@@ -4415,7 +4417,7 @@ EO_uCRC:
 #if defined(_X86_) && defined(_MSC_VER) && !defined(__clang__)
 __declspec (naked)
 #endif // _X86_
-uint16 
+uint16
 __fastcall
 UDFUnicodeCksum150(
     PWCHAR s, // ECX
@@ -4448,7 +4450,7 @@ uCRC_loop:
         mov   dl,ah            // dl = (Crc >> 8)
         or    edi,edx          // if(*s & 0xff00) Use16 = TRUE;
         xor   dl,[esi+1]       // dl = ((Crc >> 8) ^ (*s >> 8)) & 0xff
-        mov   ah,al            
+        mov   ah,al
         mov   al,0             // ax = (Crc << 8)
         xor   ax,[word ptr CrcTable+edx*2]  // ax = ...........
 
@@ -4465,7 +4467,7 @@ uCRC_loop:
 
         mov   bl,ah            // dl = (Crc >> 8)
         xor   bl,[esi]         // dl = ((Crc >> 8) ^ (*s >> 8)) & 0xff
-        mov   ah,al            
+        mov   ah,al
         mov   al,0             // ax = (Crc << 8)
         xor   ax,[word ptr CrcTable+ebx*2]  // ax = ...........
 
@@ -4489,7 +4491,7 @@ use16_2:
         pop   edx
         pop   ecx
         pop   ebx
-        
+
         ret
     }
 #else  // NO X86 optimization , use generic C/C++
@@ -4520,11 +4522,11 @@ use16_2:
 #if defined(_X86_) && defined(_MSC_VER) && !defined(__clang__)
 __declspec (naked)
 #endif // _X86_
-uint16 
+uint16
 __fastcall
 UDFCrc(
     IN uint8* Data, // ECX
-    IN uint32 Size  // EDX
+    IN SIZE_T Size  // EDX
     )
 {
 #if defined(_X86_) && defined(_MSC_VER) && !defined(__clang__)
@@ -4561,7 +4563,7 @@ EO_CRC:
         pop   edx
         pop   ecx
         pop   ebx
-        
+
         ret
     }
 #else  // NO X86 optimization , use generic C/C++
@@ -4584,8 +4586,8 @@ OSSTATUS
 UDFReadTagged(
     PVCB Vcb,
     int8* Buf,
-    uint32 Block, 
-    uint32 Location, 
+    uint32 Block,
+    uint32 Location,
     uint16 *Ident
     )
 {
@@ -4594,7 +4596,7 @@ UDFReadTagged(
 //    icbtag* Icb = (icbtag*)(Buf+1);
     uint8 checksum;
     unsigned int i;
-    uint32 ReadBytes;
+    SIZE_T ReadBytes;
     int8* tb;
 
     // Read the block
@@ -4615,7 +4617,7 @@ UDFReadTagged(
                 Block, PTag->tagLocation, Location));
             try_return(RC = STATUS_FILE_CORRUPT_ERROR);
         }
-        
+
         /* Verify the tag checksum */
         checksum = 0;
         tb = Buf;
@@ -4836,7 +4838,7 @@ UDFCreateRootFile__(
     LONG_AD FEicb;
     PUDF_FILE_INFO FileInfo;
     *_FileInfo = NULL;
-    uint32 ReadBytes;
+    SIZE_T ReadBytes;
 
     FileInfo = (PUDF_FILE_INFO)MyAllocatePoolTag__(UDF_FILE_INFO_MT,sizeof(UDF_FILE_INFO), MEM_FINF_TAG);
     *_FileInfo = FileInfo;
@@ -4947,7 +4949,7 @@ UDFCreateStreamDir__(
     ((PEXTENDED_FILE_ENTRY)(FileInfo->Dloc->FileEntry))->streamDirectoryICB.extLocation.partitionReferenceNum = (uint16)PartNum;
     ((PEXTENDED_FILE_ENTRY)(FileInfo->Dloc->FileEntry))->streamDirectoryICB.extLocation.logicalBlockNum =
         UDFPhysLbaToPart(Vcb, PartNum, SDirInfo->Dloc->FELoc.Mapping[0].extLocation);
-    ((PEXTENDED_FILE_ENTRY)(SDirInfo->Dloc->FileEntry))->uniqueID = 
+    ((PEXTENDED_FILE_ENTRY)(SDirInfo->Dloc->FileEntry))->uniqueID =
         ((PEXTENDED_FILE_ENTRY)(FileInfo->Dloc->FileEntry))->uniqueID;
     FileInfo->Dloc->FE_Flags |= (UDF_FE_FLAG_FE_MODIFIED | UDF_FE_FLAG_HAS_SDIR);
     // open & finalize linkage
@@ -4980,7 +4982,7 @@ UDFOpenStreamDir__(
     }
     if((SDirInfo = FileInfo->Dloc->SDirInfo)) {
         // it is already opened. Good...
-    
+
         // check if we have Deleted SDir
         if(FileInfo->Dloc->SDirInfo &&
            UDFIsSDirDeleted(FileInfo->Dloc->SDirInfo))
@@ -5040,7 +5042,7 @@ UDFRecordVAT(
     uint32 hdrOffset, hdrOffsetNew;
     uint32 hdrLen;
     OSSTATUS status;
-    uint32 ReadBytes;
+    SIZE_T ReadBytes;
     uint32 len;
     uint16 PartNdx = (uint16)Vcb->VatPartNdx;
     uint16 PartNum = UDFGetPartNumByPartNdx(Vcb, PartNdx);
@@ -5185,7 +5187,7 @@ UDFRecordVAT(
         VatFileInfo->Dloc->FELoc.Mapping[0].extLocation =
         VatFileInfo->Dloc->DataLoc.Mapping[0].extLocation =
             Vcb->NWA+PacketOffset;
-        VatFileInfo->Dloc->FELoc.Modified = TRUE; 
+        VatFileInfo->Dloc->FELoc.Modified = TRUE;
         // setup descTag
         ((PFILE_ENTRY)(VatFileInfo->Dloc->FileEntry))->descTag.tagLocation =
             UDFPhysLbaToPart(Vcb, PartNum, VatFileInfo->Dloc->DataLoc.Mapping[0].extLocation);
@@ -5363,8 +5365,8 @@ UDFConvertFEToNonInICB(
     int8* OldInIcb = NULL;
     uint32 OldLen;
     ValidateFileInfo(FileInfo);
-    uint32 ReadBytes;
-    uint32 _WrittenBytes;
+    SIZE_T ReadBytes;
+    SIZE_T _WrittenBytes;
     PUDF_DATALOC_INFO Dloc;
 
 //    ASSERT(FileInfo->RefCount >= 1);
@@ -5462,7 +5464,7 @@ UDFConvertFEToExtended(
     PFILE_ENTRY FileEntry;
     uint32 Length, NewLength, l;
     OSSTATUS status;
-    uint32 ReadBytes;
+    SIZE_T ReadBytes;
 
     if(!FileInfo) return STATUS_INVALID_PARAMETER;
     ValidateFileInfo(FileInfo);

@@ -54,12 +54,13 @@ private:
     };
 
     LPITEMIDLIST m_pidlFolder;
-    LPWSTR m_wszPath;
     SHELLNEW_ITEM *m_pItems;
-    SHELLNEW_ITEM *m_pLinkItem;
+    SHELLNEW_ITEM *m_pLinkItem; // Points to the link handler item in the m_pItems list.
     CComPtr<IUnknown> m_pSite;
     HMENU m_hSubMenu;
-    HICON m_hiconFolder, m_hiconLink;
+    UINT m_idCmdFirst, m_idCmdFolder, m_idCmdLink;
+    BOOL m_bCustomIconFolder, m_bCustomIconLink;
+    HICON m_hIconFolder, m_hIconLink;
 
     SHELLNEW_ITEM *LoadItem(LPCWSTR pwszExt);
     void UnloadItem(SHELLNEW_ITEM *pItem);
@@ -71,29 +72,32 @@ private:
     SHELLNEW_ITEM *FindItemFromIdOffset(UINT IdOffset);
     HRESULT CreateNewFolder(LPCMINVOKECOMMANDINFO lpici);
     HRESULT CreateNewItem(SHELLNEW_ITEM *pItem, LPCMINVOKECOMMANDINFO lpcmi);
-    HRESULT SelectNewItem(LONG wEventId, UINT uFlags, LPWSTR pszName);
+    HRESULT SelectNewItem(LONG wEventId, UINT uFlags, LPWSTR pszName, BOOL bRename);
+    HRESULT NewItemByCommand(SHELLNEW_ITEM *pItem, LPCWSTR wszPath);
+    HRESULT NewItemByNonCommand(SHELLNEW_ITEM *pItem, LPWSTR wszName,
+                                DWORD cchNameMax, LPCWSTR wszPath);
 
 public:
     CNewMenu();
     ~CNewMenu();
 
     // IObjectWithSite
-    virtual HRESULT STDMETHODCALLTYPE SetSite(IUnknown *pUnkSite);
-    virtual HRESULT STDMETHODCALLTYPE GetSite(REFIID riid, void **ppvSite);
+    STDMETHOD(SetSite)(IUnknown *pUnkSite) override;
+    STDMETHOD(GetSite)(REFIID riid, void **ppvSite) override;
 
     // IContextMenu
-    virtual HRESULT WINAPI QueryContextMenu(HMENU hMenu, UINT indexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags);
-    virtual HRESULT WINAPI InvokeCommand(LPCMINVOKECOMMANDINFO lpcmi);
-    virtual HRESULT WINAPI GetCommandString(UINT_PTR idCommand, UINT uFlags, UINT *lpReserved, LPSTR lpszName, UINT uMaxNameLen);
+    STDMETHOD(QueryContextMenu)(HMENU hMenu, UINT indexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags) override;
+    STDMETHOD(InvokeCommand)(LPCMINVOKECOMMANDINFO lpcmi) override;
+    STDMETHOD(GetCommandString)(UINT_PTR idCommand, UINT uFlags, UINT *lpReserved, LPSTR lpszName, UINT uMaxNameLen) override;
 
     // IContextMenu3
-    virtual HRESULT WINAPI HandleMenuMsg2(UINT uMsg, WPARAM wParam, LPARAM lParam, LRESULT *plResult);
+    STDMETHOD(HandleMenuMsg2)(UINT uMsg, WPARAM wParam, LPARAM lParam, LRESULT *plResult) override;
 
     // IContextMenu2
-    virtual HRESULT WINAPI HandleMenuMsg(UINT uMsg, WPARAM wParam, LPARAM lParam);
+    STDMETHOD(HandleMenuMsg)(UINT uMsg, WPARAM wParam, LPARAM lParam) override;
 
     // IShellExtInit
-    virtual HRESULT STDMETHODCALLTYPE Initialize(LPCITEMIDLIST pidlFolder, IDataObject *pdtobj, HKEY hkeyProgID);
+    STDMETHOD(Initialize)(PCIDLIST_ABSOLUTE pidlFolder, IDataObject *pdtobj, HKEY hkeyProgID) override;
 
 DECLARE_REGISTRY_RESOURCEID(IDR_NEWMENU)
 DECLARE_NOT_AGGREGATABLE(CNewMenu)

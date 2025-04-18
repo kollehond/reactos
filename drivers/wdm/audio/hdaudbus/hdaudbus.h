@@ -1,17 +1,18 @@
 #pragma once
 
-#define YDEBUG
 #include <ntddk.h>
-#include <debug.h>
 #include <initguid.h>
 #include <hdaudio.h>
 #include <stdio.h>
+#include <ntstrsafe.h>
+
+// Include Haiku headers
+#include "driver.h"
+
+#define NDEBUG
+#include <debug.h>
 
 #define TAG_HDA 'bADH'
-
-
-// include Haiku headers
-#include "driver.h"
 
 #define MAKE_RATE(base, multiply, divide) \
 	((base == 44100 ? FORMAT_44_1_BASE_RATE : 0) \
@@ -27,7 +28,6 @@
 		+ (index)) * HDAC_STREAM_SIZE)
 
 #define ALIGN(size, align)	(((size) + align - 1) & ~(align - 1))
-
 
 typedef struct {
 	ULONG response;
@@ -53,19 +53,20 @@ typedef struct
 
 	ULONG Responses[MAX_CODEC_RESPONSES];
 	ULONG ResponseCount;
+	KSEMAPHORE ResponseSemaphore;
 
 	PHDA_CODEC_AUDIO_GROUP AudioGroups[HDA_MAX_AUDIO_GROUPS];
 	ULONG AudioGroupCount;
 
 }HDA_CODEC_ENTRY, *PHDA_CODEC_ENTRY;
 
-
 typedef struct
 {
 	BOOLEAN IsFDO;
 	PDEVICE_OBJECT LowerDevice;
-	
+
 	PUCHAR RegBase;
+	SIZE_T RegLength;
 	PKINTERRUPT Interrupt;
 
 	ULONG CorbLength;
@@ -83,11 +84,11 @@ typedef struct
 typedef struct
 {
 	BOOLEAN IsFDO;
+	BOOLEAN ReportedMissing;
 	PHDA_CODEC_ENTRY Codec;
 	PHDA_CODEC_AUDIO_GROUP AudioGroup;
 	PDEVICE_OBJECT FDO;
 }HDA_PDO_DEVICE_EXTENSION, *PHDA_PDO_DEVICE_EXTENSION;
-
 
 typedef struct {
 	ULONG device : 16;
@@ -103,7 +104,6 @@ typedef struct {
 	ULONG _reserved2 : 8;
 }CODEC_RESPONSE, *PCODEC_RESPONSE;
 
-
 PVOID
 AllocateItem(
     IN POOL_TYPE PoolType,
@@ -114,11 +114,9 @@ FreeItem(
     IN PVOID Item);
 
 /* fdo.cpp */
-BOOLEAN
-NTAPI
-HDA_InterruptService(
-    IN PKINTERRUPT  Interrupt,
-    IN PVOID  ServiceContext);
+
+KSERVICE_ROUTINE HDA_InterruptService;
+IO_DPC_ROUTINE HDA_DpcForIsr;
 
 NTSTATUS
 NTAPI
@@ -128,11 +126,17 @@ HDA_FDOStartDevice(
 
 NTSTATUS
 NTAPI
+HDA_FDORemoveDevice(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _Inout_ PIRP Irp);
+
+NTSTATUS
+NTAPI
 HDA_FDOQueryBusRelations(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp);
 
-VOID
+NTSTATUS
 HDA_SendVerbs(
     IN PDEVICE_OBJECT DeviceObject,
     IN PHDA_CODEC_ENTRY Codec,
@@ -141,6 +145,10 @@ HDA_SendVerbs(
     IN ULONG Count);
 
 /* pdo.cpp*/
+
+NTSTATUS
+HDA_PDORemoveDevice(
+    _In_ PDEVICE_OBJECT DeviceObject);
 
 NTSTATUS
 HDA_PDOQueryBusInformation(
@@ -170,12 +178,3 @@ NTSTATUS
 HDA_PDOHandleQueryInterface(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp);
-
-/* hdaudbus.cpp*/
-
-NTSTATUS
-NTAPI
-HDA_SyncForwardIrp(
-    IN PDEVICE_OBJECT DeviceObject,
-    IN PIRP Irp);
-

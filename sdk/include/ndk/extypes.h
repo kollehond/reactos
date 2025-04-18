@@ -210,7 +210,7 @@ typedef enum _HARDERROR_RESPONSE
 } HARDERROR_RESPONSE, *PHARDERROR_RESPONSE;
 
 //
-//  System Information Classes for NtQuerySystemInformation
+// System Information Classes for NtQuerySystemInformation
 //
 typedef enum _SYSTEM_INFORMATION_CLASS
 {
@@ -312,11 +312,13 @@ typedef enum _SYSTEM_INFORMATION_CLASS
     SystemCoverageInformation,
     SystemPrefetchPathInformation,
     SystemVerifierFaultsInformation,
+    SystemSystemPartitionInformation,
+    SystemSystemDiskInformation,
     MaxSystemInfoClass,
 } SYSTEM_INFORMATION_CLASS;
 
 //
-//  System Information Classes for NtQueryMutant
+// System Information Classes for NtQueryMutant
 //
 typedef enum _MUTANT_INFORMATION_CLASS
 {
@@ -325,7 +327,7 @@ typedef enum _MUTANT_INFORMATION_CLASS
 } MUTANT_INFORMATION_CLASS;
 
 //
-//  System Information Classes for NtQueryAtom
+// System Information Classes for NtQueryAtom
 //
 typedef enum _ATOM_INFORMATION_CLASS
 {
@@ -334,7 +336,7 @@ typedef enum _ATOM_INFORMATION_CLASS
 } ATOM_INFORMATION_CLASS;
 
 //
-//  System Information Classes for NtQueryTimer
+// System Information Classes for NtQueryTimer
 //
 typedef enum _TIMER_INFORMATION_CLASS
 {
@@ -342,7 +344,7 @@ typedef enum _TIMER_INFORMATION_CLASS
 } TIMER_INFORMATION_CLASS;
 
 //
-//  System Information Classes for NtQuerySemaphore
+// System Information Classes for NtQuerySemaphore
 //
 typedef enum _SEMAPHORE_INFORMATION_CLASS
 {
@@ -350,7 +352,7 @@ typedef enum _SEMAPHORE_INFORMATION_CLASS
 } SEMAPHORE_INFORMATION_CLASS;
 
 //
-//  System Information Classes for NtQueryEvent
+// System Information Classes for NtQueryEvent
 //
 typedef enum _EVENT_INFORMATION_CLASS
 {
@@ -582,7 +584,7 @@ typedef struct _HANDLE_TRACE_DEBUG_INFO
     LONG RefCount;
     ULONG TableSize;
     ULONG BitMaskFlags;
-    FAST_MUTEX CloseCompatcionLock;
+    FAST_MUTEX CloseCompactionLock;
     ULONG CurrentStackIndex;
     HANDLE_TRACE_DB_ENTRY TraceDb[1];
 } HANDLE_TRACE_DEBUG_INFO, *PHANDLE_TRACE_DEBUG_INFO;
@@ -756,8 +758,16 @@ typedef struct _SYSTEM_PROCESSOR_INFORMATION
     USHORT ProcessorArchitecture;
     USHORT ProcessorLevel;
     USHORT ProcessorRevision;
+#if (NTDDI_VERSION < NTDDI_WIN8)
     USHORT Reserved;
+#else
+    USHORT MaximumProcessors;
+#endif
+#if (NTDDI_VERSION >= NTDDI_WIN10) || ((NTDDI_VERSION >= NTDDI_WINBLUE) && defined(_WIN64))
+    ULONG64 ProcessorFeatureBits;
+#else
     ULONG ProcessorFeatureBits;
+#endif
 } SYSTEM_PROCESSOR_INFORMATION, *PSYSTEM_PROCESSOR_INFORMATION;
 
 // Class 2
@@ -837,6 +847,14 @@ typedef struct _SYSTEM_PERFORMANCE_INFORMATION
     ULONG FirstLevelTbFills;
     ULONG SecondLevelTbFills;
     ULONG SystemCalls;
+#if (NTDDI_VERSION >= NTDDI_WIN7)
+    ULONGLONG CcTotalDirtyPages;
+    ULONGLONG CcDirtyPageThreshold;
+#endif
+#if (NTDDI_VERSION >= NTDDI_WIN8)
+    LONGLONG ResidentAvailablePages;
+    ULONGLONG SharedCommittedPages;
+#endif
 } SYSTEM_PERFORMANCE_INFORMATION, *PSYSTEM_PERFORMANCE_INFORMATION;
 
 // Class 3
@@ -1420,7 +1438,43 @@ typedef struct _SYSTEM_HANDLE_INFORMATION_EX
     SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX Handle[1];
 } SYSTEM_HANDLE_INFORMATION_EX, *PSYSTEM_HANDLE_INFORMATION_EX;
 
-// FIXME: Class 65-97
+// FIXME: Class 65-89
+
+// Class 90
+#if (NTDDI_VERSION >= NTDDI_LONGHORN)
+typedef struct _SYSTEM_BOOT_ENVIRONMENT_INFORMATION
+{
+    GUID BootIdentifier;
+    FIRMWARE_TYPE FirmwareType;
+#if (NTDDI_VERSION >= NTDDI_WIN8)
+    ULONGLONG BootFlags;
+#endif
+} SYSTEM_BOOT_ENVIRONMENT_INFORMATION, *PSYSTEM_BOOT_ENVIRONMENT_INFORMATION;
+#endif
+
+#if (NTDDI_VERSION >= NTDDI_WIN8)
+typedef struct _SYSTEM_BOOT_ENVIRONMENT_V1
+{
+    GUID BootIdentifier;
+    FIRMWARE_TYPE FirmwareType;
+} SYSTEM_BOOT_ENVIRONMENT_V1, *PSYSTEM_BOOT_ENVIRONMENT_V1;
+#endif
+
+// FIXME: Class 91-97
+
+#if (NTDDI_VERSION >= NTDDI_VISTA)
+// Class 98
+typedef struct _SYSTEM_SYSTEM_PARTITION_INFORMATION
+{
+    UNICODE_STRING SystemPartition;
+} SYSTEM_SYSTEM_PARTITION_INFORMATION, *PSYSTEM_SYSTEM_PARTITION_INFORMATION;
+
+// Class 99
+typedef struct _SYSTEM_SYSTEM_DISK_INFORMATION
+{
+    UNICODE_STRING SystemDisk;
+} SYSTEM_SYSTEM_DISK_INFORMATION, *PSYSTEM_SYSTEM_DISK_INFORMATION;
+#endif
 
 //
 // Hotpatch flags
@@ -1511,22 +1565,33 @@ typedef struct _SYSTEM_FIRMWARE_TABLE_INFORMATION
     UCHAR TableBuffer[1];
 } SYSTEM_FIRMWARE_TABLE_INFORMATION, *PSYSTEM_FIRMWARE_TABLE_INFORMATION;
 
+#endif // !NTOS_MODE_USER
+
 //
-// Class 81
+// Class 80
 //
 typedef struct _SYSTEM_MEMORY_LIST_INFORMATION
 {
-   SIZE_T ZeroPageCount;
-   SIZE_T FreePageCount;
-   SIZE_T ModifiedPageCount;
-   SIZE_T ModifiedNoWritePageCount;
-   SIZE_T BadPageCount;
-   SIZE_T PageCountByPriority[8];
-   SIZE_T RepurposedPagesByPriority[8];
-   SIZE_T ModifiedPageCountPageFile;
+    SIZE_T ZeroPageCount;
+    SIZE_T FreePageCount;
+    SIZE_T ModifiedPageCount;
+    SIZE_T ModifiedNoWritePageCount;
+    SIZE_T BadPageCount;
+    SIZE_T PageCountByPriority[8];
+    SIZE_T RepurposedPagesByPriority[8];
+    SIZE_T ModifiedPageCountPageFile;
 } SYSTEM_MEMORY_LIST_INFORMATION, *PSYSTEM_MEMORY_LIST_INFORMATION;
 
-#endif // !NTOS_MODE_USER
+//
+// Firmware variable attributes
+//
+#define VARIABLE_ATTRIBUTE_NON_VOLATILE                             0x00000001
+#define VARIABLE_ATTRIBUTE_BOOTSERVICE_ACCESS                       0x00000002
+#define VARIABLE_ATTRIBUTE_RUNTIME_ACCESS                           0x00000004
+#define VARIABLE_ATTRIBUTE_HARDWARE_ERROR_RECORD                    0x00000008
+#define VARIABLE_ATTRIBUTE_AUTHENTICATED_WRITE_ACCESS               0x00000010
+#define VARIABLE_ATTRIBUTE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS    0x00000020
+#define VARIABLE_ATTRIBUTE_APPEND_WRITE                             0x00000040
 
 #ifdef __cplusplus
 }; // extern "C"

@@ -2,7 +2,7 @@
  * COPYRIGHT:       See COPYING in the top level directory
  * PROJECT:         ReactOS kernel
  * FILE:            ntoskrnl/mm/i386/pagepae.c
- * PURPOSE:         Low level memory managment manipulation
+ * PURPOSE:         Low level memory management manipulation
  *
  * PROGRAMMERS:     David Welch (welch@cwcom.net)
  */
@@ -12,10 +12,6 @@
 #include <ntoskrnl.h>
 #define NDEBUG
 #include <debug.h>
-
-#if defined (ALLOC_PRAGMA)
-#pragma alloc_text(INIT, MmInitGlobalKernelPageDirectory)
-#endif
 
 /* GLOBALS *****************************************************************/
 
@@ -1492,8 +1488,8 @@ MmSetPageProtect(PEPROCESS Process, PVOID Address, ULONG flProtect)
    }
 }
 
+CODE_SEG("INIT")
 VOID
-INIT_FUNCTION
 NTAPI
 MmInitGlobalKernelPageDirectory(VOID)
 {

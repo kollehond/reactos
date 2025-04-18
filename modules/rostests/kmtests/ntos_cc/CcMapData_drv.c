@@ -32,6 +32,8 @@ static PFILE_OBJECT TestFileObject;
 static PDEVICE_OBJECT TestDeviceObject;
 static KMT_IRP_HANDLER TestIrpHandler;
 static KMT_MESSAGE_HANDLER TestMessageHandler;
+static ULONGLONG Memory = 0;
+static BOOLEAN TS = FALSE;
 
 NTSTATUS
 TestEntry(
@@ -40,7 +42,10 @@ TestEntry(
     _Out_ PCWSTR *DeviceName,
     _Inout_ INT *Flags)
 {
+    ULONG Length;
+    SYSTEM_BASIC_INFORMATION SBI;
     NTSTATUS Status = STATUS_SUCCESS;
+    RTL_OSVERSIONINFOEXW VersionInfo;
 
     PAGED_CODE();
 
@@ -54,6 +59,32 @@ TestEntry(
     KmtRegisterIrpHandler(IRP_MJ_READ, NULL, TestIrpHandler);
     KmtRegisterMessageHandler(0, NULL, TestMessageHandler);
 
+    Status = ZwQuerySystemInformation(SystemBasicInformation,
+                                      &SBI,
+                                      sizeof(SBI),
+                                      &Length);
+    if (NT_SUCCESS(Status))
+    {
+        Memory = (SBI.NumberOfPhysicalPages * SBI.PageSize) / 1024 / 1024;
+    }
+    else
+    {
+        Status = STATUS_SUCCESS;
+    }
+
+    VersionInfo.dwOSVersionInfoSize = sizeof(VersionInfo);
+    Status = RtlGetVersion((PRTL_OSVERSIONINFOW)&VersionInfo);
+    if (NT_SUCCESS(Status))
+    {
+        TS = BooleanFlagOn(VersionInfo.wSuiteMask, VER_SUITE_TERMINAL) &&
+             !BooleanFlagOn(VersionInfo.wSuiteMask, VER_SUITE_SINGLEUSERTS);
+    }
+    else
+    {
+        Status = STATUS_SUCCESS;
+    }
+
+    trace("System with %I64dMb RAM and terminal services %S\n",  Memory, (TS ? L"enabled" : L"disabled"));
 
     return Status;
 }
@@ -287,7 +318,7 @@ PerformTest(
                     PTEST_CONTEXT TestContext;
 
                     TestContext = ExAllocatePool(NonPagedPool, sizeof(TEST_CONTEXT));
-                    if (!skip(Fcb != NULL, "ExAllocatePool failed\n"))
+                    if (!skip(TestContext != NULL, "ExAllocatePool failed\n"))
                     {
                         Ret = FALSE;
                         Offset.QuadPart = 0x1000;
@@ -299,17 +330,29 @@ PerformTest(
                         {
                             PKTHREAD ThreadHandle;
 
+                            /* That's a bit rough but should do the job */
 #ifdef _X86_
-                            /* FIXME: Should be fixed, will fail under certains conditions */
-                            ok(TestContext->Buffer > (PVOID)0xC1000000 && TestContext->Buffer < (PVOID)0xDCFFFFFF,
-                               "Buffer %p not mapped in system space\n", TestContext->Buffer);
-#else
-#ifdef _M_AMD64
-                            ok(TestContext->Buffer > (PVOID)0xFFFFF98000000000 && TestContext->Buffer < (PVOID)0xFFFFFA8000000000,
+                            if (Memory >= 2 * 1024)
+                            {
+                                ok((TestContext->Buffer >= (PVOID)0xC1000000 && TestContext->Buffer < (PVOID)0xE0FFFFFF) ||
+                                   (TestContext->Buffer >= (PVOID)0xA4000000 && TestContext->Buffer < (PVOID)0xBFFFFFFF),
+                                   "Buffer %p not mapped in system space\n", TestContext->Buffer);
+                            }
+                            else if (TS)
+                            {
+                                ok(TestContext->Buffer >= (PVOID)0xC1000000 && TestContext->Buffer < (PVOID)0xDCFFFFFF,
+                                   "Buffer %p not mapped in system space\n", TestContext->Buffer);
+                            }
+                            else
+                            {
+                                ok(TestContext->Buffer >= (PVOID)0xC1000000 && TestContext->Buffer < (PVOID)0xDBFFFFFF,
+                                   "Buffer %p not mapped in system space\n", TestContext->Buffer);
+                            }
+#elif defined(_M_AMD64)
+                            ok(TestContext->Buffer >= (PVOID)0xFFFFF98000000000 && TestContext->Buffer < (PVOID)0xFFFFFA8000000000,
                                "Buffer %p not mapped in system space\n", TestContext->Buffer);
 #else
                             skip(FALSE, "System space mapping not defined\n");
-#endif
 #endif
 
                             TestContext->Length = FileSizes.FileSize.QuadPart - Offset.QuadPart;
@@ -328,28 +371,58 @@ PerformTest(
                 }
                 else if (TestId == 4)
                 {
+                    FileSizes.AllocationSize.QuadPart += VACB_MAPPING_GRANULARITY;
+                    CcSetFileSizes(TestFileObject, &FileSizes);
+
                     /* Map after EOF */
                     Ret = FALSE;
                     Offset.QuadPart = FileSizes.FileSize.QuadPart + 0x1000;
 
                     KmtStartSeh();
-                    Ret = CcMapData(TestFileObject, &Offset, 0x1000, 0, &Bcb, (PVOID *)&Buffer);
+                    Ret = CcMapData(TestFileObject, &Offset, 0x1000, MAP_WAIT, &Bcb, (PVOID *)&Buffer);
                     KmtEndSeh(STATUS_SUCCESS);
-                    ok(Ret == FALSE, "CcMapData succeed\n");
+                    ok(Ret == TRUE, "CcMapData failed\n");
 
                     if (Ret)
                     {
                         CcUnpinData(Bcb);
                     }
 
-                    /* Map a VACB after EOF */
+                    /* Map a VACB after EOF. */
                     Ret = FALSE;
                     Offset.QuadPart = FileSizes.FileSize.QuadPart + 0x1000 + VACB_MAPPING_GRANULARITY;
 
                     KmtStartSeh();
-                    Ret = CcMapData(TestFileObject, &Offset, 0x1000, 0, &Bcb, (PVOID *)&Buffer);
-                    KmtEndSeh(STATUS_ACCESS_VIOLATION);
-                    ok(Ret == FALSE, "CcMapData succeed\n");
+                    Ret = CcMapData(TestFileObject, &Offset, 0x1000, MAP_WAIT, &Bcb, (PVOID *)&Buffer);
+                    KmtEndSeh(STATUS_SUCCESS);
+                    ok(Ret == TRUE, "CcMapData failed\n");
+
+                    if (Ret)
+                    {
+                        CcUnpinData(Bcb);
+                    }
+
+                    /* Map after Allocation */
+                    Ret = FALSE;
+                    Offset.QuadPart = FileSizes.AllocationSize.QuadPart + 0x1000;
+
+                    KmtStartSeh();
+                    Ret = CcMapData(TestFileObject, &Offset, 0x1000, MAP_WAIT, &Bcb, (PVOID *)&Buffer);
+                    KmtEndSeh(STATUS_SUCCESS);
+                    ok(Ret == TRUE, "CcMapData failed\n");
+
+                    if (Ret)
+                    {
+                        CcUnpinData(Bcb);
+                    }
+
+                    Ret = FALSE;
+                    Offset.QuadPart = FileSizes.AllocationSize.QuadPart + 0x1000 + VACB_MAPPING_GRANULARITY;
+
+                    KmtStartSeh();
+                    Ret = CcMapData(TestFileObject, &Offset, 0x1000, MAP_WAIT, &Bcb, (PVOID *)&Buffer);
+                    KmtEndSeh(STATUS_SUCCESS);
+                    ok(Ret == TRUE, "CcMapData failed\n");
 
                     if (Ret)
                     {
@@ -361,9 +434,9 @@ PerformTest(
                     Offset.QuadPart = 0x0;
 
                     KmtStartSeh();
-                    Ret = CcMapData(TestFileObject, &Offset, 0x1000 + VACB_MAPPING_GRANULARITY, 0, &Bcb, (PVOID *)&Buffer);
+                    Ret = CcMapData(TestFileObject, &Offset, 0x1000 + VACB_MAPPING_GRANULARITY, MAP_WAIT, &Bcb, (PVOID *)&Buffer);
                     KmtEndSeh(STATUS_SUCCESS);
-                    ok(Ret == FALSE, "CcMapData succeed\n");
+                    ok(Ret == TRUE, "CcMapData failed\n");
 
                     if (Ret)
                     {
@@ -432,7 +505,7 @@ TestMessageHandler(
             ok_eq_ulong((ULONG)InLength, sizeof(ULONG));
             PerformTest(*(PULONG)Buffer, DeviceObject);
             break;
-            
+
         case IOCTL_FINISH_TEST:
             ok_eq_ulong((ULONG)InLength, sizeof(ULONG));
             CleanupTest(*(PULONG)Buffer, DeviceObject);

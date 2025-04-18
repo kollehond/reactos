@@ -53,7 +53,7 @@ interface IPersistFolder : IPersist
 {
     typedef IPersistFolder *LPPERSISTFOLDER;
 
-    HRESULT Initialize( [in] LPCITEMIDLIST pidl );
+    HRESULT Initialize( [in] PCIDLIST_ABSOLUTE pidl );
 }
 
 
@@ -69,7 +69,7 @@ interface IPersistFolder2 : IPersistFolder
 {
     typedef IPersistFolder2 *LPPERSISTFOLDER2;
 
-    HRESULT GetCurFolder( [out] LPITEMIDLIST *ppidl );
+    HRESULT GetCurFolder( [out] PIDLIST_ABSOLUTE *ppidl );
 }
 
 
@@ -83,8 +83,8 @@ interface IPersistFolder2 : IPersistFolder
 ]
 interface IPersistIDList : IPersist
 {
-    HRESULT SetIDList( [in] LPCITEMIDLIST pidl );
-    HRESULT GetIDList( [out] LPITEMIDLIST *ppidl );
+    HRESULT SetIDList( [in] PCIDLIST_ABSOLUTE pidl );
+    HRESULT GetIDList( [out] PIDLIST_ABSOLUTE *ppidl );
 }
 
 
@@ -102,7 +102,7 @@ interface IEnumIDList : IUnknown
 
     HRESULT Next(
         [in] ULONG celt,
-        [out, size_is(celt), length_is(*pceltFetched)] LPITEMIDLIST *rgelt,
+        [out, size_is(celt), length_is(*pceltFetched)] PITEMID_CHILD *rgelt,
         [out] ULONG *pceltFetched);
 
     HRESULT Skip( [in] ULONG celt );
@@ -176,7 +176,12 @@ interface IShellFolder : IUnknown
         SHCONTF_INIT_ON_FIRST_NEXT = 256,
         SHCONTF_NETPRINTERSRCH = 512,
         SHCONTF_SHAREABLE = 1024,
-        SHCONTF_STORAGE = 2048
+        SHCONTF_STORAGE = 2048,
+        SHCONTF_NAVIGATION_ENUM = 0x01000,
+        SHCONTF_FASTITEMS = 0x02000,
+        SHCONTF_FLATLIST = 0x04000,
+        SHCONTF_ENABLE_ASYNC = 0x08000,
+        SHCONTF_INCLUDESUPERHIDDEN = 0x10000
     };
 
     typedef DWORD SHCONTF;
@@ -190,6 +195,7 @@ interface IShellFolder : IUnknown
     cpp_quote("#define SFGAO_HASPROPSHEET      0x00000040L")
     cpp_quote("#define SFGAO_DROPTARGET        0x00000100L")
     cpp_quote("#define SFGAO_CAPABILITYMASK    0x00000177L")
+    cpp_quote("#define SFGAO_SYSTEM            0x00001000L")
     cpp_quote("#define SFGAO_ENCRYPTED         0x00002000L")
     cpp_quote("#define SFGAO_ISSLOW            0x00004000L")
     cpp_quote("#define SFGAO_GHOSTED           0x00008000L")
@@ -211,8 +217,20 @@ interface IShellFolder : IUnknown
     cpp_quote("#define SFGAO_NEWCONTENT        0x00200000L")
     cpp_quote("#define SFGAO_STREAM            0x00400000L")
     cpp_quote("#define SFGAO_STORAGEANCESTOR   0x00800000L")
-
+    cpp_quote("#define SFGAO_STORAGECAPMASK    0x70C50008L")
+    cpp_quote("#define SFGAO_PKEYSFGAOMASK     0x81044000L")
     typedef ULONG SFGAOF;
+
+    cpp_quote("#define SHCIDS_COLUMNMASK 0x0000FFFFL")
+    cpp_quote("#define SHCIDS_BITMASK 0xFFFF0000L")
+    cpp_quote("#define SHCIDS_CANONICALONLY 0x10000000L")
+    cpp_quote("#define SHCIDS_ALLFIELDS 0x80000000L")
+
+    cpp_quote("#define STR_PARSE_SHELL_PROTOCOL_TO_FILE_OBJECTS L\"Parse Shell Protocol To File Objects\"")
+    cpp_quote("#define STR_FILE_SYS_BIND_DATA L\"File System Bind Data\"")
+    cpp_quote("#define STR_PARSE_PREFER_FOLDER_BROWSING L\"Parse Prefer Folder Browsing\"")
+    cpp_quote("#define STR_PARSE_TRANSLATE_ALIASES L\"Parse Translate Aliases\"")
+    cpp_quote("#define STR_DONT_PARSE_RELATIVE L\"Don't Parse Relative\"")
 
     HRESULT ParseDisplayName(
         [in] HWND hwndOwner,
@@ -759,7 +777,7 @@ interface IShellView : IOleWindow
 
     HRESULT SaveViewState();
     HRESULT SelectItem(
-        [in] LPCITEMIDLIST pidlItem,
+        [in] PCUITEMID_CHILD pidlItem,
         [in] SVSIF uFlags);
     HRESULT GetItemObject(
         [in] UINT uItem,
@@ -796,10 +814,10 @@ cpp_quote("#include <poppack.h>")
         [in] LPSV2CVW2_PARAMS view_params
     );
     HRESULT HandleRename(
-        [in] LPCITEMIDLIST new_pidl
+        [in] PCUITEMID_CHILD new_pidl
     );
     HRESULT SelectAndPositionItem(
-        [in] LPCITEMIDLIST item,
+        [in] PCUITEMID_CHILD item,
         [in] UINT flags,
         [in] POINT *point
     );
@@ -880,6 +898,7 @@ interface IFolderView : IUnknown
         [in] DWORD flags
     );
 }
+cpp_quote("#define SID_SFolderView IID_IFolderView")
 
 [v1_enum] enum tagSORTDIRECTION
 {
@@ -1074,7 +1093,7 @@ cpp_quote("#endif")
     HRESULT TranslateAcceleratorSB( [in] MSG *pmsg, [in] WORD wID );
 
     HRESULT BrowseObject(
-        [in] LPCITEMIDLIST pidl,
+        [in] PCUIDLIST_RELATIVE pidl,
         [in] UINT wFlags);
 
     HRESULT GetViewStateStream(
@@ -1139,9 +1158,9 @@ interface IShellLinkA : IUnknown
         [in, out, unique] WIN32_FIND_DATAA *pfd,
         [in] DWORD fFlags);
 
-    HRESULT GetIDList( [out] LPITEMIDLIST * ppidl );
+    HRESULT GetIDList( [out] PIDLIST_ABSOLUTE * ppidl );
 
-    HRESULT SetIDList( [in] LPCITEMIDLIST pidl );
+    HRESULT SetIDList( [in] PCIDLIST_ABSOLUTE pidl );
 
     HRESULT GetDescription(
         [out, size_is(cch)] LPSTR pszName,
@@ -1206,9 +1225,9 @@ interface IShellLinkW : IUnknown
         [in, out] WIN32_FIND_DATAW *pfd,
         [in] DWORD fFlags);
 
-    HRESULT GetIDList( [out] LPITEMIDLIST * ppidl );
+    HRESULT GetIDList( [out] PIDLIST_ABSOLUTE * ppidl );
 
-    HRESULT SetIDList( [in] LPCITEMIDLIST pidl );
+    HRESULT SetIDList( [in] PCIDLIST_ABSOLUTE pidl );
 
     HRESULT GetDescription(
         [out, size_is(cch)] LPWSTR pszName,
@@ -1273,7 +1292,7 @@ interface IShellExtInit : IUnknown
     typedef IShellExtInit *LPSHELLEXTINIT;
 
     HRESULT Initialize(
-        [in] LPCITEMIDLIST pidlFolder,
+        [in] PCIDLIST_ABSOLUTE pidlFolder,
         [in] IDataObject *pdtobj,
         [in] HKEY hkeyProgID);
 }
@@ -1302,7 +1321,7 @@ interface IPersistFolder3 : IPersistFolder2
 {
     typedef struct
     {
-        LPITEMIDLIST	pidlTargetFolder;
+    PIDLIST_ABSOLUTE	pidlTargetFolder;
 	WCHAR		szTargetParsingName[MAX_PATH];
 	WCHAR		szNetworkProvider[MAX_PATH];
 	DWORD		dwAttributes;
@@ -1311,7 +1330,7 @@ interface IPersistFolder3 : IPersistFolder2
 
     HRESULT InitializeEx(
         [in] IBindCtx *pbc,
-        [in] LPCITEMIDLIST pidlRoot,
+        [in] PCIDLIST_ABSOLUTE pidlRoot,
         [in] const PERSIST_FOLDER_TARGET_INFO *ppfti);
 
     HRESULT GetFolderTargetInfo( [out] PERSIST_FOLDER_TARGET_INFO *ppfti );
@@ -1411,7 +1430,7 @@ cpp_quote("#define CDBOSC_STATECHANGE  0x00000004")
 
     HRESULT OnDefaultCommand( [in] IShellView *shv );
     HRESULT OnStateChange( [in] IShellView *shv, [in] ULONG uChange );
-    HRESULT IncludeObject( [in] IShellView *shv, [in] LPCITEMIDLIST pidl );
+    HRESULT IncludeObject( [in] IShellView *shv, [in] PCUITEMID_CHILD pidl );
 }
 
 
@@ -1425,6 +1444,11 @@ cpp_quote("#define CDBOSC_STATECHANGE  0x00000004")
 ]
 interface ICommDlgBrowser2 : ICommDlgBrowser
 {
+cpp_quote("#define CDB2N_CONTEXTMENU_DONE  1")
+cpp_quote("#define CDB2N_CONTEXTMENU_START 2")
+cpp_quote("#define CDB2GVF_SHOWALLFILES  0x00000001")
+cpp_quote("#define CDB2GVF_NOSELECTVERB  0x00000008")
+cpp_quote("#define CDB2GVF_NOINCLUDEITEM 0x00000010 /* IncludeObject should not be called */")
 
     HRESULT Notify(
         [in] IShellView *ppshv,
@@ -1461,6 +1485,38 @@ interface ICommDlgBrowser3 : ICommDlgBrowser2
 
     HRESULT OnPreviewCreated(
         [in] IShellView *ppshv);
+}
+
+/*****************************************************************************
+ * IFolderFilterSite & IFolderFilter interfaces
+ */
+[
+    object,
+    uuid(C0A651F5-B48B-11d2-B5ED-006097C686F6),
+    pointer_default(unique)
+]
+interface IFolderFilterSite : IUnknown
+{
+    HRESULT SetFilter([in] IUnknown* punk);
+}
+
+[
+    object,
+    uuid(9CC22886-DC8E-11d2-B1D0-00C04F8EEB3E),
+    pointer_default(unique)
+]
+interface IFolderFilter : IUnknown
+{
+    HRESULT ShouldShow(
+        [in] IShellFolder* psf,
+        [in, unique] PCIDLIST_ABSOLUTE pidlFolder,
+        [in] PCUITEMID_CHILD pidlItem);
+
+    HRESULT GetEnumFlags(
+        [in] IShellFolder* psf,
+        [in] PCIDLIST_ABSOLUTE pidlFolder,
+        [out] HWND *phwnd,
+        [in, out] DWORD *pgrfFlags);
 }
 
 /*****************************************************************************
@@ -1589,16 +1645,21 @@ interface IDropTargetHelper : IUnknown
 ]
 interface IContextMenu : IUnknown
 {
-cpp_quote("#define CMF_NORMAL        0x00000000")
-cpp_quote("#define CMF_DEFAULTONLY   0x00000001")
-cpp_quote("#define CMF_VERBSONLY     0x00000002")
-cpp_quote("#define CMF_EXPLORE       0x00000004")
-cpp_quote("#define CMF_NOVERBS       0x00000008")
-cpp_quote("#define CMF_CANRENAME     0x00000010")
-cpp_quote("#define CMF_NODEFAULT     0x00000020")
-cpp_quote("#define CMF_INCLUDESTATIC 0x00000040")
-cpp_quote("#define CMF_EXTENDEDVERBS 0x00000100")
-cpp_quote("#define CMF_RESERVED      0xffff0000")
+cpp_quote("#define CMF_NORMAL            0x00000000")
+cpp_quote("#define CMF_DEFAULTONLY       0x00000001")
+cpp_quote("#define CMF_VERBSONLY         0x00000002")
+cpp_quote("#define CMF_EXPLORE           0x00000004")
+cpp_quote("#define CMF_NOVERBS           0x00000008")
+cpp_quote("#define CMF_CANRENAME         0x00000010")
+cpp_quote("#define CMF_NODEFAULT         0x00000020")
+cpp_quote("#define CMF_INCLUDESTATIC     0x00000040")
+cpp_quote("#define CMF_EXTENDEDVERBS     0x00000100")
+cpp_quote("#define CMF_DISABLEDVERBS     0x00000200")
+cpp_quote("#define CMF_ASYNCVERBSTATE    0x00000400")
+cpp_quote("#define CMF_OPTIMIZEFORINVOKE 0x00000800")
+cpp_quote("#define CMF_SYNCCASCADEMENU   0x00001000")
+cpp_quote("#define CMF_DONOTPICKDEFAULT  0x00002000")
+cpp_quote("#define CMF_RESERVED          0xffff0000")
 
 cpp_quote("#define GCS_VERBA         0x00000000")
 cpp_quote("#define GCS_HELPTEXTA     0x00000001")
@@ -1983,8 +2044,8 @@ interface IShellChangeNotify : IUnknown
 {
     HRESULT OnChange(
                 [in] LONG lEvent,
-                [in] LPCITEMIDLIST pidl1,
-                [in] LPCITEMIDLIST pidl2);
+                [in] PCIDLIST_ABSOLUTE pidl1,
+                [in] PCIDLIST_ABSOLUTE pidl2);
 }
 
 cpp_quote("#define STR_FILE_SYS_BIND_DATA  L\"File System Bind Data\"")
@@ -2294,7 +2355,7 @@ interface IInitializeCommand : IUnknown
 {
     HRESULT Initialize(
                     [in, string] LPCWSTR pszCommandName,
-                    [in] IPropertyBag *ppb);
+                    [in, optional] IPropertyBag *ppb);
 }
 
 
@@ -2347,6 +2408,70 @@ interface IExplorerCommandProvider : IUnknown
                     [in] REFIID riid,
                     [out, iid_is(riid)] void **ppv);
 };
+
+
+/*****************************************************************************
+ * IExecuteCommand interface (7+)
+ */
+[
+    uuid(7F9185B0-CB92-43C5-80A9-92277A4F7B54),
+    pointer_default(unique)
+]
+interface IExecuteCommand : IUnknown
+{
+    HRESULT SetKeyState([in] DWORD grfKeyState);
+    HRESULT SetParameters([in, string] LPCWSTR pszParameters);
+    HRESULT SetPosition([in] POINT pt);
+    HRESULT SetShowWindow([in] int nShow);
+    HRESULT SetNoShowUI([in] BOOL fNoShowUI);
+    HRESULT SetDirectory([in, string] LPCWSTR pszDirectory);
+    HRESULT Execute();
+};
+
+
+/*****************************************************************************
+ * IObjectWithSelection interface (Vista+)
+ */
+[
+    uuid(1C9CD5BB-98E9-4491-A60F-31AACC72B83C),
+    pointer_default(unique)
+]
+interface IObjectWithSelection : IUnknown
+{
+    HRESULT SetSelection([in] IShellItemArray *psia);
+    HRESULT GetSelection([in] REFIID riid, [out, iid_is(riid)] void **ppv);
+};
+
+
+/*****************************************************************************
+ * IOpenControlPanel interface (Vista+)
+ */
+[
+    object,
+    uuid(D11AD862-66DE-4DF4-BF6C-1F5621996AF1),
+    pointer_default(unique)
+]
+interface IOpenControlPanel : IUnknown
+{
+    typedef [v1_enum] enum CPVIEW
+    {
+        CPVIEW_CLASSIC = 0,
+        CPVIEW_CATEGORY = 1,
+        CPVIEW_ALLITEMS = CPVIEW_CLASSIC,
+        CPVIEW_HOME = CPVIEW_CATEGORY
+    } CPVIEW;
+
+    HRESULT Open(
+                    [in, optional] LPCWSTR pszName,
+                    [in, optional] LPCWSTR pszPage,
+                    [in, optional] IUnknown *punkSite);
+    HRESULT GetPath(
+                    [in, optional] LPCWSTR pszName,
+                    [out, string, size_is(cchPath)] LPWSTR pszPath,
+                    [in] UINT cchPath);
+    HRESULT GetCurrentView(
+                    [out] CPVIEW *pView);
+}
 
 #endif // __REACTOS__
 
@@ -2620,8 +2745,8 @@ typedef struct tagSMDATA
 	UINT			uIdParent;
 	UINT			uIdAncestor;
 	IUnknown		*punk;
-	LPITEMIDLIST	pidlFolder;
-	LPITEMIDLIST	pidlItem;
+	PIDLIST_ABSOLUTE	pidlFolder;
+	PUITEMID_CHILD	pidlItem;
 	IShellFolder	*psf;
 	void			*pvUserData;
 } SMDATA, *LPSMDATA;
@@ -2641,8 +2766,8 @@ typedef struct tagSMINFO
 typedef struct tagSHCSCHANGENOTIFYSTRUCT
 {
 	LONG			lEvent;
-	LPCITEMIDLIST	pidl1;
-	LPCITEMIDLIST	pidl2;
+	PCIDLIST_ABSOLUTE	pidl1;
+	PCIDLIST_ABSOLUTE	pidl2;
 } SMCSHCHANGENOTIFYSTRUCT, *PSMCSHCHANGENOTIFYSTRUCT;
 
 cpp_quote("#include <poppack.h>")
@@ -2757,13 +2882,13 @@ interface IShellMenu : IUnknown
 
 	HRESULT SetShellFolder(
         [in] IShellFolder *psf,
-		[in] LPCITEMIDLIST pidlFolder,
+		[in] PCIDLIST_ABSOLUTE pidlFolder,
         [in] HKEY hKey,
         [in] DWORD dwFlags);
 
 	HRESULT GetShellFolder(
 		[out] DWORD *pdwFlags,
-		[out] LPITEMIDLIST *ppidl,
+		[out] PIDLIST_ABSOLUTE *ppidl,
 		[in] REFIID riid,
 		[out] void **ppv);
 
@@ -4743,6 +4868,60 @@ interface IUserNotification2 : IUnknown
 
     HRESULT PlaySound(
         [in, string] LPCWSTR pszSoundName);
+};
+
+/*****************************************************************************
+ * IItemNameLimits interface
+ */
+
+[
+    uuid(1df0d7f1-b267-4d28-8b10-12e23202a5c4)
+]
+interface IItemNameLimits : IUnknown 
+{
+    HRESULT GetValidCharacters(
+        [out, string] LPWSTR *ppwszValidChars,
+        [out, string] LPWSTR *ppwszInvalidChars);
+
+    HRESULT GetMaxLength(
+        [in, string] LPCWSTR pszName,
+        [out] int *piMaxNameLen);
+};
+
+/*****************************************************************************
+ * IUserAssist interface
+ */
+[
+    uuid(dd313e05-feff-11d1-8ecd-0000f87a470c),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface IUserAssist : IUnknown
+{
+    HRESULT FireEvent(
+        GUID const *guid,
+        INT param1,
+        ULONG param2,
+        WPARAM wparam,
+        LPARAM lparam);
+
+    HRESULT QueryEvent(
+        GUID const *guid,
+        INT param,
+        WPARAM wparam,
+        LPARAM lparam,
+        PVOID ptr);
+
+    HRESULT SetEvent(
+        GUID const *guid,
+        INT param,
+        WPARAM wparam,
+        LPARAM lparam,
+        PVOID ptr);
+
+    HRESULT Enable(
+        BOOL bEnable);
 };
 
 #endif // __REACTOS__

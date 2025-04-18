@@ -16,7 +16,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
 #include <stdarg.h>
 
 #define COBJMACROS
@@ -118,8 +117,10 @@ BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID lpv )
 {
     switch(reason)
     {
+#ifndef __REACTOS__
     case DLL_WINE_PREATTACH:
         return FALSE;  /* prefer native version */
+#endif
     case DLL_PROCESS_ATTACH:
         instance = hinst;
         DisableThreadLibraryCalls( hinst );

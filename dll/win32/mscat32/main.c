@@ -17,8 +17,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
-
 #include <stdarg.h>
 #include "windef.h"
 #include "winbase.h"
@@ -31,7 +29,9 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 {
     TRACE("(%p, %d, %p)\n",hinstDLL,fdwReason,lpvReserved);
 
+#ifndef __REACTOS__
     if (fdwReason == DLL_WINE_PREATTACH) return FALSE; /* prefer native version */
+#endif
 
     if (fdwReason == DLL_PROCESS_ATTACH)
     {

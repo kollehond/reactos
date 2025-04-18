@@ -190,16 +190,55 @@ HBITMAP CreateRadioMask(HDC hDC)
 
 /////////////////////////////////////////////////////////////////////////////
 
+// CMSGlobalFolderOptionsStub --- The owner window of Folder Options.
+// This window hides taskbar button of Folder Options.
+
+#define GlobalFolderOptionsClassName _T("MSGlobalFolderOptionsStub")
+
+class CMSGlobalFolderOptionsStub : public CWindowImpl<CMSGlobalFolderOptionsStub>
+{
+public:
+    DECLARE_WND_CLASS_EX(GlobalFolderOptionsClassName, 0, COLOR_WINDOWTEXT)
+
+    BEGIN_MSG_MAP(CMSGlobalFolderOptionsStub)
+    END_MSG_MAP()
+};
+
+/////////////////////////////////////////////////////////////////////////////
+
 EXTERN_C HPSXA WINAPI SHCreatePropSheetExtArrayEx(HKEY hKey, LPCWSTR pszSubKey, UINT max_iface, IDataObject *pDataObj);
 
-static VOID
-ShowFolderOptionsDialog(HWND hWnd, HINSTANCE hInst)
+static int CALLBACK
+PropSheetProc(HWND hwndDlg, UINT uMsg, LPARAM lParam)
 {
+    // NOTE: This callback is needed to set large icon correctly.
+    HICON hIcon;
+    switch (uMsg)
+    {
+        case PSCB_INITIALIZED:
+        {
+            hIcon = LoadIconW(shell32_hInstance, MAKEINTRESOURCEW(IDI_SHELL_FOLDER_OPTIONS));
+            SendMessageW(hwndDlg, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+            break;
+        }
+    }
+    return 0;
+}
+
+enum {
+    PAGE_GENERAL,
+    PAGE_VIEW,
+    PAGE_FILETYPES
+};
+
+static DWORD CALLBACK
+ShowFolderOptionsDialogThreadProc(LPVOID param)
+{
+    CCoInit com; // Required when started from rundll32 (SHAutoComplete in PickIconDlg)
     PROPSHEETHEADERW pinfo;
     HPROPSHEETPAGE hppages[3];
     HPROPSHEETPAGE hpage;
     UINT num_pages = 0;
-    WCHAR szOptions[100];
 
     hpage = SH_CreatePropertySheetPage(IDD_FOLDER_OPTIONS_GENERAL, FolderOptionsGeneralDlg, 0, NULL);
     if (hpage)
@@ -213,18 +252,54 @@ ShowFolderOptionsDialog(HWND hWnd, HINSTANCE hInst)
     if (hpage)
         hppages[num_pages++] = hpage;
 
-    szOptions[0] = 0;
-    LoadStringW(shell32_hInstance, IDS_FOLDER_OPTIONS, szOptions, _countof(szOptions));
-    szOptions[_countof(szOptions) - 1] = 0;
+    // the stub window to hide taskbar button
+    DWORD style = WS_DISABLED | WS_CLIPSIBLINGS | WS_CAPTION;
+    DWORD exstyle = WS_EX_WINDOWEDGE | WS_EX_TOOLWINDOW;
+    CMSGlobalFolderOptionsStub stub;
+    if (!stub.Create(NULL, NULL, NULL, style, exstyle))
+    {
+        ERR("stub.Create failed\n");
+        return 0;
+    }
 
     memset(&pinfo, 0x0, sizeof(PROPSHEETHEADERW));
     pinfo.dwSize = sizeof(PROPSHEETHEADERW);
-    pinfo.dwFlags = PSH_NOCONTEXTHELP;
+    pinfo.dwFlags = PSH_NOCONTEXTHELP | PSH_USEICONID | PSH_USECALLBACK;
+    pinfo.hwndParent = stub;
     pinfo.nPages = num_pages;
     pinfo.phpage = hppages;
-    pinfo.pszCaption = szOptions;
+    pinfo.hInstance = shell32_hInstance;
+    pinfo.pszIcon = MAKEINTRESOURCEW(IDI_SHELL_FOLDER_OPTIONS);
+    pinfo.pszCaption = MAKEINTRESOURCEW(IDS_FOLDER_OPTIONS);
+    pinfo.pfnCallback = PropSheetProc;
+    pinfo.nStartPage = PtrToUlong(param);
 
     PropertySheetW(&pinfo);
+
+    stub.DestroyWindow();
+    return 0;
+}
+
+VOID WINAPI 
+ShowFolderOptionsDialog(UINT Page, BOOL Async = FALSE)
+{
+    HWND hWnd = FindWindow(GlobalFolderOptionsClassName, NULL);
+    if (hWnd)
+    {
+        HWND hPop = GetLastActivePopup(hWnd);
+        if (hWnd == GetParent(hPop))
+        {
+            PostMessage(hPop, PSM_SETCURSEL, Page, 0);
+        }
+        SetForegroundWindow(hPop);
+        return;
+    }
+    
+    LPVOID param = UlongToPtr(Page);
+    if (Async)
+        SHCreateThread(ShowFolderOptionsDialogThreadProc, param, 0, 0);
+    else
+        ShowFolderOptionsDialogThreadProc(param); // Rundll32 caller cannot be async!
 }
 
 static VOID
@@ -233,13 +308,20 @@ Options_RunDLLCommon(HWND hWnd, HINSTANCE hInst, int fOptions, DWORD nCmdShow)
     switch(fOptions)
     {
         case 0:
-            ShowFolderOptionsDialog(hWnd, hInst);
+            ShowFolderOptionsDialog(PAGE_GENERAL);
             break;
 
-        case 1:
-            // show taskbar options dialog
-            FIXME("notify explorer to show taskbar options dialog");
-            //PostMessage(GetShellWindow(), WM_USER+22, fOptions, 0);
+        case 1: // Taskbar settings
+#if (NTDDI_VERSION >= NTDDI_VISTA)
+        case 3: // Start menu settings
+        case 4: // Tray icon settings
+        case 6: // Taskbar toolbars
+#endif
+            PostMessage(GetShellWindow(), WM_PROGMAN_OPENSHELLSETTINGS, fOptions, 0);
+            break;
+
+        case 7: // Windows 8, 10
+            ShowFolderOptionsDialog(PAGE_VIEW);
             break;
 
         default:

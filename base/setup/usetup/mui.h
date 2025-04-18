@@ -2,17 +2,18 @@
 
 typedef struct
 {
-   BYTE X;
-   BYTE Y;
-   LPCSTR Buffer;
-   DWORD Flags;
-}MUI_ENTRY, *PMUI_ENTRY;
+    SHORT X;
+    SHORT Y;
+    PCSTR Buffer;
+    DWORD Flags;
+    INT TextID;
+} MUI_ENTRY, *PMUI_ENTRY;
 
 typedef struct
 {
-    LPCSTR ErrorText;
-    LPCSTR ErrorStatus;
-}MUI_ERROR;
+    PCSTR ErrorText;
+    PCSTR ErrorStatus;
+} MUI_ERROR;
 
 typedef struct
 {
@@ -23,39 +24,23 @@ typedef struct
 typedef struct
 {
     LONG Number;
-    LPSTR String;
+    PCSTR String;
 } MUI_STRING;
 
 typedef struct
 {
-    PWCHAR FontName;
-    PWCHAR SubFontName;
-} MUI_SUBFONT;
-
-typedef struct
-{
-    PWCHAR LangID; // Language ID (like "0409")
-    PWCHAR LayoutID; // Layout ID (like "00000409")
-} MUI_LAYOUTS;
-
-typedef struct
-{
-    PWCHAR LanguageID;
-    PWCHAR ACPage;
-    PWCHAR OEMCPage;
-    PWCHAR MACCPage;
-    PWCHAR LanguageDescriptor;
-    PWCHAR GeoID;
+    PCWSTR LanguageID;
+    PCWSTR LanguageDescriptor;
     const MUI_PAGE * MuiPages;
     const MUI_ERROR * MuiErrors;
     const MUI_STRING * MuiStrings;
-    const MUI_SUBFONT * MuiSubFonts;
-    const MUI_LAYOUTS * MuiLayouts;
-} MUI_LANGUAGE;
+} MUI_LANGUAGE_RESOURCE;
 
+#if 0
 BOOLEAN
 IsLanguageAvailable(
     PWCHAR LanguageId);
+#endif
 
 VOID
 MUIDisplayPage(
@@ -66,97 +51,138 @@ MUIClearPage(
     ULONG PageNumber);
 
 VOID
+MUIDisplayErrorV(
+    IN ULONG ErrorNum,
+    OUT PINPUT_RECORD Ir,
+    IN ULONG WaitEvent,
+    IN va_list args);
+
+VOID
+__cdecl
 MUIDisplayError(
     ULONG ErrorNum,
     PINPUT_RECORD Ir,
     ULONG WaitEvent,
     ...);
 
-LPCWSTR
-MUIDefaultKeyboardLayout(VOID);
-
-PWCHAR
-MUIGetGeoID(VOID);
-
-const MUI_LAYOUTS *
-MUIGetLayoutsList(VOID);
-
-BOOLEAN
-AddKbLayoutsToRegistry(
-    IN const MUI_LAYOUTS *MuiLayouts);
-
-BOOLEAN
-AddCodePage(VOID);
-
-BOOLEAN
-AddKeyboardLayouts(VOID);
-
 VOID
 SetConsoleCodePage(VOID);
 
-LPSTR
+PCSTR
 MUIGetString(
     ULONG Number);
 
-#define STRING_PLEASEWAIT                1
-#define STRING_INSTALLCREATEPARTITION    2
-#define STRING_INSTALLCREATELOGICAL           60
-#define STRING_INSTALLDELETEPARTITION    3
-#define STRING_DELETEPARTITION                59
-#define STRING_PARTITIONSIZE             4
-#define STRING_CHOOSENEWPARTITION        5
-#define STRING_CHOOSE_NEW_EXTENDED_PARTITION  57
-#define STRING_CHOOSE_NEW_LOGICAL_PARTITION   61
-#define STRING_HDDSIZE                   6
-#define STRING_CREATEPARTITION           7
-#define STRING_PARTFORMAT                8
-#define STRING_NONFORMATTEDPART          9
-#define STRING_NONFORMATTEDSYSTEMPART         62
-#define STRING_NONFORMATTEDOTHERPART          63
-#define STRING_INSTALLONPART             10
-#define STRING_CHECKINGPART              11
-#define STRING_CONTINUE                  12
-#define STRING_QUITCONTINUE              13
-#define STRING_REBOOTCOMPUTER            14
-#define STRING_TXTSETUPFAILED            15
-#define STRING_COPYING                   16
-#define STRING_SETUPCOPYINGFILES         17
-#define STRING_REGHIVEUPDATE             20
-#define STRING_IMPORTFILE                21
-#define STRING_DISPLAYETTINGSUPDATE      22
-#define STRING_LOCALESETTINGSUPDATE      23
-#define STRING_KEYBOARDSETTINGSUPDATE    24
-#define STRING_CODEPAGEINFOUPDATE        25
-#define STRING_DONE                      26
-#define STRING_REBOOTCOMPUTER2           27
-#define STRING_CONSOLEFAIL1              28
-#define STRING_CONSOLEFAIL2              29
-#define STRING_CONSOLEFAIL3              30
-#define STRING_FORMATTINGDISK            31
-#define STRING_CHECKINGDISK              32
-#define STRING_FORMATDISK1               33
-#define STRING_FORMATDISK2               34
-#define STRING_KEEPFORMAT                35
-#define STRING_HDINFOPARTCREATE          36
-#define STRING_HDDINFOUNK1               37
-#define STRING_HDDINFOUNK2               38
-#define STRING_HDINFOPARTDELETE          39
-#define STRING_HDDINFOUNK3               40
-#define STRING_HDINFOPARTZEROED          41
-#define STRING_HDDINFOUNK4               42
-#define STRING_HDINFOPARTEXISTS          43
-#define STRING_HDDINFOUNK5               44
-#define STRING_HDINFOPARTSELECT          45
-#define STRING_HDDINFOUNK6               46
-#define STRING_NEWPARTITION              47
-#define STRING_UNPSPACE                  48
-#define STRING_MAXSIZE                   49
-#define STRING_UNFORMATTED               50
-#define STRING_EXTENDED_PARTITION             58
-#define STRING_FORMATUNUSED              51
-#define STRING_FORMATUNKNOWN             52
-#define STRING_KB                        53
-#define STRING_MB                        54
-#define STRING_GB                        55
-#define STRING_ADDKBLAYOUTS              56
-#define STRING_REBOOTPROGRESSBAR         64
+const MUI_ENTRY *
+MUIGetEntry(
+    IN ULONG Page,
+    IN INT TextID);
+
+VOID
+MUIClearText(
+    IN ULONG Page,
+    IN INT TextID);
+
+VOID
+MUIClearStyledText(
+    IN ULONG Page,
+    IN INT TextID,
+    IN INT Flags);
+
+VOID
+MUISetText(
+    IN ULONG Page,
+    IN INT TextID);
+
+VOID
+MUISetStyledText(
+    IN ULONG Page,
+    IN INT TextID,
+    IN INT Flags);
+
+/* Special characters */
+extern CHAR CharBullet;
+extern CHAR CharBlock;
+extern CHAR CharHalfBlock;
+extern CHAR CharUpArrow;
+extern CHAR CharDownArrow;
+extern CHAR CharHorizontalLine;
+extern CHAR CharVerticalLine;
+extern CHAR CharUpperLeftCorner;
+extern CHAR CharUpperRightCorner;
+extern CHAR CharLowerLeftCorner;
+extern CHAR CharLowerRightCorner;
+extern CHAR CharVertLineAndRightHorizLine;
+extern CHAR CharLeftHorizLineAndVertLine;
+extern CHAR CharDoubleHorizontalLine;
+extern CHAR CharDoubleVerticalLine;
+extern CHAR CharDoubleUpperLeftCorner;
+extern CHAR CharDoubleUpperRightCorner;
+extern CHAR CharDoubleLowerLeftCorner;
+extern CHAR CharDoubleLowerRightCorner;
+
+/* MUI Text IDs */
+
+/* Static MUI Text */
+#define TEXT_ID_STATIC (-1)
+
+/* Dynamic MUI Text IDs */
+#define TEXT_ID_FORMAT_PROMPT 1
+
+/* MUI Strings */
+#define STRING_PLEASEWAIT                   1
+#define STRING_INSTALLCREATEPARTITION       2
+#define STRING_INSTALLCREATELOGICAL         3
+#define STRING_INSTALLDELETEPARTITION       4
+#define STRING_DELETEPARTITION              5
+#define STRING_PARTITIONSIZE                6
+#define STRING_CHOOSE_NEW_PARTITION           7
+#define STRING_CHOOSE_NEW_EXTENDED_PARTITION  8
+#define STRING_CHOOSE_NEW_LOGICAL_PARTITION   9
+#define STRING_HDPARTSIZE                   10
+#define STRING_CREATEPARTITION              11
+#define STRING_NEWPARTITION                 12
+#define STRING_PARTFORMAT                   13
+#define STRING_NONFORMATTEDPART             14
+#define STRING_NONFORMATTEDSYSTEMPART       15
+#define STRING_NONFORMATTEDOTHERPART        16
+#define STRING_INSTALLONPART                17
+#define STRING_CONTINUE                     18
+#define STRING_QUITCONTINUE                 19
+#define STRING_REBOOTCOMPUTER               20
+#define STRING_DELETING                     21
+#define STRING_MOVING                       22
+#define STRING_RENAMING                     23
+#define STRING_COPYING                      24
+#define STRING_SETUPCOPYINGFILES            25
+#define STRING_REGHIVEUPDATE                26
+#define STRING_IMPORTFILE                   27
+#define STRING_DISPLAYSETTINGSUPDATE        28
+#define STRING_LOCALESETTINGSUPDATE         29
+#define STRING_KEYBOARDSETTINGSUPDATE       30
+#define STRING_CODEPAGEINFOUPDATE           31
+#define STRING_DONE                         32
+#define STRING_REBOOTCOMPUTER2              33
+#define STRING_CONSOLEFAIL1                 34
+#define STRING_CONSOLEFAIL2                 35
+#define STRING_CONSOLEFAIL3                 36
+#define STRING_FORMATTINGPART               37
+#define STRING_CHECKINGDISK                 38
+#define STRING_FORMATDISK1                  39
+#define STRING_FORMATDISK2                  40
+#define STRING_KEEPFORMAT                   41
+#define STRING_HDDISK1                      42
+#define STRING_HDDISK2                      43
+#define STRING_PARTTYPE                     44
+#define STRING_HDDINFO1                     45
+#define STRING_HDDINFO2                     46
+#define STRING_UNPSPACE                     47
+#define STRING_MAXSIZE                      48
+#define STRING_UNFORMATTED                  49
+#define STRING_EXTENDED_PARTITION           50
+#define STRING_FORMATUNUSED                 51
+#define STRING_FORMATUNKNOWN                52
+#define STRING_KB                           53
+#define STRING_MB                           54
+#define STRING_GB                           55
+#define STRING_ADDKBLAYOUTS                 56
+#define STRING_REBOOTPROGRESSBAR            57

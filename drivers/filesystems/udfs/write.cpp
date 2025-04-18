@@ -117,7 +117,7 @@ UDFCommonWrite(
     PIO_STACK_LOCATION      IrpSp = NULL;
     LARGE_INTEGER           ByteOffset;
     ULONG                   WriteLength = 0, TruncatedLength = 0;
-    ULONG                   NumberBytesWritten = 0;
+    SIZE_T                  NumberBytesWritten = 0;
     PFILE_OBJECT            FileObject = NULL;
     PtrUDFFCB               Fcb = NULL;
     PtrUDFCCB               Ccb = NULL;
@@ -158,7 +158,7 @@ UDFCommonWrite(
 
         TopIrp = IoGetTopLevelIrp();
 
-        switch((ULONG)TopIrp) {
+        switch((ULONG_PTR)TopIrp) {
         case FSRTL_FSP_TOP_LEVEL_IRP:
             UDFPrint(("  FSRTL_FSP_TOP_LEVEL_IRP\n"));
             break;
@@ -464,7 +464,7 @@ UDFCommonWrite(
         // WARNING !!! we should not flush data beyond valid data length
         if ( NonBufferedIo &&
             !PagingIo &&
-             NtReqFcb->SectionObject.DataSectionObject && 
+             NtReqFcb->SectionObject.DataSectionObject &&
              TruncatedLength &&
              (ByteOffset.QuadPart < NtReqFcb->CommonFCBHeader.FileSize.QuadPart)) {
 
@@ -525,7 +525,7 @@ UDFCommonWrite(
 
         // Determine if we were called by the lazywriter.
         // We reuse 'IsThisADeferredWrite' here to decrease stack usage
-        IsThisADeferredWrite = (NtReqFcb->LazyWriterThreadID == (uint32)PsGetCurrentThread());
+        IsThisADeferredWrite = (NtReqFcb->LazyWriterThreadID == HandleToUlong(PsGetCurrentThreadId()));
 
         // Acquire the appropriate FCB resource
         if(PagingIo) {
@@ -576,7 +576,7 @@ UDFCommonWrite(
 
             //  This clause determines if the top level request was
             //  in the FastIo path.
-            if ((ULONG)TopIrp > FSRTL_MAX_TOP_LEVEL_IRP_FLAG) {
+            if ((ULONG_PTR)TopIrp > FSRTL_MAX_TOP_LEVEL_IRP_FLAG) {
 
                 PIO_STACK_LOCATION IrpStack;
                 ASSERT( TopIrp->Type == IO_TYPE_IRP );
@@ -846,11 +846,11 @@ UDFCommonWrite(
             }
 
 #if 1
-            if((ULONG)TopIrp == FSRTL_MOD_WRITE_TOP_LEVEL_IRP) {
+            if((ULONG_PTR)TopIrp == FSRTL_MOD_WRITE_TOP_LEVEL_IRP) {
                 UDFPrint(("FSRTL_MOD_WRITE_TOP_LEVEL_IRP => CanWait\n"));
                 CanWait = TRUE;
             } else
-            if((ULONG)TopIrp == FSRTL_CACHE_TOP_LEVEL_IRP) {
+            if((ULONG_PTR)TopIrp == FSRTL_CACHE_TOP_LEVEL_IRP) {
                 UDFPrint(("FSRTL_CACHE_TOP_LEVEL_IRP => CanWait\n"));
                 CanWait = TRUE;
             }
@@ -1048,7 +1048,7 @@ NTAPI
 UDFDeferredWriteCallBack(
     IN PVOID Context1,          // Should be PtrIrpContext
     IN PVOID Context2           // Should be Irp
-    )          
+    )
 {
     UDFPrint(("UDFDeferredWriteCallBack\n"));
     // We should typically simply post the request to our internal
@@ -1109,19 +1109,19 @@ UDFPurgeCacheEx_(
 #ifndef USE_CcCopyWrite_TO_ZERO
                 *((PULONG)&Offset0) &= ~(PAGE_SIZE-1);
                 MmPrint(("    CcFlushCache(s) Offs %I64x, Len %x\n", Offset0, Off_l));
-                CcFlushCache( SectionObject, (PLARGE_INTEGER)&Offset0, Off_l, NULL ); 
+                CcFlushCache( SectionObject, (PLARGE_INTEGER)&Offset0, Off_l, NULL );
 #else //USE_CcCopyWrite_TO_ZERO
                 // ...|ddddd000000000000|....
                 //          |<- PgLen ->|
                 PgLen = PAGE_SIZE - Off_l; /*(*((PULONG)&Offset) & (PAGE_SIZE-1))*/
-                // 
+                //
                 if(PgLen > Length)
                     PgLen = (ULONG)Length;
 
                 MmPrint(("    ZeroCache (CcWrite) Offs %I64x, Len %x\n", Offset, PgLen));
 #ifdef DBG
                 if(FileObject && Vcb) {
-                    
+
                     ASSERT(CanWait);
 #endif //DBG
                     if (PgLen) {
@@ -1135,7 +1135,7 @@ UDFPurgeCacheEx_(
                 } else {
                     MmPrint(("    Can't use CcWrite to zero cache\n"));
                 }
-#endif //DBG 
+#endif //DBG
 #endif //USE_CcCopyWrite_TO_ZERO
             }
             VDL = NtReqFcb->CommonFCBHeader.ValidDataLength.QuadPart;
@@ -1199,7 +1199,7 @@ UDFPurgeCacheEx_(
                 } else {
                     CcPurgeCacheSection(SectionObject, (PLARGE_INTEGER)&Offset,
                                                 PURGE_BLOCK_SZ, FALSE);
-    /* 
+    /*
                     NtReqFcb->CommonFCBHeader.ValidDataLength.QuadPart += PURGE_BLOCK_SZ;
                     ASSERT(NtReqFcb->CommonFCBHeader.ValidDataLength.QuadPart <=
                            NtReqFcb->CommonFCBHeader.FileSize.QuadPart);

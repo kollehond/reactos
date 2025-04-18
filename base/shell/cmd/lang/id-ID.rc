@@ -11,19 +11,6 @@ assoc (print all associations)\n\
 assoc .ext (print specific association)\n\
 assoc .ext= (remove specific association)\n\
 assoc .ext=FileType (add new association)\n"
-    STRING_ATTRIB_HELP "Menampilkan atau mengubah atribut file.\n\n\
-ATTRIB [+R | -R] [+A | -A] [+S | -S] [+H | -H] file ...\n\
-       [/S [/D]]\n\n\
-  +   Menyetel atribut\n\
-  -   Membersihkan atribut\n\
-  R   Atribut file Hanya-baca\n\
-  A   Atribut file Arsip\n\
-  S   Atribut file Sistem\n\
-  H   Atribut file Tersembunyi\n\
-  /S  Proses file yang sama dalam direktori dan semua subdirektori\n\
-      saat ini\n\
-  /D  Proses direktori juga\n\n\
-Ketik ATTRIB tanpa parameter untuk menampilkan atribut dari semua file.\n"
     STRING_ALIAS_HELP "Menyetel, menghapus atau menampilkan alias.\n\n\
 ALIAS [alias=[command]]\n\n\
   alias    Nama untuk alias.\n\
@@ -38,7 +25,7 @@ Untuk menghapus alias dari daftar alias:\n\
     STRING_CALL_HELP "Memanggil satu program batch dari yang lainnya.\n\n\
 CALL [drive:][path]filename [batch-parameter]\n\n\
   batch-parameter  Specifies any command-line information required by the\n\
-                   batch program."
+                   batch program.\n"
     STRING_CD_HELP "Mengubah direktori saat ini atau menampilkan namanya\n\n\
 CHDIR [/D][drive:][path]\n\
 CHDIR[..|.]\n\
@@ -67,7 +54,7 @@ ERRORLEVEL disetel ke ofset tombol yang ditekan pengguna dalam pilihan.\n"
     STRING_CMD_HELP7 "  [pengalihan dan piping]"
     STRING_CMD_HELP8 "Memulai instan baru dari interpreter baris perintah ReactOS.\n\n\
 CMD [/[C|K] command][/P][/Q][/T:bf]\n\n\
-  /C command  Menjalankan perintah yang ditetapkan dan mengakhiri.\n\
+  /C command  Menjalankan perintah yang ditetapkan dan mengakhirinya.\n\
   /K command  Menjalankan perintah yang ditetapkan dan tetap tinggal.\n\
   /P          CMD menjadi permanen dan menjalankan autoexec.bat\n\
               (tidak bisa diakhiri).\n\
@@ -79,17 +66,17 @@ COLOR [attr [/-F]]\n\n\
 Ada tiga cara untuk menetapkan warna:\n\
 1) [bright] nama pada [bright] nama  (hanya tiga huruf pertama yang dipakai)\n\
 2) desimal pada desimal\n\
-3) dua digit heksa\n\n\
+3) dua digit heksadesimal\n\n\
 Warna adalah:\n\
-des heksa nama       des  hex  nama\n\
-0    0    Black       8   8    Abu-Abu(Hitam terang)\n\
-1    1    Blue        9   9    Biru Terang\n\
-2    2    Green      10   A    Hijau Terang\n\
-3    3    Cyan       11   B    Biru Muda Terang\n\
-4    4    Red        12   C    Merah Terang\n\
-5    5    Magenta    13   D    Magenta Terang\n\
-6    6    Yellow     14   E    Kuning Terang\n\
-7    7    White      15   F    Putih Terang\n"
+des heksa nama       des  heksa nama\n\
+0    0    Hitam       8   8     Abu-Abu(Hitam terang)\n\
+1    1    Biru        9   9     Biru Terang\n\
+2    2    Hijau      10   A     Hijau Terang\n\
+3    3    Biru Muda  11   B     Biru Muda Terang\n\
+4    4    Merah      12   C     Merah Terang\n\
+5    5    Magenta    13   D     Magenta Terang\n\
+6    6    Kuning     14   E     Kuning Terang\n\
+7    7    Putih      15   F     Putih Terang\n"
     STRING_COPY_HELP1 "Timpa %s (Ya/Tidak/Semua)? "
     STRING_COPY_HELP2 "Mengcopy satu atau lebih file ke lokasi lain.\n\n\
 COPY [/V][/Y|/-Y][/A|/B] sumber [/A|/B]\n\
@@ -113,9 +100,9 @@ CTTY device\n\n\
             CON is usually the default standard I/O device.\n\n\
 To return control to the standard console, type: CTTY CON on the auxiliary\n\
 device."
-    STRING_DATE_HELP1 "\nMasukkan tanggal baru (mm%cdd%cyyyy): "
-    STRING_DATE_HELP2 "\nMasukkan tanggal baru (dd%cmm%cyyyy): "
-    STRING_DATE_HELP3 "\nMasukkan tanggal baru (yyyy%cmm%cdd): "
+    STRING_DATE_HELP1 "Masukkan tanggal baru (mm%cdd%cyyyy): "
+    STRING_DATE_HELP2 "Masukkan tanggal baru (dd%cmm%cyyyy): "
+    STRING_DATE_HELP3 "Masukkan tanggal baru (yyyy%cmm%cdd): "
     STRING_DATE_HELP4 "Menampilkan atau menyetel tanggal.\n\n\
 DATE [/T][date]\n\n\
   /T    hanya menampilkan\n\n\
@@ -185,10 +172,10 @@ preset dengan mengawali setiap saklar dengan - (minus)--contohnya, /-W.\n"
     STRING_DIR_HELP2 " Volume di drive %c adalah %s\n"
     STRING_DIR_HELP3 " Volume di drive %c tidak berlabel.\n"
     STRING_DIR_HELP4 " Nomor Seri Volume adalah %04X-%04X\n"
-    STRING_DIR_HELP5 "\n     Total File Didaftar:\n%16i File% 14s byte\n"
-    STRING_DIR_HELP6 "%16i Dir% 15s byte tersisa\n"
+    STRING_DIR_HELP5 "\n     Total File Didaftar:\n%16i File %14s byte\n"
+    STRING_DIR_HELP6 "%16i Dir  %14s byte tersisa\n"
     STRING_DIR_HELP7 "\n Direktori %s\n\n"
-    STRING_DIR_HELP8 "%16i File% 14s byte\n"
+    STRING_DIR_HELP8 "%16i File %14s byte\n"
     STRING_DIRSTACK_HELP1 "Menyimpan direktori sekarang untuk digunakan oleh perintah POPD, lalu\n\
 mengubah ke direktori yang ditetapkan.\n\n\
 PUSHD [path | ..]\n\n\
@@ -208,9 +195,9 @@ PUSHD [path | ..]\n\n\
   ECHO [pesan]\n\
   ECHO.             Menampilkan baris kosong\n\n\
 Ketik ECHO tanpa parameter untuk menampilkan setelan ECHO saat ini."
-    STRING_ECHO_HELP5 "ECHO adalah %s\n"
+    STRING_ECHO_HELP5 "ECHO adalah %s.\n"
     STRING_EXIT_HELP "Keluar dari interpreter baris perintah.\n\nEXIT [/b] [ExitCode]\n\n\
-  /B            Keluar dari hanya file batch.  \n\
+  /B            Keluar dari hanya file batch.\n\
                 Jika dijalankan di luar file batch ia akan keluar dari cmd.exe\n\
   ExitCode      Nilai ini akan ditempatkan ke ERRORLEVEL saat keluar\n"
     STRING_FOR_HELP1 "Menjalankan perintah yang ditetapkan untuk setiap file dalam set file.\n\n\
@@ -243,7 +230,7 @@ Untuk menggunakan perintah FOR dalam program batch, tetapkan %%variable daripada
     STRING_GOTO_HELP1 "Mengarahkan CMD ke baris berlabel dalam naskah batch.\n\n\
 GOTO label\n\n\
   label  Menetapkan string teks yang digunakan dalam naskah batch sebagai label.\n\n\
-Anda mengetik label pada sebuah baris, dimulai dengan titik dua."
+Anda mengetik label pada sebuah baris, dimulai dengan titik dua.\n"
     STRING_IF_HELP1 "Melakukan pemrosesan kondisional dalam program batch.\n\n\
   IF [NOT] ERRORLEVEL nomor perintah\n\
   IF [NOT] string1==string2 perintah\n\
@@ -258,12 +245,8 @@ string1==string2  Menetapkan kondisi benar jika string teks yang ditetapkan\n\
                   sama.\n\
 EXIST filename    Menetapkan kondisi benar jika nama file ada.\n\
 DEFINED variable  Menetapkan kondisi benar jika variabel didefinisikan.\n"
-    STRING_LABEL_HELP1 "Menampilkan atau mengubah label drive.\n\nLABEL [drive:][label]\n"
-    STRING_LABEL_HELP2 "Volume di drive %c: adalah %s\n"
-    STRING_LABEL_HELP3 "Volume di drive %c: tidak berlabel\n"
-    STRING_LABEL_HELP4 "Nomor Seri Volume adalah %04X-%04X\n"
-    STRING_LABEL_HELP5 "Label Drive (11 Karakter, ENTER jika sudah)? "
-    STRING_LOCALE_HELP1 "Waktu saat ini"
+    STRING_DATE_NOW "The current date is: "
+    STRING_TIME_NOW "Waktu saat ini: "
     STRING_MKDIR_HELP "Membuat direktori.\n\n\
 MKDIR [drive:]path\nMD [drive:]path"
     STRING_MKLINK_HELP "Creates a filesystem link object.\n\n\
@@ -284,9 +267,9 @@ If neither /H or /J is specified, a symbolic link is created."
     STRING_MOVE_HELP1 "Timpa %s (Ya/Tidak/Semua)? "
     STRING_MOVE_HELP2 "Memindahkan file dan mengganti nama file dan direktori.\n\n\
 Untuk memindahkan satu atau lebih file:\n\
-MOVE [/N][drive:][path]filename1[,...] tujuan\n\n\
+MOVE [/N][/Y|/-Y][drive:][path]filename1[,...] tujuan\n\n\
 Untuk mengganti nama direktori:\n\
-MOVE [/N][drive:][path]dirname1 dirname2\n\n\
+MOVE [/N][/Y|/-Y][drive:][path]dirname1 dirname2\n\n\
   [drive:][path]filename1  Menetapkan lokasi dan nama file\n\
                            yang ingin anda pindahkan.\n\
   /N                    Tidak apapun. Lakukan apapun kecuali memindahkan file dan direktori.\n\n\
@@ -307,6 +290,9 @@ PATH [[drive:]path[;...]]\nPATH ;\n\n\
 Ketik PATH ; untuk membersihkan semua setelan path-pencarian dan shell\n\
 perintah langsung untuk mencari hanya dalam direktori saat ini.\n\
 Ketik PATH tanpa parameter untuk menampilkan path saat ini.\n"
+    STRING_PAUSE_HELP1 "Menunda eksekusi file batch dan menampilkan pesan berikut:\n\
+'Tekan tombol untuk melanjutkan...' atau pesan yang dibuat pengguna.\n\n\
+PAUSE [pesan]"
     STRING_PROMPT_HELP1 "Mengubah prompt perintah.\n\n\
 PROMPT [teks]\n\n\
   teks    Menetapkan prompt perintah baru.\n\n\
@@ -329,16 +315,13 @@ Prompt bisa dibuat dari karakter normal dan kode spesial berikut:\n\n\
   $V   Nomor versi OS\n\
   $_   Carriage return dan linefeed\n\
   $$   $ (tanda dolar)\n"
-    STRING_PAUSE_HELP1 "Menunda eksekusi file batch dan menampilkan pesan berikut:\n\
-'Tekan tombol untuk melanjutkan...' atau pesan yang dibuat pengguna.\n\n\
-PAUSE [pesan]"
     STRING_PROMPT_HELP2 "  $+   Menampilkan kedalaman tumpukan direktori saat ini"
     STRING_PROMPT_HELP3 "\nKetik PROMPT tanpa parameter untuk mereset prompt ke setelan standar."
     STRING_REM_HELP "Memulai baris komentar dalam file batch.\n\nREM [Komentar]"
     STRING_RMDIR_HELP "Menghapus direktori.\n\n\
-RMDIR [drive:]path\nRD [drive:]path\n\
-/S          Menghapus semua file dan folder di dalam target\n\
-/Q          Tidak bertanya pada pengguna\n"
+RMDIR [/S] [/Q] [drive:]path\nRD [/S] [/Q] [drive:]path\n\
+  /S    Menghapus semua file dan folder di dalam target.\n\
+  /Q    Tidak bertanya pada pengguna.\n"
     STRING_RMDIR_HELP2 "Direktori tidak kosong!\n"
     STRING_REN_HELP1 "Mengganti nama file/direktori.\n\n\
 RENAME [/E /N /P /Q /S /T] nama_lama ... nama_baru\n\
@@ -350,38 +333,10 @@ REN [/E /N /P /Q /S /T] nama_lama ... nama_baru\n\n\
   /Q    Diam-diam.\n\
   /S    Mengganti nama subdirektori.\n\
   /T    Menampilkan jumlah total dari file yang diganti nama.\n\n\
-Catatan bahwa anda tidak bisa menetapkan drive baru atau path untuk\n\
+Mohon dicatat bahwa anda tidak dapat menetapkan drive baru atau path untuk\n\
 tujuan anda. Gunakan perintah MOVE untuk keperluan itu.\n"
     STRING_REN_HELP2 "    %lu file diganti nama\n"
     STRING_REN_HELP3 "    %lu file diganti nama\n"
-    STRING_REPLACE_HELP1 "Replaces files.\n\n\
-REPLACE [drive1:][path1]filename [drive2:][path2] [/A] [/P] [/R] [/W]\n\
-REPLACE [drive1:][path1]filename [drive2:][path2] [/P] [/R] [/S] [/W] [/U]\n\n\
-  [drive1:][path1]filename Specifies the source file or files.\n\
-  [drive2:][path2]         Specifies the directory where files are to be\n\
-                           replaced.\n\
-  /A                       Adds new files to destination directory. Cannot\n\
-                           use with /S or /U switches.\n\
-  /P                       Prompts for confirmation before replacing a file or\n\
-                           adding a source file.\n\
-  /R                       Replaces read-only files as well as unprotected\n\
-                           files.\n\
-  /S                       Replaces files in all subdirectories of the\n\
-                           destination directory. Cannot use with the /A\n\
-                           switch.\n\
-  /W                       Waits for you to insert a disk before beginning.\n\
-  /U                       Replaces (updates) only files that are older than\n\
-                           source files. Cannot use with the /A switch.\n"
-    STRING_REPLACE_HELP2 "Source path required\n"
-    STRING_REPLACE_HELP3 "No files replaced\n"
-    STRING_REPLACE_HELP4 "%lu file(s) replaced\n"
-    STRING_REPLACE_HELP5 "Replacing %s\n"
-    STRING_REPLACE_HELP6 "Replace %s\n"
-    STRING_REPLACE_HELP7 "No files added\n"
-    STRING_REPLACE_HELP8 "%lu file(s) added\n"
-    STRING_REPLACE_HELP9 "Add %s (Y/N)? "
-    STRING_REPLACE_HELP10 "Replace %s (Y/N)? "
-    STRING_REPLACE_HELP11 "Adding %s\n"
     STRING_SHIFT_HELP "Mengubah posisi parameter yang bisa diganti dalam file batch.\n\n\
 SHIFT [DOWN]"
     STRING_SCREEN_HELP "memindahkan kursor dan secara opsional mencetak teks\n\n\
@@ -404,7 +359,7 @@ START [""title""] [/D path] [/I] [/B] [/MIN] [/MAX] [/WAIT]\n\
   MIN         Starts with a minimized window.\n\
   MAX         Starts with a maximized window.\n\
   WAIT        Starts the command or program and waits for its termination.\n\
-  command     Menetapkab perintah yang dilaksanakan.\n\
+  command     Menetapkan perintah yang dilaksanakan.\n\
   parameters  Specifies the parameters to be given to the command or program.\n"
     STRING_TITLE_HELP "Menyetel judul jendela untuk jendela prompt perintah.\n\n\
 TITLE [string]\n\n\
@@ -417,7 +372,7 @@ meminta yang baru.  Tekan ENTER untuk membiarkan jam tetap sama.\n"
     STRING_TIME_HELP2 "Masukkan jam baru: "
     STRING_TIMER_HELP1 "Berlalu %d mdetik\n"
     STRING_TIMER_HELP2 "Berlalu %02d%c%02d%c%02d%c%02d\n"
-    STRING_TIMER_HELP3 "mengijinkan penggunaan sepuluh stopwatch.\n\n\
+    STRING_TIMER_HELP3 "Mengijinkan penggunaan sepuluh stopwatch.\n\n\
 TIMER  [ON|OFF] [/S] [/n] [/Fn]\n\n\
   ON          menyetel stopwatch ON\n\
   OFF         menyetel stopwatch OFF\n\
@@ -432,7 +387,7 @@ TIMER  [ON|OFF] [/S] [/n] [/Fn]\n\n\
                     1    hh%cmm%css%cdd\n\n\
 jika tidak ada yang ON, OFF atau /S ditetapkan dalam perintah\n\
 akan menghidupkan/mematikan keadaan stopwatch\n\n"
-    STRING_TYPE_HELP1 "Menampilkan isi dari file teks.\n\nTYPE [drive:][path]filename \n\
+    STRING_TYPE_HELP1 "Menampilkan isi dari file teks.\n\nTYPE [drive:][path]filename\n\
   /P          Menampilkan satu layar output sekali waktu.\n"
     STRING_VERIFY_HELP1 "Perintah ini hanya dummy!!\n\
 Menyetel apakah memverifikasi bawa file anda ditulis dengan benar ke\n\
@@ -447,17 +402,17 @@ VER [/C][/R][/W]\n\n\
   /R  Menampilkan informasi redistribusi.\n\
   /W  menampilkan informasi jaminan."
     STRING_VERSION_HELP2 " datang dengan MUTLAK TANPA JAMINAN; untuk lengkapnya\n\
-ketik: 'ver /w'. Program ini adalah software bebas; anda bisa membagikannya\n\
-di bawah kondisi tertentu; ketik 'ver /r' untuk lengkapnya. Ketik 'ver /c'\n\
+ketik: 'ver /w'. Program ini adalah software bebas; anda dapat membagikannya\n\
+di bawah kondisi tertentu; ketik 'ver /r' untuk informasi selengkapnya. Ketik 'ver /c'\n\
 untuk daftar penghargaan."
     STRING_VERSION_HELP3 "\n Program ini didistribusikan dengan harapan berguna,\n\
  tetapi TANPA JAMINAN APAPUN; bahkan tanpa jaminan berarti dari\n\
- MERCANTABILITAS atau KECUKUPAN UNTUK KEPERLUAN TERTENTU.  Lihat \n\
+ MERCANTABILITAS atau KECUKUPAN UNTUK KEPERLUAN TERTENTU.  Lihat\n\
  GNU General Public License untuk lebih jelasnya."
     STRING_VERSION_HELP4 "\n Program ini adalah software bebas; anda dapat mendistribusikan dan/atau\n\
- mengubahnya di bawah term GNU General Public License seperti dipublikasikan oleh Free Software Foundation; baik Lisensi versi 2, atau (menurut opini anda) setiap versi berikutnya.\n"
+ mengubahnya di bawah ketentuan lisensi GNU General Public License sebagaimana dipublikasikan oleh Free Software Foundation; baik Lisensi versi 2, atau (menurut opini anda) setiap versi berikutnya.\n"
     STRING_VERSION_HELP5 "\nKirim laporan bug ke <ros-dev@reactos.org>.\n\
-Pemutakiran tersedia di: http://www.reactos.org"
+Pemutakiran tersedia di: https://reactos.org"
     STRING_VERSION_HELP6 "\nVersi FreeDOS ditulis oleh:\n"
     STRING_VERSION_HELP7 "\nVersi ReactOS ditulis oleh:\n"
     STRING_VOL_HELP1 " Volume dalam drive %c adalah %s\n"
@@ -465,14 +420,14 @@ Pemutakiran tersedia di: http://www.reactos.org"
     STRING_VOL_HELP3 " Nomor Seri Volume adalah %04X-%04X\n"
     STRING_VOL_HELP4 "Menampilkan label dan nomor seri volume disk, jika ada.\n\nVOL [drive:]"
     STRING_WINDOW_HELP1 "mengubah aspek jendela konsol\n\n\
-WINDOW [/POS[=]left,top,width,heigth]\n\
+WINDOW [/POS[=]left,top,width,height]\n\
               [MIN|MAX|RESTORE] ['title']\n\n\
 /POS          menetapkan penempatan dan dimensi jendela\n\
 MIN           mengecilkan jendela\n\
 MAX           memaksimalkan jendela\n\
 RESTORE       mengembalikan jendela"
     STRING_WINDOW_HELP2 "mengubah aspek jendela konsol\n\n\
-ACTIVATE 'window' [/POS[=]left,top,width,heigth]\n\
+ACTIVATE 'window' [/POS[=]left,top,width,height]\n\
               [MIN|MAX|RESTORE] ['title']\n\n\
 window        tile jendela yang melakukan aksi\n\
 /POS          menetapkan penempatan dan dimensi jendela\n\
@@ -485,43 +440,43 @@ title         judul baru\n"
     STRING_ALIAS_ERROR "Baris perintah terlalu panjang setelah ekspansi alias!\n"
     STRING_ASSOC_ERROR "File association not found for extension %s\n"
     STRING_BATCH_ERROR "Kesalaham membuka file batch\n"
-    STRING_CHOICE_ERROR "Opsi tidak benar. Format diharapkan: /C[:]options"
-    STRING_CHOICE_ERROR_TXT "Opsi tidak benar. Format diharapkan: /T[:]c,nn"
-    STRING_CHOICE_ERROR_OPTION "Opsi tidak benar: %s"
+    STRING_CHOICE_ERROR "Opsi tidak benar. Format diharapkan: /C[:]options\n"
+    STRING_CHOICE_ERROR_TXT "Opsi tidak benar. Format diharapkan: /T[:]c,nn\n"
+    STRING_CHOICE_ERROR_OPTION "Opsi tidak benar: %s\n"
     STRING_CMD_ERROR1 "Tidak bisa mengalihkan input dari file %s\n"
     STRING_CMD_ERROR2 "Kesalahan membuat file termporal untuk pipe data\n"
     STRING_CMD_ERROR3 "Tidak bisa mengalihkan ke file %s\n"
     STRING_CMD_ERROR4 "Menjalankan %s...\n"
     STRING_CMD_ERROR5 "Menjalankan cmdexit.bat...\n"
-    STRING_COLOR_ERROR1 "Warna sama salah! (Latar belakang dan latar depan tidak bisa berwarna sama)"
-    STRING_COLOR_ERROR2 "Kesalahan dalam spesifikasi warna"
+    STRING_COLOR_ERROR1 "Warna sama salah! (Latar belakang dan latar depan tidak bisa berwarna sama)\n"
+    STRING_COLOR_ERROR2 "Kesalahan dalam spesifikasi warna\n"
     STRING_CONSOLE_ERROR "Kesalahan tidak dikenal: %d\n"
     STRING_COPY_ERROR1 "Salah: Tidak dapat membuka sumber - %s!\n"
     STRING_COPY_ERROR2 "Salah: Tidak dapat mengcopy ke dirinya sendiri!\n"
     STRING_COPY_ERROR3 "Kesalahan menulis tujuan!\n"
     STRING_COPY_ERROR4 "Salah: Belum diimplementasikan!\n"
-    STRING_DATE_ERROR "Tanggal tidak benar."
+    STRING_DATE_ERROR "Tanggal tidak benar.\n"
     STRING_DEL_ERROR5 "File %s akan dihapus! "
     STRING_DEL_ERROR6 "Anda yakin (Y/N)? "
     STRING_DEL_ERROR7 "Menghapus: %s\n"
     STRING_ERROR_ERROR1 "Kesalahan tidak dikenal! Kode kesalahan: 0x%lx\n"
     STRING_ERROR_ERROR2 "Sintaks salah"
-    STRING_FOR_ERROR1 "'in' kurang dalam pernyataan for."
-    STRING_FOR_ERROR2 "tidak ada kurung ditemukan."
-    STRING_FOR_ERROR3 "'do' hilang."
-    STRING_FOR_ERROR4 "tidak ada perintah setelah 'do'."
+    STRING_FOR_ERROR1 "'in' kurang dalam pernyataan for.\n"
+    STRING_FOR_ERROR2 "tidak ada kurung ditemukan.\n"
+    STRING_FOR_ERROR3 "'do' hilang.\n"
+    STRING_FOR_ERROR4 "tidak ada perintah setelah 'do'.\n"
     STRING_FREE_ERROR1 "Drive tidak benar"
     STRING_FREE_ERROR2 "tak berlabel"
-    STRING_GOTO_ERROR1 "Tidak ada label ditetapkan untuk GOTO"
+    STRING_GOTO_ERROR1 "Tidak ada label ditetapkan untuk GOTO\n"
     STRING_GOTO_ERROR2 "Label '%s' tidak ditemukan\n"
-    STRING_MD_ERROR "Subdirektori atau file sudah ada.\n"
+    STRING_MD_ERROR "Subdirektori atau file %s sudah ada.\n"
     STRING_MD_ERROR2 "Path ke folder baru tidak ada.\n"
     STRING_MOVE_ERROR1 "[OK]\n"
     STRING_MOVE_ERROR2 "[Salah]\n"
-    STRING_REN_ERROR1 "MoveFile() gagal. Kesalahan: %lu\n"
-    STRING_TIME_ERROR1 "Jam tidak benar."
-    STRING_TYPE_ERROR1 "Opsi tidak benar '/%s'\n"
-    STRING_WINDOW_ERROR1 "Jendela tidak ditemukan"
+    STRING_REN_ERROR "MoveFile() gagal. Kesalahan: %lu\n"
+    STRING_TIME_ERROR "Jam tidak benar.\n"
+    STRING_TYPE_ERROR "Opsi tidak benar '/%s'\n"
+    STRING_WINDOW_ERROR "Jendela tidak ditemukan\n"
     STRING_ERROR_PARAMETERF_ERROR "Format parameter tidak benar - %c\n"
     STRING_ERROR_INVALID_SWITCH "Saklar tidak benar - /%c\n"
     STRING_ERROR_TOO_MANY_PARAMETERS "Terlalu banyak parameter - %s\n"
@@ -533,34 +488,35 @@ title         judul baru\n"
     STRING_ERROR_BADCOMMAND "Perintah atau nama file salah - %s\n"
     STRING_ERROR_OUT_OF_MEMORY "Kesalahan kekurangan memori.\n"
     STRING_ERROR_CANNOTPIPE "Salah!  Tidak bisa melakukan pipe!  Tidak bisa membuka file temporal!\n"
-    STRING_ERROR_D_PAUSEMSG "Tekan tombol untuk melanjutkan . . ."
+    STRING_ERROR_D_PAUSEMSG "Tekan tombol untuk melanjutkan . . . "
     STRING_ERROR_DRIVER_NOT_READY "Drive tidak siap"
-    STRING_PATH_ERROR "CMD: Tidak dalam lingkungan '%s'\n"
-    STRING_REPLACE_ERROR1 "Invalid switch - %s\n"
-    STRING_REPLACE_ERROR2 "Path not found - %s\n"
-    STRING_REPLACE_ERROR3 "The filename, directory name, or volume label syntax is incorrect.\n"
-    STRING_REPLACE_ERROR4 "Invalid parameter combination\n"
-    STRING_REPLACE_ERROR5 "Access denied - %s\n"
-    STRING_REPLACE_ERROR6 "No files found - %s\n"
-    STRING_REPLACE_ERROR7 "Extended Error 32\n"
+    STRING_ERROR_INVALID_NUMBER1 "Invalid number. Numeric constants are either decimal (42), hexadecimal (0x2A), or octal (052).\n"
+    STRING_ERROR_INVALID_NUMBER2 "Invalid number. Numbers are limited to 32-bits of precision.\n"
+    STRING_ERROR_DIVISION_BY_ZERO "Division by zero error.\n"
+    STRING_ERROR_INVALID_DEVICE L"Invalid device '%s'\n"
+    STRING_ERROR_CALL_BAD_LABEL "Invalid attempt to call batch label outside of batch script.\n"
+    STRING_ERROR_UNEXPECTED "%s was unexpected.\n"
+    STRING_ERROR_WHILE_PROCESSING "Error occurred while processing: %s.\n"
+    STRING_SET_ENV_ERROR "Variabel lingkungan '%s' tidak terdefinisi\n"
     STRING_CMD_INFOLINE "  ReactOS Command Prompt                                      Type HELP = Help  "
-    STRING_REACTOS_VERSION "ReactOS Operating System [Version %s %s]\n"
-    STRING_CMD_SHELLINFO "\nInterpreter Baris Perintah ReactOS\nVersion %s %s"
+    STRING_CMD_COPYRIGHT "(C) Copyright 1996-%s ReactOS Team.\n"
+    STRING_REACTOS_VERSION "ReactOS [Versi %s %s]\n"
+    STRING_CMD_SHELLINFO "\nInterpreter Baris Perintah ReactOS\nVersi %s %s"
     STRING_VERSION_RUNNING_ON "Berjalan pada: "
-    STRING_VERSION_RUNVER "%s [Version %d.%d.%d] %s"
+    STRING_VERSION_RUNVER "%s [Versi %d.%d.%d] %s"
     STRING_COPY_FILE "        %d file di-copy\n"
     STRING_DELETE_WIPE "dihapus"
-    STRING_FOR_ERROR "spesifikasi variabel tidak baik."
-    STRING_SCREEN_COL "Nilai untuk kolom tidak benar"
-    STRING_SCREEN_ROW "Nilai untuk baris tidak benar"
+    STRING_FOR_ERROR "spesifikasi variabel tidak baik.\n"
+    STRING_SCREEN_COL "Nilai untuk kolom tidak benar\n"
+    STRING_SCREEN_ROW "Nilai untuk baris tidak benar\n"
     STRING_TIMER_TIME "Timer %d adalah %s: "
     STRING_MKLINK_CREATED_SYMBOLIC "Symbolic link created for %s <<===>> %s\n"
     STRING_MKLINK_CREATED_HARD "Hard link created for %s <<===>> %s\n"
     STRING_MKLINK_CREATED_JUNCTION "Junction created for %s <<===>> %s\n"
     STRING_MORE "More? "
-    STRING_CANCEL_BATCH_FILE "\r\nCtrl-Break pressed.  Cancel batch file? (Ya/Tidak/Semua) "
-    STRING_INVALID_OPERAND "Operand tidak benar."
-    STRING_EXPECTED_CLOSE_PAREN "Diharapkan ')'."
-    STRING_EXPECTED_NUMBER_OR_VARIABLE "Nomor  atau nama variabel diharapkan."
-    STRING_SYNTAX_COMMAND_INCORRECT "Sintaks perintah tidak benar."
+    STRING_CANCEL_BATCH_FILE "\r\nCtrl-Break ditekan.  Batalkan operasi file batch? (Ya/Tidak/Semua) "
+    STRING_INVALID_OPERAND "Operand tidak benar.\n"
+    STRING_EXPECTED_CLOSE_PAREN "Diharapkan ')'.\n"
+    STRING_EXPECTED_NUMBER_OR_VARIABLE "Nomor  atau nama variabel diharapkan.\n"
+    STRING_SYNTAX_COMMAND_INCORRECT "Sintaks perintah tidak benar.\n"
 END

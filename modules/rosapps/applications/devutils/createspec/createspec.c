@@ -1,14 +1,13 @@
 /*
 - Info:
     - http://stackoverflow.com/questions/32251638/dbghelp-get-full-symbol-signature-function-name-parameters-types
-    - http://www.debuginfo.com/articles/dbghelptypeinfo.html
+    - https://www.debuginfo.com/articles/dbghelptypeinfo.html
 - TODO:
     - Dump usage
     - Test for dbghelp + symsrv and warn if not working
     - Resolve forwarders
 
 */
-#define MINGW_HAS_SECURE_API
 #include <stdio.h>
 #include <stdlib.h>
 #include <windows.h>

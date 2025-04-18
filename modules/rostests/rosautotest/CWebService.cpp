@@ -1,13 +1,14 @@
 /*
  * PROJECT:     ReactOS Automatic Testing Utility
- * LICENSE:     GPL-2.0+ (https://spdx.org/licenses/GPL-2.0+)
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
  * PURPOSE:     Class implementing the interface to the "testman" Web Service
- * COPYRIGHT:   Copyright 2009-2015 Colin Finck (colin@reactos.org)
+ * COPYRIGHT:   Copyright 2009-2020 Colin Finck (colin@reactos.org)
  */
 
 #include "precomp.h"
 
 static const WCHAR szHostname[] = L"reactos.org";
+static const INTERNET_PORT ServerPort = 8443;
 static const WCHAR szServerFile[] = L"testman/webservice/";
 
 /**
@@ -26,7 +27,7 @@ CWebService::CWebService()
     if(!m_hInet)
         FATAL("InternetOpenW failed\n");
 
-    m_hHTTP = InternetConnectW(m_hInet, szHostname, INTERNET_DEFAULT_HTTP_PORT, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
+    m_hHTTP = InternetConnectW(m_hInet, szHostname, ServerPort, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
 
     if(!m_hHTTP)
         FATAL("InternetConnectW failed\n");
@@ -69,7 +70,7 @@ CWebService::DoRequest(const string& InputData)
     DWORD DataLength;
 
     /* Post our test results to the web service */
-    m_hHTTPRequest = HttpOpenRequestW(m_hHTTP, L"POST", szServerFile, NULL, NULL, NULL, INTERNET_FLAG_NO_COOKIES | INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 0);
+    m_hHTTPRequest = HttpOpenRequestW(m_hHTTP, L"POST", szServerFile, NULL, NULL, NULL, INTERNET_FLAG_SECURE | INTERNET_FLAG_NO_COOKIES | INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 0);
 
     if(!m_hHTTPRequest)
         FATAL("HttpOpenRequestW failed\n");
@@ -77,7 +78,7 @@ CWebService::DoRequest(const string& InputData)
     Data.reset(new char[InputData.size() + 1]);
     strcpy(Data, InputData.c_str());
 
-    if(!HttpSendRequestW(m_hHTTPRequest, szHeaders, wcslen(szHeaders), Data, InputData.size()))
+    if(!HttpSendRequestW(m_hHTTPRequest, szHeaders, lstrlenW(szHeaders), Data, (DWORD)InputData.size()))
         FATAL("HttpSendRequestW failed\n");
 
     /* Get the response */
@@ -108,7 +109,7 @@ CWebService::Finish(const char* TestType)
     stringstream ss;
 
     if (!m_TestID)
-        EXCEPTION("CWebService::Finish was called, but not a single result had been submitted!");
+        EXCEPTION("CWebService::Finish was called, but not a single result had been submitted!\n");
 
     Data = "action=finish";
     Data += Configuration.GetAuthenticationRequestString();

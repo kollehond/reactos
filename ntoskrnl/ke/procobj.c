@@ -92,10 +92,10 @@ KiAttachProcess(IN PKTHREAD Thread,
 #endif
 
         /* Release dispatcher lock */
-        KiReleaseDispatcherLockFromDpcLevel();
+        KiReleaseDispatcherLockFromSynchLevel();
 
         /* Release lock */
-        KiReleaseApcLockFromDpcLevel(ApcLock);
+        KiReleaseApcLockFromSynchLevel(ApcLock);
 
         /* Swap Processes */
         KiSwapProcess(Process, SavedApcState->Process);
@@ -236,7 +236,7 @@ KeSetQuantumProcess(IN PKPROCESS Process,
     ASSERT_IRQL_LESS_OR_EQUAL(DISPATCH_LEVEL);
 
     /* Lock the process */
-    KiAcquireProcessLock(Process, &ProcessLock);
+    KiAcquireProcessLockRaiseToSynch(Process, &ProcessLock);
 
     /* Set new quantum */
     Process->QuantumReset = Quantum;
@@ -265,7 +265,7 @@ NTAPI
 KeSetAffinityProcess(IN PKPROCESS Process,
                      IN KAFFINITY Affinity)
 {
-   
+
     KLOCK_QUEUE_HANDLE ProcessLock;
     PLIST_ENTRY NextEntry, ListHead;
     KAFFINITY OldAffinity;
@@ -273,12 +273,12 @@ KeSetAffinityProcess(IN PKPROCESS Process,
     ASSERT_PROCESS(Process);
     ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
     ASSERT((Affinity & KeActiveProcessors) != 0);
-    
+
     /* Lock the process */
-    KiAcquireProcessLock(Process, &ProcessLock);
-    
+    KiAcquireProcessLockRaiseToSynch(Process, &ProcessLock);
+
     /* Acquire the dispatcher lock */
-    KiAcquireDispatcherLockAtDpcLevel();
+    KiAcquireDispatcherLockAtSynchLevel();
 
     /* Capture old affinity and update it */
     OldAffinity = Process->Affinity;
@@ -291,19 +291,19 @@ KeSetAffinityProcess(IN PKPROCESS Process,
     {
         /* Get the thread */
         Thread = CONTAINING_RECORD(NextEntry, KTHREAD, ThreadListEntry);
-        
+
         /* Set affinity on it */
         KiSetAffinityThread(Thread, Affinity);
         NextEntry = NextEntry->Flink;
     }
-    
+
     /* Release Dispatcher Database */
-    KiReleaseDispatcherLockFromDpcLevel();
-    
+    KiReleaseDispatcherLockFromSynchLevel();
+
     /* Release the process lock */
-    KiReleaseProcessLockFromDpcLevel(&ProcessLock);
+    KiReleaseProcessLockFromSynchLevel(&ProcessLock);
     KiExitDispatcher(ProcessLock.OldIrql);
-    
+
     /* Return previous affinity */
     return OldAffinity;
 }
@@ -365,7 +365,10 @@ KeSetPriorityAndQuantumProcess(IN PKPROCESS Process,
     if (!Priority) Priority = LOW_PRIORITY + 1;
 
     /* Lock the process */
-    KiAcquireProcessLock(Process, &ProcessLock);
+    KiAcquireProcessLockRaiseToSynch(Process, &ProcessLock);
+
+    /* Acquire the dispatcher lock */
+    KiAcquireDispatcherLockAtSynchLevel();
 
     /* Check if we are modifying the quantum too */
     if (Quantum) Process->QuantumReset = Quantum;
@@ -507,10 +510,10 @@ KeSetPriorityAndQuantumProcess(IN PKPROCESS Process,
     }
 
     /* Release Dispatcher Database */
-    KiReleaseDispatcherLockFromDpcLevel();
+    KiReleaseDispatcherLockFromSynchLevel();
 
     /* Release the process lock */
-    KiReleaseProcessLockFromDpcLevel(&ProcessLock);
+    KiReleaseProcessLockFromSynchLevel(&ProcessLock);
     KiExitDispatcher(ProcessLock.OldIrql);
 
     /* Return previous priority */
@@ -531,7 +534,7 @@ KeQueryValuesProcess(IN PKPROCESS Process,
     ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     /* Lock the process */
-    KiAcquireProcessLock(Process, &ProcessLock);
+    KiAcquireProcessLockRaiseToSynch(Process, &ProcessLock);
 
     /* Initialize user and kernel times */
     TotalKernel = Process->KernelTime;
@@ -600,10 +603,10 @@ KeAttachProcess(IN PKPROCESS Process)
     else
     {
         /* Acquire APC Lock */
-        KiAcquireApcLock(Thread, &ApcLock);
+        KiAcquireApcLockRaiseToSynch(Thread, &ApcLock);
 
         /* Acquire the dispatcher lock */
-        KiAcquireDispatcherLockAtDpcLevel();
+        KiAcquireDispatcherLockAtSynchLevel();
 
         /* Legit attach attempt: do it! */
         KiAttachProcess(Thread, Process, &ApcLock, &Thread->SavedApcState);
@@ -626,7 +629,7 @@ KeDetachProcess(VOID)
     if (Thread->ApcStateIndex == OriginalApcEnvironment) return;
 
     /* Acquire APC Lock */
-    KiAcquireApcLock(Thread, &ApcLock);
+    KiAcquireApcLockRaiseToSynch(Thread, &ApcLock);
 
     /* Check for invalid attach attempts */
     if ((Thread->ApcState.KernelApcInProgress) ||
@@ -641,7 +644,7 @@ KeDetachProcess(VOID)
     Process = Thread->ApcState.Process;
 
     /* Acquire dispatcher lock */
-    KiAcquireDispatcherLockAtDpcLevel();
+    KiAcquireDispatcherLockAtSynchLevel();
 
     /* Decrease the stack count */
     ASSERT(Process->StackCount != 0);
@@ -655,7 +658,7 @@ KeDetachProcess(VOID)
     }
 
     /* Release dispatcher lock */
-    KiReleaseDispatcherLockFromDpcLevel();
+    KiReleaseDispatcherLockFromSynchLevel();
 
     /* Restore the APC State */
     KiMoveApcState(&Thread->SavedApcState, &Thread->ApcState);
@@ -665,7 +668,7 @@ KeDetachProcess(VOID)
     Thread->ApcStateIndex = OriginalApcEnvironment;
 
     /* Release lock */
-    KiReleaseApcLockFromDpcLevel(&ApcLock);
+    KiReleaseApcLockFromSynchLevel(&ApcLock);
 
     /* Swap Processes */
     KiSwapProcess(Thread->ApcState.Process, Process);
@@ -726,10 +729,10 @@ KeStackAttachProcess(IN PKPROCESS Process,
     }
 
     /* Acquire APC Lock */
-    KiAcquireApcLock(Thread, &ApcLock);
+    KiAcquireApcLockRaiseToSynch(Thread, &ApcLock);
 
     /* Acquire dispatcher lock */
-    KiAcquireDispatcherLockAtDpcLevel();
+    KiAcquireDispatcherLockAtSynchLevel();
 
     /* Check if the Current Thread is already attached */
     if (Thread->ApcStateIndex != OriginalApcEnvironment)
@@ -764,7 +767,7 @@ KeUnstackDetachProcess(IN PRKAPC_STATE ApcState)
     for (;;)
     {
         /* Acquire APC Lock */
-        KiAcquireApcLock(Thread, &ApcLock);
+        KiAcquireApcLockRaiseToSynch(Thread, &ApcLock);
 
         /* Check if a kernel APC is pending */
         if (Thread->ApcState.KernelApcPending)
@@ -799,7 +802,7 @@ KeUnstackDetachProcess(IN PRKAPC_STATE ApcState)
     Process = Thread->ApcState.Process;
 
     /* Acquire dispatcher lock */
-    KiAcquireDispatcherLockAtDpcLevel();
+    KiAcquireDispatcherLockAtSynchLevel();
 
     /* Decrease the stack count */
     ASSERT(Process->StackCount != 0);
@@ -813,7 +816,7 @@ KeUnstackDetachProcess(IN PRKAPC_STATE ApcState)
     }
 
     /* Release dispatcher lock */
-    KiReleaseDispatcherLockFromDpcLevel();
+    KiReleaseDispatcherLockFromSynchLevel();
 
     /* Check if there's an APC state to restore */
     if (ApcState->Process)
@@ -832,7 +835,7 @@ KeUnstackDetachProcess(IN PRKAPC_STATE ApcState)
     }
 
     /* Release lock */
-    KiReleaseApcLockFromDpcLevel(&ApcLock);
+    KiReleaseApcLockFromSynchLevel(&ApcLock);
 
     /* Swap Processes */
     KiSwapProcess(Thread->ApcState.Process, Process);
@@ -869,7 +872,7 @@ KeQueryRuntimeProcess(IN PKPROCESS Process,
     TotalKernel = Process->KernelTime;
 
     /* Lock the process */
-    KiAcquireProcessLock(Process, &ProcessLock);
+    KiAcquireProcessLockRaiseToSynch(Process, &ProcessLock);
 
     /* Loop all child threads and sum up their times */
     ListHead = &Process->ThreadListHead;

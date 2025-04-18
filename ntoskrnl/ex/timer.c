@@ -33,7 +33,7 @@ static GENERIC_MAPPING ExpTimerMapping =
 static const INFORMATION_CLASS_INFO ExTimerInfoClass[] =
 {
     /* TimerBasicInformation */
-    ICI_SQ_SAME(sizeof(TIMER_BASIC_INFORMATION), sizeof(ULONG), ICIF_QUERY),
+    IQS_SAME(TIMER_BASIC_INFORMATION, ULONG, ICIF_QUERY),
 };
 
 /* PRIVATE FUNCTIONS *********************************************************/
@@ -217,8 +217,8 @@ ExpTimerApcKernelRoutine(IN PKAPC Apc,
     ObDereferenceObjectEx(Timer, DerefsToDo);
 }
 
+CODE_SEG("INIT")
 BOOLEAN
-INIT_FUNCTION
 NTAPI
 ExpInitializeTimerImplementation(VOID)
 {
@@ -532,6 +532,7 @@ NtQueryTimer(IN HANDLE TimerHandle,
                                          ExTimerInfoClass,
                                          sizeof(ExTimerInfoClass) /
                                          sizeof(ExTimerInfoClass[0]),
+                                         ICIF_PROBE_READ_WRITE,
                                          TimerInformation,
                                          TimerInformationLength,
                                          ReturnLength,
@@ -639,7 +640,10 @@ NtSetTimer(IN HANDLE TimerHandle,
      * functionality required to support them, make this check dependent
      * on the actual PM capabilities
      */
-    if (WakeTimer) Status = STATUS_TIMER_RESUME_IGNORED;
+    if (NT_SUCCESS(Status) && WakeTimer)
+    {
+        Status = STATUS_TIMER_RESUME_IGNORED;
+    }
 
     /* Check status */
     if (NT_SUCCESS(Status))

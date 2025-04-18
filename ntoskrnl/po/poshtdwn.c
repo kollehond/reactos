@@ -12,8 +12,11 @@
 #ifdef NEWCC
 #include <cache/newcc.h>
 #endif
+
 #define NDEBUG
 #include <debug.h>
+
+#include "inbv/logo.h"
 
 /* GLOBALS *******************************************************************/
 
@@ -135,7 +138,7 @@ PopProcessShutDownLists(VOID)
 
         /* Wait for the thread to finish and dereference it */
         KeWaitForSingleObject(ShutDownWaitEntry->Thread, 0, 0, 0, 0);
-        ObfDereferenceObject(ShutDownWaitEntry->Thread);
+        ObDereferenceObject(ShutDownWaitEntry->Thread);
 
         /* Finally free the entry */
         ExFreePoolWithTag(ShutDownWaitEntry, 'LSoP');
@@ -146,9 +149,6 @@ VOID
 NTAPI
 PopShutdownHandler(VOID)
 {
-    PUCHAR Logo1, Logo2;
-    ULONG i;
-
     /* Stop all interrupts */
     KeRaiseIrqlToDpcLevel();
     _disable();
@@ -159,25 +159,13 @@ PopShutdownHandler(VOID)
         /* Yes we do, cleanup for shutdown screen */
         if (!InbvCheckDisplayOwnership()) InbvAcquireDisplayOwnership();
         InbvResetDisplay();
-        InbvSolidColorFill(0, 0, 639, 479, 0);
-        InbvEnableDisplayString(TRUE);
-        InbvSetScrollRegion(0, 0, 639, 479);
-
-        /* Display shutdown logo and message */
-        Logo1 = InbvGetResourceAddress(IDB_SHUTDOWN_MSG);
-        Logo2 = InbvGetResourceAddress(IDB_DEFAULT_LOGO);
-        if ((Logo1) && (Logo2))
-        {
-            InbvBitBlt(Logo1, 220, 352);
-            InbvBitBlt(Logo2, 222, 111);
-        }
+        // InbvEnableDisplayString(TRUE);
+        DisplayShutdownBitmap();
     }
     else
     {
         /* Do it in text-mode */
-        for (i = 0; i < 25; i++) InbvDisplayString("\r\n");
-        InbvDisplayString("                       ");
-        InbvDisplayString("The system may be powered off now.\r\n");
+        DisplayShutdownText();
     }
 
     /* Hang the system */

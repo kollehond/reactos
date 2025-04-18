@@ -18,14 +18,14 @@ list(APPEND SOURCE
     ${CMAKE_CURRENT_BINARY_DIR}/msvcrt40_stubs.c
     ${CMAKE_CURRENT_BINARY_DIR}/msvcrt40.def)
 
-add_library(msvcrt40 SHARED ${SOURCE})
+add_library(msvcrt40 MODULE ${SOURCE})
 set_module_type(msvcrt40 win32dll ENTRYPOINT DllMain 12)
 add_dependencies(msvcrt40 psdk)
 target_link_libraries(msvcrt40 crt wine ${PSEH_LIB})
 
 if(MSVC)
     # export of deleting destructor "name"
-    add_target_link_flags(msvcrt40 "/ignore:4102")
+    target_link_options(msvcrt40 PRIVATE /ignore:4102)
 endif()
 
 add_importlibs(msvcrt40 kernel32 ntdll)

@@ -44,9 +44,9 @@ BEGIN
     "A", FCIDM_SHVIEW_SELECTALL, VIRTKEY, CONTROL
     VK_F1, FCIDM_SHVIEW_HELP, VIRTKEY
 
-    /* FIXME: the following accelerator doesn't belong here. This accelerator 
+    /* FIXME: the following accelerator doesn't belong here. This accelerator
      * table is used by the shell view control. F5 should be handled by the
-     * a different accelerator table thats translated in IShellBrowser::TranslateAcceleratorSB 
+     * a different accelerator table thats translated in IShellBrowser::TranslateAcceleratorSB
      * but will put it here until the shell work fine */
     VK_F5, FCIDM_SHVIEW_REFRESH, VIRTKEY
 END
@@ -78,6 +78,7 @@ END
 #include "rgs_res.rc"
 
 #include <reactos/manifest_dll.rc>
+#include <reactos/manifest_hosted.rc>
 
 1 TYPELIB "shell32_shldisp.tlb"
 
@@ -122,6 +123,9 @@ END
 #ifdef LANGUAGE_ET_EE
     #include "lang/et-EE.rc"
 #endif
+#ifdef LANGUAGE_EU_ES
+    #include "lang/eu-ES.rc"
+#endif
 #ifdef LANGUAGE_FI_FI
     #include "lang/fi-FI.rc"
 #endif
@@ -131,8 +135,14 @@ END
 #ifdef LANGUAGE_HE_IL
     #include "lang/he-IL.rc"
 #endif
+#ifdef LANGUAGE_HI_IN
+    #include "lang/hi-IN.rc"
+#endif
 #ifdef LANGUAGE_HU_HU
     #include "lang/hu-HU.rc"
+#endif
+#ifdef LANGUAGE_ID_ID
+    #include "lang/id-ID.rc"
 #endif
 #ifdef LANGUAGE_IT_IT
     #include "lang/it-IT.rc"
@@ -184,6 +194,9 @@ END
 #endif
 #ifdef LANGUAGE_ZH_CN
     #include "lang/zh-CN.rc"
+#endif
+#ifdef LANGUAGE_ZH_HK
+    #include "lang/zh-HK.rc"
 #endif
 #ifdef LANGUAGE_ZH_TW
     #include "lang/zh-TW.rc"

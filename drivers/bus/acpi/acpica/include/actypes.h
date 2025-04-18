@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2017, Intel Corp.
+ * Copyright (C) 2000 - 2022, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
  * NO WARRANTY
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
  * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
@@ -412,7 +412,7 @@ typedef UINT64                          ACPI_PHYSICAL_ADDRESS;
 
 /* Names within the namespace are 4 bytes long */
 
-#define ACPI_NAME_SIZE                  4
+#define ACPI_NAMESEG_SIZE               4           /* Fixed by ACPI spec */
 #define ACPI_PATH_SEGMENT_LENGTH        5           /* 4 chars for name + 1 char for separator */
 #define ACPI_PATH_SEPARATOR             '.'
 
@@ -478,11 +478,13 @@ typedef void *                          ACPI_HANDLE;    /* Actually a ptr to a N
 #define ACPI_NSEC_PER_MSEC              1000000L
 #define ACPI_NSEC_PER_SEC               1000000000L
 
+#define ACPI_TIME_AFTER(a, b)           ((INT64)((b) - (a)) < 0)
+
 
 /* Owner IDs are used to track namespace nodes for selective deletion */
 
-typedef UINT8                           ACPI_OWNER_ID;
-#define ACPI_OWNER_ID_MAX               0xFF
+typedef UINT16                          ACPI_OWNER_ID;
+#define ACPI_OWNER_ID_MAX               0xFFF   /* 4095 possible owner IDs */
 
 
 #define ACPI_INTEGER_BIT_SIZE           64
@@ -495,7 +497,7 @@ typedef UINT8                           ACPI_OWNER_ID;
 /*
  * Constants with special meanings
  */
-#define ACPI_ROOT_OBJECT                ACPI_ADD_PTR (ACPI_HANDLE, NULL, ACPI_MAX_PTR)
+#define ACPI_ROOT_OBJECT                ((ACPI_HANDLE) ACPI_TO_POINTER (ACPI_MAX_PTR))
 #define ACPI_WAIT_FOREVER               0xFFFF  /* UINT16, as per ACPI spec */
 #define ACPI_DO_NOT_WAIT                0
 
@@ -543,24 +545,27 @@ typedef UINT64                          ACPI_INTEGER;
 #define ACPI_CAST_INDIRECT_PTR(t, p)    ((t **) (ACPI_UINTPTR_T) (p))
 #define ACPI_ADD_PTR(t, a, b)           ACPI_CAST_PTR (t, (ACPI_CAST_PTR (UINT8, (a)) + (ACPI_SIZE)(b)))
 #define ACPI_SUB_PTR(t, a, b)           ACPI_CAST_PTR (t, (ACPI_CAST_PTR (UINT8, (a)) - (ACPI_SIZE)(b)))
-#define ACPI_PTR_DIFF(a, b)             (ACPI_SIZE) (ACPI_CAST_PTR (UINT8, (a)) - ACPI_CAST_PTR (UINT8, (b)))
+#define ACPI_PTR_DIFF(a, b)             ((ACPI_SIZE) (ACPI_CAST_PTR (UINT8, (a)) - ACPI_CAST_PTR (UINT8, (b))))
 
 /* Pointer/Integer type conversions */
 
-#define ACPI_TO_POINTER(i)              ACPI_ADD_PTR (void, (void *) NULL,(ACPI_SIZE) i)
-#define ACPI_TO_INTEGER(p)              ACPI_PTR_DIFF (p, (void *) NULL)
-#define ACPI_OFFSET(d, f)               ACPI_PTR_DIFF (&(((d *) 0)->f), (void *) NULL)
-#define ACPI_PHYSADDR_TO_PTR(i)         ACPI_TO_POINTER(i)
+#define ACPI_TO_POINTER(i)              ACPI_CAST_PTR (void, (ACPI_SIZE) (i))
+#ifndef ACPI_TO_INTEGER
+#define ACPI_TO_INTEGER(p)              ACPI_PTR_DIFF (p, (void *) 0)
+#endif
+#ifndef ACPI_OFFSET
+#define ACPI_OFFSET(d, f)               ACPI_PTR_DIFF (&(((d *) 0)->f), (void *) 0)
+#endif
 #define ACPI_PTR_TO_PHYSADDR(i)         ACPI_TO_INTEGER(i)
 
 /* Optimizations for 4-character (32-bit) ACPI_NAME manipulation */
 
 #ifndef ACPI_MISALIGNMENT_NOT_SUPPORTED
-#define ACPI_COMPARE_NAME(a,b)          (*ACPI_CAST_PTR (UINT32, (a)) == *ACPI_CAST_PTR (UINT32, (b)))
-#define ACPI_MOVE_NAME(dest,src)        (*ACPI_CAST_PTR (UINT32, (dest)) = *ACPI_CAST_PTR (UINT32, (src)))
+#define ACPI_COMPARE_NAMESEG(a,b)       (*ACPI_CAST_PTR (UINT32, (a)) == *ACPI_CAST_PTR (UINT32, (b)))
+#define ACPI_COPY_NAMESEG(dest,src)     (*ACPI_CAST_PTR (UINT32, (dest)) = *ACPI_CAST_PTR (UINT32, (src)))
 #else
-#define ACPI_COMPARE_NAME(a,b)          (!strncmp (ACPI_CAST_PTR (char, (a)), ACPI_CAST_PTR (char, (b)), ACPI_NAME_SIZE))
-#define ACPI_MOVE_NAME(dest,src)        (strncpy (ACPI_CAST_PTR (char, (dest)), ACPI_CAST_PTR (char, (src)), ACPI_NAME_SIZE))
+#define ACPI_COMPARE_NAMESEG(a,b)       (!strncmp (ACPI_CAST_PTR (char, (a)), ACPI_CAST_PTR (char, (b)), ACPI_NAMESEG_SIZE))
+#define ACPI_COPY_NAMESEG(dest,src)     (strncpy (ACPI_CAST_PTR (char, (dest)), ACPI_CAST_PTR (char, (src)), ACPI_NAMESEG_SIZE))
 #endif
 
 /* Support for the special RSDP signature (8 characters) */
@@ -568,13 +573,23 @@ typedef UINT64                          ACPI_INTEGER;
 #define ACPI_VALIDATE_RSDP_SIG(a)       (!strncmp (ACPI_CAST_PTR (char, (a)), ACPI_SIG_RSDP, 8))
 #define ACPI_MAKE_RSDP_SIG(dest)        (memcpy (ACPI_CAST_PTR (char, (dest)), ACPI_SIG_RSDP, 8))
 
+/* Support for OEMx signature (x can be any character) */
+#define ACPI_IS_OEM_SIG(a)        (!strncmp (ACPI_CAST_PTR (char, (a)), ACPI_OEM_NAME, 3) &&\
+                                      strnlen (a, ACPI_NAMESEG_SIZE) == ACPI_NAMESEG_SIZE)
+
 /*
- * Algorithm to obtain access bit width.
- * Can be used with AccessWidth of ACPI_GENERIC_ADDRESS and AccessSize of
+ * Algorithm to obtain access bit or byte width.
+ * Can be used with AccessSize field of ACPI_GENERIC_ADDRESS and
  * ACPI_RESOURCE_GENERIC_REGISTER.
  */
-#define ACPI_ACCESS_BIT_WIDTH(size)     (1 << ((size) + 2))
-
+#define ACPI_ACCESS_BIT_SHIFT           2
+#define ACPI_ACCESS_BYTE_SHIFT          -1
+#define ACPI_ACCESS_BIT_MAX             (31 - ACPI_ACCESS_BIT_SHIFT)
+#define ACPI_ACCESS_BYTE_MAX            (31 - ACPI_ACCESS_BYTE_SHIFT)
+#define ACPI_ACCESS_BIT_DEFAULT         (8 - ACPI_ACCESS_BIT_SHIFT)
+#define ACPI_ACCESS_BYTE_DEFAULT        (8 - ACPI_ACCESS_BYTE_SHIFT)
+#define ACPI_ACCESS_BIT_WIDTH(size)     (1 << ((size) + ACPI_ACCESS_BIT_SHIFT))
+#define ACPI_ACCESS_BYTE_WIDTH(size)    (1 << ((size) + ACPI_ACCESS_BYTE_SHIFT))
 
 /*******************************************************************************
  *
@@ -583,17 +598,17 @@ typedef UINT64                          ACPI_INTEGER;
  ******************************************************************************/
 
 /*
- * Initialization sequence
+ * Initialization sequence options
  */
-#define ACPI_FULL_INITIALIZATION        0x00
-#define ACPI_NO_ADDRESS_SPACE_INIT      0x01
-#define ACPI_NO_HARDWARE_INIT           0x02
-#define ACPI_NO_EVENT_INIT              0x04
-#define ACPI_NO_HANDLER_INIT            0x08
-#define ACPI_NO_ACPI_ENABLE             0x10
-#define ACPI_NO_DEVICE_INIT             0x20
-#define ACPI_NO_OBJECT_INIT             0x40
-#define ACPI_NO_FACS_INIT               0x80
+#define ACPI_FULL_INITIALIZATION        0x0000
+#define ACPI_NO_FACS_INIT               0x0001
+#define ACPI_NO_ACPI_ENABLE             0x0002
+#define ACPI_NO_HARDWARE_INIT           0x0004
+#define ACPI_NO_EVENT_INIT              0x0008
+#define ACPI_NO_HANDLER_INIT            0x0010
+#define ACPI_NO_OBJECT_INIT             0x0020
+#define ACPI_NO_DEVICE_INIT             0x0040
+#define ACPI_NO_ADDRESS_SPACE_INIT      0x0080
 
 /*
  * Initialization state
@@ -653,8 +668,9 @@ typedef UINT64                          ACPI_INTEGER;
 #define ACPI_NOTIFY_SHUTDOWN_REQUEST    (UINT8) 0x0C
 #define ACPI_NOTIFY_AFFINITY_UPDATE     (UINT8) 0x0D
 #define ACPI_NOTIFY_MEMORY_UPDATE       (UINT8) 0x0E
+#define ACPI_NOTIFY_DISCONNECT_RECOVER  (UINT8) 0x0F
 
-#define ACPI_GENERIC_NOTIFY_MAX         0x0E
+#define ACPI_GENERIC_NOTIFY_MAX         0x0F
 #define ACPI_SPECIFIC_NOTIFY_MAX        0x84
 
 /*
@@ -749,7 +765,8 @@ typedef UINT32                          ACPI_EVENT_TYPE;
 #define ACPI_EVENT_POWER_BUTTON         2
 #define ACPI_EVENT_SLEEP_BUTTON         3
 #define ACPI_EVENT_RTC                  4
-#define ACPI_EVENT_MAX                  4
+#define ACPI_EVENT_PCIE_WAKE            5
+#define ACPI_EVENT_MAX                  5
 #define ACPI_NUM_FIXED_EVENTS           ACPI_EVENT_MAX + 1
 
 /*
@@ -796,7 +813,7 @@ typedef UINT32                          ACPI_EVENT_STATUS;
  *   |  | | |  +-- Type of dispatch:to method, handler, notify, or none
  *   |  | | +----- Interrupt type: edge or level triggered
  *   |  | +------- Is a Wake GPE
- *   |  +--------- Is GPE masked by the software GPE masking mechanism
+ *   |  +--------- Has been enabled automatically at init time
  *   +------------ <Reserved>
  */
 #define ACPI_GPE_DISPATCH_NONE          (UINT8) 0x00
@@ -812,6 +829,8 @@ typedef UINT32                          ACPI_EVENT_STATUS;
 #define ACPI_GPE_XRUPT_TYPE_MASK        (UINT8) 0x08
 
 #define ACPI_GPE_CAN_WAKE               (UINT8) 0x10
+#define ACPI_GPE_AUTO_ENABLED           (UINT8) 0x20
+#define ACPI_GPE_INITIALIZED            (UINT8) 0x40
 
 /*
  * Flags for GPE and Lock interfaces
@@ -850,15 +869,16 @@ typedef UINT8                           ACPI_ADR_SPACE_TYPE;
 #define ACPI_ADR_SPACE_GPIO             (ACPI_ADR_SPACE_TYPE) 8
 #define ACPI_ADR_SPACE_GSBUS            (ACPI_ADR_SPACE_TYPE) 9
 #define ACPI_ADR_SPACE_PLATFORM_COMM    (ACPI_ADR_SPACE_TYPE) 10
+#define ACPI_ADR_SPACE_PLATFORM_RT      (ACPI_ADR_SPACE_TYPE) 11
 
-#define ACPI_NUM_PREDEFINED_REGIONS     11
+#define ACPI_NUM_PREDEFINED_REGIONS     12
 
 /*
  * Special Address Spaces
  *
  * Note: A Data Table region is a special type of operation region
  * that has its own AML opcode. However, internally, the AML
- * interpreter simply creates an operation region with an an address
+ * interpreter simply creates an operation region with an address
  * space type of ACPI_ADR_SPACE_DATA_TABLE.
  */
 #define ACPI_ADR_SPACE_DATA_TABLE       (ACPI_ADR_SPACE_TYPE) 0x7E /* Internal to ACPICA only */
@@ -1200,6 +1220,20 @@ typedef struct acpi_connection_info
 
 } ACPI_CONNECTION_INFO;
 
+/* Special Context data for PCC Opregion (ACPI 6.3) */
+
+typedef struct acpi_pcc_info {
+    UINT8                           SubspaceId;
+    UINT16                          Length;
+    UINT8                           *InternalBuffer;
+} ACPI_PCC_INFO;
+
+/* Special Context data for FFH Opregion (ACPI 6.5) */
+
+typedef struct acpi_ffh_info {
+    UINT64                          Offset;
+    UINT64                          Length;
+} ACPI_FFH_INFO;
 
 typedef
 ACPI_STATUS (*ACPI_ADR_SPACE_SETUP) (
@@ -1260,7 +1294,7 @@ typedef struct acpi_pnp_device_id_list
 {
     UINT32                          Count;              /* Number of IDs in Ids array */
     UINT32                          ListSize;           /* Size of list, including ID strings */
-    ACPI_PNP_DEVICE_ID              Ids[1];             /* ID array */
+    ACPI_PNP_DEVICE_ID              Ids[];              /* ID array */
 
 } ACPI_PNP_DEVICE_ID_LIST;
 
@@ -1278,7 +1312,6 @@ typedef struct acpi_device_info
     UINT8                           Flags;              /* Miscellaneous info */
     UINT8                           HighestDstates[4];  /* _SxD values: 0xFF indicates not valid */
     UINT8                           LowestDstates[5];   /* _SxW values: 0xFF indicates not valid */
-    UINT32                          CurrentStatus;      /* _STA value */
     UINT64                          Address;            /* _ADR value */
     ACPI_PNP_DEVICE_ID              HardwareId;         /* _HID value */
     ACPI_PNP_DEVICE_ID              UniqueId;           /* _UID value */
@@ -1293,7 +1326,6 @@ typedef struct acpi_device_info
 
 /* Flags for Valid field above (AcpiGetObjectInfo) */
 
-#define ACPI_VALID_STA                  0x0001
 #define ACPI_VALID_ADR                  0x0002
 #define ACPI_VALID_HID                  0x0004
 #define ACPI_VALID_UID                  0x0008
@@ -1323,15 +1355,29 @@ typedef struct acpi_pci_id
 
 } ACPI_PCI_ID;
 
+typedef struct acpi_mem_mapping
+{
+    ACPI_PHYSICAL_ADDRESS           PhysicalAddress;
+    UINT8                           *LogicalAddress;
+    ACPI_SIZE                       Length;
+    struct acpi_mem_mapping         *NextMm;
+
+} ACPI_MEM_MAPPING;
+
 typedef struct acpi_mem_space_context
 {
     UINT32                          Length;
     ACPI_PHYSICAL_ADDRESS           Address;
-    ACPI_PHYSICAL_ADDRESS           MappedPhysicalAddress;
-    UINT8                           *MappedLogicalAddress;
-    ACPI_SIZE                       MappedLength;
+    ACPI_MEM_MAPPING                *CurMm;
+    ACPI_MEM_MAPPING                *FirstMm;
 
 } ACPI_MEM_SPACE_CONTEXT;
+
+typedef struct acpi_data_table_space_context
+{
+    void                            *Pointer;
+
+} ACPI_DATA_TABLE_MAPPING;
 
 
 /*
@@ -1398,12 +1444,26 @@ typedef enum
 #define ACPI_OSI_WIN_VISTA_SP2          0x0A
 #define ACPI_OSI_WIN_7                  0x0B
 #define ACPI_OSI_WIN_8                  0x0C
-#define ACPI_OSI_WIN_10                 0x0D
+#define ACPI_OSI_WIN_8_1                0x0D
+#define ACPI_OSI_WIN_10                 0x0E
+#define ACPI_OSI_WIN_10_RS1             0x0F
+#define ACPI_OSI_WIN_10_RS2             0x10
+#define ACPI_OSI_WIN_10_RS3             0x11
+#define ACPI_OSI_WIN_10_RS4             0x12
+#define ACPI_OSI_WIN_10_RS5             0x13
+#define ACPI_OSI_WIN_10_19H1            0x14
+#define ACPI_OSI_WIN_10_20H1            0x15
+#define ACPI_OSI_WIN_11                 0x16
 
 
 /* Definitions of getopt */
 
 #define ACPI_OPT_END                    -1
 
+/* Definitions for explicit fallthrough */
+
+#ifndef ACPI_FALLTHROUGH
+#define ACPI_FALLTHROUGH do {} while(0)
+#endif
 
 #endif /* __ACTYPES_H__ */

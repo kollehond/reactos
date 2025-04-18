@@ -24,8 +24,61 @@ Author:
 //
 #include <umtypes.h>
 #include <ketypes.h>
+#include <section_attribs.h>
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif
 
 #ifndef NTOS_MODE_USER
+
+//
+// Affinity helpers
+//
+FORCEINLINE KAFFINITY AFFINITY_MASK(ULONG Index)
+{
+    ASSERT(Index < sizeof(KAFFINITY) * 8);
+    return (KAFFINITY)1 << Index;
+}
+
+FORCEINLINE BOOLEAN BitScanForwardAffinity(PULONG Index, KAFFINITY Mask)
+{
+#ifdef _WIN64
+    return BitScanForward64(Index, Mask);
+#else
+    return BitScanForward(Index, Mask);
+#endif
+}
+
+FORCEINLINE BOOLEAN BitScanReverseAffinity(PULONG Index, KAFFINITY Mask)
+{
+#ifdef _WIN64
+    return BitScanReverse64(Index, Mask);
+#else
+    return BitScanReverse(Index, Mask);
+#endif
+}
+
+FORCEINLINE BOOLEAN InterlockedBitTestAndSetAffinity(volatile KAFFINITY *Affinity, ULONG Index)
+{
+    ASSERT(Index < sizeof(KAFFINITY) * 8);
+#ifdef _WIN64
+    return InterlockedBitTestAndSet64((PLONG64)Affinity, Index);
+#else
+    return InterlockedBitTestAndSet((PLONG)Affinity, Index);
+#endif
+}
+
+FORCEINLINE BOOLEAN InterlockedBitTestAndResetAffinity(volatile KAFFINITY *Affinity, ULONG Index)
+{
+    ASSERT(Index < sizeof(KAFFINITY) * 8);
+#ifdef _WIN64
+    return InterlockedBitTestAndReset64((PLONG64)Affinity, Index);
+#else
+    return InterlockedBitTestAndReset((PLONG)Affinity, Index);
+#endif
+}
 
 //
 // APC Functions
@@ -467,6 +520,18 @@ NtQueueApcThread(
 NTSYSCALLAPI
 NTSTATUS
 NTAPI
+NtQueueApcThreadEx(
+    _In_ HANDLE ThreadHandle,
+    _In_opt_ HANDLE UserApcReserveHandle,
+    _In_ PKNORMAL_ROUTINE ApcRoutine,
+    _In_opt_ PVOID NormalContext,
+    _In_opt_ PVOID SystemArgument1,
+    _In_opt_ PVOID SystemArgument2
+);
+
+NTSYSCALLAPI
+NTSTATUS
+NTAPI
 NtRaiseException(
     _In_ PEXCEPTION_RECORD ExceptionRecord,
     _In_ PCONTEXT Context,
@@ -768,4 +833,8 @@ NTAPI
 ZwYieldExecution(
     VOID
 );
+#endif
+
+#ifdef __cplusplus
+} // extern "C"
 #endif

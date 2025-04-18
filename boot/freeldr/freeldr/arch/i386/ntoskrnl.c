@@ -3,16 +3,16 @@
  * LICENSE:         GPL - See COPYING in the top level directory
  * FILE:            boot/freeldr/freeldr/arch/i386/ntoskrnl.c
  * PURPOSE:         NTOS glue routines for the MINIHAL library
- * PROGRAMMERS:     Hervé Poussineau  <hpoussin@reactos.org>
+ * PROGRAMMERS:     HervÃ© Poussineau  <hpoussin@reactos.org>
  */
 
 /* INCLUDES ******************************************************************/
 
+#include <freeldr.h>
 #include <ntoskrnl.h>
 
-/* For KeStallExecutionProcessor */
-#if defined(_M_IX86) || defined(_M_AMD64)
-#include <arch/pc/pcbios.h>
+#ifndef UNIMPLEMENTED
+#define UNIMPLEMENTED ASSERT(FALSE)
 #endif
 
 /* FUNCTIONS *****************************************************************/
@@ -24,21 +24,7 @@ KeInitializeEvent(
     IN EVENT_TYPE Type,
     IN BOOLEAN State)
 {
-    memset(Event, 0, sizeof(*Event));
-}
-
-VOID
-FASTCALL
-KiAcquireSpinLock(
-    IN PKSPIN_LOCK SpinLock)
-{
-}
-
-VOID
-FASTCALL
-KiReleaseSpinLock(
-    IN PKSPIN_LOCK SpinLock)
-{
+    RtlZeroMemory(Event, sizeof(*Event));
 }
 
 VOID
@@ -70,17 +56,154 @@ IoSetPartitionInformation(
     return STATUS_NOT_IMPLEMENTED;
 }
 
-/*
- * NTSTATUS
- * FASTCALL
- * IoReadPartitionTable(
- *     IN PDEVICE_OBJECT DeviceObject,
- *     IN ULONG SectorSize,
- *     IN BOOLEAN ReturnRecognizedPartitions,
- *     OUT PDRIVE_LAYOUT_INFORMATION *PartitionBuffer);
- *
- * See boot/freeldr/freeldr/disk/partition.c
- */
+#ifndef _M_AMD64
+NTSTATUS
+NTAPI
+IopReadBootRecord(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN ULONGLONG LogicalSectorNumber,
+    IN ULONG SectorSize,
+    OUT PMASTER_BOOT_RECORD BootRecord)
+{
+    ULONG_PTR FileId = (ULONG_PTR)DeviceObject;
+    LARGE_INTEGER Position;
+    ULONG BytesRead;
+    ARC_STATUS Status;
+
+    Position.QuadPart = LogicalSectorNumber * SectorSize;
+    Status = ArcSeek(FileId, &Position, SeekAbsolute);
+    if (Status != ESUCCESS)
+        return STATUS_IO_DEVICE_ERROR;
+
+    Status = ArcRead(FileId, BootRecord, SectorSize, &BytesRead);
+    if (Status != ESUCCESS || BytesRead != SectorSize)
+        return STATUS_IO_DEVICE_ERROR;
+
+    return STATUS_SUCCESS;
+}
+
+BOOLEAN
+NTAPI
+IopCopyPartitionRecord(
+    IN BOOLEAN ReturnRecognizedPartitions,
+    IN ULONG SectorSize,
+    IN PPARTITION_TABLE_ENTRY PartitionTableEntry,
+    OUT PARTITION_INFORMATION *PartitionEntry)
+{
+    BOOLEAN IsRecognized;
+
+    IsRecognized = TRUE; /* FIXME */
+    if (!IsRecognized && ReturnRecognizedPartitions)
+        return FALSE;
+
+    PartitionEntry->StartingOffset.QuadPart = (ULONGLONG)PartitionTableEntry->SectorCountBeforePartition * SectorSize;
+    PartitionEntry->PartitionLength.QuadPart = (ULONGLONG)PartitionTableEntry->PartitionSectorCount * SectorSize;
+    PartitionEntry->HiddenSectors = 0;
+    PartitionEntry->PartitionNumber = 0; /* Will be filled later */
+    PartitionEntry->PartitionType = PartitionTableEntry->SystemIndicator;
+    PartitionEntry->BootIndicator = (PartitionTableEntry->BootIndicator & 0x80) ? TRUE : FALSE;
+    PartitionEntry->RecognizedPartition = IsRecognized;
+    PartitionEntry->RewritePartition = FALSE;
+
+    return TRUE;
+}
+
+NTSTATUS
+FASTCALL
+IoReadPartitionTable(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN ULONG SectorSize,
+    IN BOOLEAN ReturnRecognizedPartitions,
+    OUT PDRIVE_LAYOUT_INFORMATION *PartitionBuffer)
+{
+    NTSTATUS Status;
+    PMASTER_BOOT_RECORD MasterBootRecord;
+    PDRIVE_LAYOUT_INFORMATION Partitions;
+    ULONG NbPartitions, i, Size;
+
+    *PartitionBuffer = NULL;
+
+    if (SectorSize < sizeof(MASTER_BOOT_RECORD))
+        return STATUS_NOT_SUPPORTED;
+
+    MasterBootRecord = ExAllocatePool(NonPagedPool, SectorSize);
+    if (!MasterBootRecord)
+        return STATUS_NO_MEMORY;
+
+    /* Read disk MBR */
+    Status = IopReadBootRecord(DeviceObject, 0, SectorSize, MasterBootRecord);
+    if (!NT_SUCCESS(Status))
+    {
+        ExFreePool(MasterBootRecord);
+        return Status;
+    }
+
+    /* Check validity of boot record */
+    if (MasterBootRecord->MasterBootRecordMagic != 0xaa55)
+    {
+        ExFreePool(MasterBootRecord);
+        return STATUS_NOT_SUPPORTED;
+    }
+
+    /* Count number of partitions */
+    NbPartitions = 0;
+    for (i = 0; i < 4; i++)
+    {
+        NbPartitions++;
+
+        if (MasterBootRecord->PartitionTable[i].SystemIndicator == PARTITION_EXTENDED ||
+            MasterBootRecord->PartitionTable[i].SystemIndicator == PARTITION_XINT13_EXTENDED)
+        {
+            /* FIXME: unhandled case; count number of partitions */
+            UNIMPLEMENTED;
+        }
+    }
+
+    if (NbPartitions == 0)
+    {
+        ExFreePool(MasterBootRecord);
+        return STATUS_NOT_SUPPORTED;
+    }
+
+    /* Allocation space to store partitions */
+    Size = FIELD_OFFSET(DRIVE_LAYOUT_INFORMATION, PartitionEntry) +
+           NbPartitions * sizeof(PARTITION_INFORMATION);
+    Partitions = ExAllocatePool(NonPagedPool, Size);
+    if (!Partitions)
+    {
+        ExFreePool(MasterBootRecord);
+        return STATUS_NO_MEMORY;
+    }
+
+    /* Count number of partitions */
+    NbPartitions = 0;
+    for (i = 0; i < 4; i++)
+    {
+        if (IopCopyPartitionRecord(ReturnRecognizedPartitions,
+                                   SectorSize,
+                                   &MasterBootRecord->PartitionTable[i],
+                                   &Partitions->PartitionEntry[NbPartitions]))
+        {
+            Partitions->PartitionEntry[NbPartitions].PartitionNumber = NbPartitions + 1;
+            NbPartitions++;
+        }
+
+        if (MasterBootRecord->PartitionTable[i].SystemIndicator == PARTITION_EXTENDED ||
+            MasterBootRecord->PartitionTable[i].SystemIndicator == PARTITION_XINT13_EXTENDED)
+        {
+            /* FIXME: unhandled case; copy partitions */
+            UNIMPLEMENTED;
+        }
+    }
+
+    Partitions->PartitionCount = NbPartitions;
+    Partitions->Signature = MasterBootRecord->Signature;
+    ExFreePool(MasterBootRecord);
+
+    *PartitionBuffer = Partitions;
+    return STATUS_SUCCESS;
+}
+#endif // _M_AMD64
 
 NTSTATUS
 FASTCALL
@@ -99,44 +222,5 @@ NTAPI
 KeStallExecutionProcessor(
     IN ULONG MicroSeconds)
 {
-#if defined(_M_IX86) || defined(_M_AMD64)
-    REGS Regs;
-    ULONG usec_this;
-
-    // Int 15h AH=86h
-    // BIOS - WAIT (AT,PS)
-    //
-    // AH = 86h
-    // CX:DX = interval in microseconds
-    // Return:
-    // CF clear if successful (wait interval elapsed)
-    // CF set on error or AH=83h wait already in progress
-    // AH = status (see #00496)
-
-    // Note: The resolution of the wait period is 977 microseconds on
-    // many systems because many BIOSes use the 1/1024 second fast
-    // interrupt from the AT real-time clock chip which is available on INT 70;
-    // because newer BIOSes may have much more precise timers available, it is
-    // not possible to use this function accurately for very short delays unless
-    // the precise behavior of the BIOS is known (or found through testing)
-
-    while (MicroSeconds)
-    {
-        usec_this = MicroSeconds;
-
-        if (usec_this > 4000000)
-        {
-            usec_this = 4000000;
-        }
-
-        Regs.b.ah = 0x86;
-        Regs.w.cx = usec_this >> 16;
-        Regs.w.dx = usec_this & 0xffff;
-        Int386(0x15, &Regs, &Regs);
-
-        MicroSeconds -= usec_this;
-    }
-#else
-    #error unimplemented
-#endif
+    StallExecutionProcessor(MicroSeconds);
 }

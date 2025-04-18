@@ -1,6 +1,4 @@
 
-set_cpp(WITH_RUNTIME)
-
 include_directories(BEFORE
     include
     src/include
@@ -10,7 +8,7 @@ include_directories(BEFORE
 
 add_definitions(
     -DBUILD_GLU32
-    -DNDEBUG
+    -DNDEBUG=
     -DLIBRARYBUILD
     -DRESOLVE_3D_TEXTURE_SUPPORT)
 
@@ -107,25 +105,34 @@ list(APPEND LIBNURBS_SOURCE
     src/libnurbs/nurbtess/sampleCompTop.cc
     src/libnurbs/nurbtess/sampleMonoPoly.cc
     src/libnurbs/nurbtess/sampledLine.cc
-    src/libnurbs/nurbtess/searchTree.cc
-    precomp.h)
+    src/libnurbs/nurbtess/searchTree.cc)
 
-add_library(glu32 SHARED
-    ${LIBNURBS_SOURCE}
+list(APPEND PCH_SKIP_SOURCE
     src/libnurbs/nurbtess/polyDBG.cc
-    ${SOURCE}
+    ${SOURCE})
+
+add_library(glu32 MODULE
+    ${LIBNURBS_SOURCE}
+    ${PCH_SKIP_SOURCE}
     glu32.rc
     ${CMAKE_CURRENT_BINARY_DIR}/glu32.def)
+target_link_libraries(glu32 cpprt)
 
 set_module_type(glu32 win32dll)
 
-if(NOT MSVC)
-    add_target_compile_flags(glu32 "-Wno-write-strings -Wno-unused-but-set-variable")
-elseif(USE_CLANG_CL)
-    add_target_compile_flags(glu32 "-Wno-self-assign -Wno-unused-function -Wno-microsoft-include")
-    add_target_compile_flags(glu32 "-Wno-deprecated-register -Wno-tautological-undefined-compare")
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(glu32 PRIVATE -Wno-write-strings)
+    target_compile_options(glu32 PRIVATE -Wno-unused-but-set-variable)
+    # Prevent a warning when comparing 'this' against 0
+    set_source_files_properties(src/libnurbs/internals/arc.cc PROPERTIES COMPILE_OPTIONS "-Wno-nonnull-compare")
+endif()
+
+if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(glu32 PRIVATE -Wno-write-strings)
+    target_compile_options(glu32 PRIVATE -Wno-self-assign -Wno-unused-function -Wno-microsoft-include)
+    target_compile_options(glu32 PRIVATE -Wno-deprecated-register -Wno-tautological-undefined-compare)
 endif()
 
 add_importlibs(glu32 opengl32 gdi32 msvcrt kernel32 ntdll)
-add_pch(glu32 precomp.h LIBNURBS_SOURCE)
+add_pch(glu32 precomp.h "${PCH_SKIP_SOURCE}")
 add_cd_file(TARGET glu32 DESTINATION reactos/system32 FOR all)

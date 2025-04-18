@@ -26,6 +26,7 @@
 
 #include "windef.h"
 #include "winbase.h"
+#include "wine/winternl.h"
 #include "winuser.h"
 #include "winnls.h"
 #include "htmlhelp.h"
@@ -39,7 +40,6 @@
 #endif
 
 #include "wine/itss.h"
-#include "wine/unicode.h"
 #include "wine/heap.h"
 #include "wine/list.h"
 
@@ -229,6 +229,9 @@ WCHAR *GetDocumentTitle(CHMInfo*,LPCWSTR) DECLSPEC_HIDDEN;
 extern struct list window_list DECLSPEC_HIDDEN;
 HHInfo *CreateHelpViewer(HHInfo*,LPCWSTR,HWND) DECLSPEC_HIDDEN;
 void ReleaseHelpViewer(HHInfo*) DECLSPEC_HIDDEN;
+#ifdef __REACTOS__
+LPWSTR HH_LoadString(DWORD dwID) DECLSPEC_HIDDEN;
+#endif
 BOOL NavigateToUrl(HHInfo*,LPCWSTR) DECLSPEC_HIDDEN;
 BOOL NavigateToChm(HHInfo*,LPCWSTR,LPCWSTR) DECLSPEC_HIDDEN;
 void MergeChmProperties(HH_WINTYPEW*,HHInfo*,BOOL) DECLSPEC_HIDDEN;
@@ -258,7 +261,7 @@ static inline LPWSTR strdupW(LPCWSTR str)
     if(!str)
         return NULL;
 
-    size = (strlenW(str)+1)*sizeof(WCHAR);
+    size = (lstrlenW(str)+1)*sizeof(WCHAR);
     ret = heap_alloc(size);
     memcpy(ret, str, size);
 

@@ -33,13 +33,13 @@ Author:
 NTSTATUS
 NTAPI
 KdSystemDebugControl(
-    SYSDBG_COMMAND Command,
-    PVOID InputBuffer,
-    ULONG InputBufferLength,
-    PVOID OutputBuffer,
-    ULONG OutputBufferLength,
-    PULONG ReturnLength,
-    KPROCESSOR_MODE PreviousMode
+    _In_ SYSDBG_COMMAND Command,
+    _In_reads_bytes_(InputBufferLength) PVOID InputBuffer,
+    _In_ ULONG InputBufferLength,
+    _Out_writes_bytes_(OutputBufferLength) PVOID OutputBuffer,
+    _In_ ULONG OutputBufferLength,
+    _Out_opt_ PULONG ReturnLength,
+    _In_ KPROCESSOR_MODE PreviousMode
 );
 
 BOOLEAN
@@ -57,29 +57,29 @@ NTSYSCALLAPI
 NTSTATUS
 NTAPI
 NtQueryDebugFilterState(
-     ULONG ComponentId,
-     ULONG Level
+    _In_ ULONG ComponentId,
+    _In_ ULONG Level
 );
 
 NTSYSCALLAPI
 NTSTATUS
 NTAPI
 NtSetDebugFilterState(
-    ULONG ComponentId,
-    ULONG Level,
-    BOOLEAN State
+    _In_ ULONG ComponentId,
+    _In_ ULONG Level,
+    _In_ BOOLEAN State
 );
 
 NTSYSCALLAPI
 NTSTATUS
 NTAPI
 NtSystemDebugControl(
-    SYSDBG_COMMAND ControlCode,
-    PVOID InputBuffer,
-    ULONG InputBufferLength,
-    PVOID OutputBuffer,
-    ULONG OutputBufferLength,
-    PULONG ReturnLength
+    _In_ SYSDBG_COMMAND Command,
+    _In_reads_bytes_(InputBufferLength) PVOID InputBuffer,
+    _In_ ULONG InputBufferLength,
+    _Out_writes_bytes_(OutputBufferLength) PVOID OutputBuffer,
+    _In_ ULONG OutputBufferLength,
+    _Out_opt_ PULONG ReturnLength
 );
 
 NTSYSAPI
@@ -103,11 +103,11 @@ NTSYSAPI
 NTSTATUS
 NTAPI
 ZwSystemDebugControl(
-    SYSDBG_COMMAND ControlCode,
-    PVOID InputBuffer,
-    ULONG InputBufferLength,
-    PVOID OutputBuffer,
-    ULONG OutputBufferLength,
-    PULONG ReturnLength
+    _In_ SYSDBG_COMMAND Command,
+    _In_reads_bytes_(InputBufferLength) PVOID InputBuffer,
+    _In_ ULONG InputBufferLength,
+    _Out_writes_bytes_(OutputBufferLength) PVOID OutputBuffer,
+    _In_ ULONG OutputBufferLength,
+    _Out_opt_ PULONG ReturnLength
 );
 #endif

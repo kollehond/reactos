@@ -12,16 +12,20 @@ list(APPEND SOURCE
     lsa.c
     registry.c
     security.c
-    service.c
-    precomp.h)
+    service.c)
 
-add_executable(advapi32_winetest ${SOURCE} testlist.c)
+list(APPEND PCH_SKIP_SOURCE
+    testlist.c)
 
-if(USE_CLANG_CL OR (NOT MSVC))
-    add_target_compile_flags(advapi32_winetest "-Wno-format")
+add_executable(advapi32_winetest
+    ${SOURCE}
+    ${PCH_SKIP_SOURCE})
+
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(advapi32_winetest PRIVATE "-Wno-format")
 endif()
 
 set_module_type(advapi32_winetest win32cui)
 add_importlibs(advapi32_winetest advapi32 ole32 user32 msvcrt kernel32 ntdll)
-add_pch(advapi32_winetest precomp.h SOURCE)
+add_pch(advapi32_winetest precomp.h "${PCH_SKIP_SOURCE}")
 add_rostests_file(TARGET advapi32_winetest)

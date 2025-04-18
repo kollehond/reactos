@@ -53,6 +53,7 @@ OUT LPDWORD lpReboot);
 #include <winnls.h>
 #include <wincon.h>
 #include <shlobj.h>
+#include <shellapi.h>
 #include <shlwapi.h>
 #include <strsafe.h>
 #include <process.h>
@@ -74,6 +75,8 @@ OUT LPDWORD lpReboot);
 
 #include <devmgr/devmgr.h>
 #include <wine/debug.h>
+
+#define DYNAMIC_FIELD_OFFSET(Type, Field) ((LONG)(LONG_PTR)&(((Type*) 0)->Field))
 
 //WINE_DEFAULT_DEBUG_CHANNEL(devmgr);
 

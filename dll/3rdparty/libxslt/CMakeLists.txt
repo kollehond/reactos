@@ -34,7 +34,7 @@ list(APPEND SOURCE
     xsltutils.c
     precomp.h)
 
-add_library(libxslt SHARED ${SOURCE})
+add_library(libxslt MODULE ${SOURCE})
 set_module_type(libxslt win32dll)
 target_link_libraries(libxslt libxml2 iconv-static zlib)
 add_importlibs(libxslt msvcrt ws2_32 kernel32)
@@ -43,9 +43,9 @@ if(MSVC)
     add_importlibs(libxslt ntdll)
 endif()
 
+if(NOT MSVC)
+    target_compile_options(libxslt PRIVATE -Wno-misleading-indentation -Wno-pointer-sign -Wno-unused-function)
+endif()
+
 add_pch(libxslt precomp.h SOURCE)
 add_cd_file(TARGET libxslt DESTINATION reactos/system32 FOR all)
-
-if(USE_CLANG_CL OR (NOT MSVC))
-    add_target_compile_flags(libxslt "-Wno-pointer-sign -Wno-unused-function")
-endif()

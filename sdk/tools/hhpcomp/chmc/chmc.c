@@ -26,16 +26,15 @@
 #include <string.h>
 #include <assert.h>
 
-#if defined(_WIN32) || defined(__APPLE__)
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include "../../port/port.h"
+
+#ifdef _WIN32
+    #include <io.h>
 #else
-#ifdef __REACTOS__
-#include <sys/types.h>
-#include <sys/stat.h>
-#endif /* __REACTOS__ */
-#include <unistd.h>
+    #include <unistd.h>
 #endif
 
 #include "err.h"
@@ -669,7 +668,9 @@ int chmc_system_done(struct chmcFile *chm)
 	sysp = malloc(16384);
 	if (sysp) {
 		UInt32 val;
+#ifndef __REACTOS__
 		UInt16 code, len;
+#endif
 		const char *entry_val;
 
 		p = chmc_syscat_mem(sysp, &system->version, sizeof(system->version));
@@ -938,10 +939,12 @@ int chmc_crunch_lzx(struct chmcFile *chm, int sect_id)
 
 	assert(chm);
 
+#ifndef __REACTOS__
 	if ((wsize_code < 15) || (wsize_code > 21)) {
 		fprintf(stderr, "window size must be between 15 and 21 inclusive\n");
 		return CHMC_EINVAL;
 	}
+#endif
 
 	lzx_info.chm = chm;
 	lzx_info.section = chm->sections[sect_id];

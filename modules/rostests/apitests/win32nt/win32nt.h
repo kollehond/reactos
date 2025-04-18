@@ -14,6 +14,8 @@
 #include <wingdi.h>
 #include <objbase.h>
 #include <imm.h>
+#include <immdev.h>
+#include <imm32_undoc.h>
 
 #include <winddi.h>
 #include <prntfont.h>
@@ -31,7 +33,6 @@
 
 #define TEST(x) ok(x, "TEST failed: %s\n", #x)
 #define RTEST(x) ok(x, "RTEST failed: %s\n", #x)
-#define TESTX ok
 
 #define GdiHandleTable GdiQueryTable()
 

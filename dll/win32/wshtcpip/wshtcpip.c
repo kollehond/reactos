@@ -365,7 +365,7 @@ WSHIoctl(
 
     UNIMPLEMENTED;
 
-    DPRINT1("Ioctl: Unknown IOCTL code: %d\n", IoControlCode);
+    DPRINT1("Ioctl: Unknown IOCTL code: %x\n", IoControlCode);
 
     return WSAEINVAL;
 }
@@ -417,7 +417,7 @@ SendRequest(
 
     closeTcpFile(TcpCC);
 
-    DPRINT("DeviceIoControl: %ld\n", ((Success != FALSE) ? 0 : GetLastError()));
+    DPRINT("DeviceIoControl: %ld\n", (Success ? NO_ERROR : GetLastError()));
 
     if (!Success)
         return WSAEINVAL;

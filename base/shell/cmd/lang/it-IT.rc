@@ -9,19 +9,6 @@ assoc (mostra tutte le associazioni)\n\
 assoc .ext (mostra una specifica associazione)\n\
 assoc .ext= (rimuove una specifica associazione)\n\
 assoc .ext=FileType (aggiung una associazione)\n"
-    STRING_ATTRIB_HELP "Visualizza o modifica gli attributi dei file.\n\n\
-ATTRIB [+R | -R] [+A | -A] [+S | -S] [+H | -H] file ...\n\
-       [/S [/D]]\n\n\
-  +   Attiva un attributo\n\
-  -   Toglie un attributo\n\
-  R   Attributo di file di sola lettura\n\
-  A   Attributo di file di archivio\n\
-  S   Attributo di file di sistema\n\
-  H   Attributo di file nascosto\n\
-  /S  Tratta i file indicati nella cartella corrente e in\n\
-       tutte le sottocartelle\n\
-  /D  Tratta anche le cartelle\n\n\
-Scrivi ATTRIB senza parametri per visualizzare gli attributi di tutti i file.\n"
     STRING_ALIAS_HELP "Attiva, toglie o visualizza gli alias.\n\n\
 ALIAS [alias=[comando]]\n\n\
   alias    Nome dell'alias.\n\
@@ -35,7 +22,7 @@ Per rimuovere un alias:\n\
     STRING_BEEP_HELP "Segnale acustico.\n\nBEEP\n"
     STRING_CALL_HELP "Chiama un programma batch da un altro.\n\n\
 CALL [disco:][percorso]nomefile [Parametri]\n\n\
-  Parametri  Indicano le informazioni richieste per il programma batch."
+  Parametri  Indicano le informazioni richieste per il programma batch.\n"
     STRING_CD_HELP "Cambia la cartella corrente o ne visualizza nome\n\n\
 CHDIR [/D][disco:][percorso]\n\
 CHDIR[..|.]\n\
@@ -111,9 +98,9 @@ CTTY device\n\n\
             CON is usually the default standard I/O device.\n\n\
 To return control to the standard console, type: CTTY CON on the auxiliary\n\
 device."
-    STRING_DATE_HELP1 "\nScrivi la nuova data (mm%cdd%cyyyy): "
-    STRING_DATE_HELP2 "\nScrivi la nuova data (dd%cmm%cyyyy): "
-    STRING_DATE_HELP3 "\nnScrivi la nuova data (yyyy%cmm%cdd): "
+    STRING_DATE_HELP1 "Scrivi la nuova data (mm%cdd%cyyyy): "
+    STRING_DATE_HELP2 "Scrivi la nuova data (dd%cmm%cyyyy): "
+    STRING_DATE_HELP3 "Scrivi la nuova data (yyyy%cmm%cdd): "
     STRING_DATE_HELP4 "Visualizza o imposta la nuova data.\n\n\
 DATE [/T][data]\n\n\
   /T    Visualizzazione\n\n\
@@ -182,10 +169,10 @@ le selezioni preimpostate mettendo - (trattino) prima della selezione per esempi
     STRING_DIR_HELP2 " Il Volume nel disco %c è %s\n"
     STRING_DIR_HELP3 " Il Volume nel disco %c non ha etichetta.\n"
     STRING_DIR_HELP4 " Il numero di serie del Volume è %04X-%04X\n"
-    STRING_DIR_HELP5 "\n     Numero dei file elencati:\n%16i % 14s byte\n"
-    STRING_DIR_HELP6 "%16i Cartelle% 15s byte liberi\n"
+    STRING_DIR_HELP5 "\n     Numero dei file elencati:\n%16i File     %14s byte\n"
+    STRING_DIR_HELP6 "%16i Cartelle %14s byte liberi\n"
     STRING_DIR_HELP7 "\n Cartelle di %s\n\n"
-    STRING_DIR_HELP8 "%16i File% 14s byte\n"
+    STRING_DIR_HELP8 "%16i File     %14s byte\n"
     STRING_DIRSTACK_HELP1 "Salva la cartella corrente per l'uso con il comando POPD, poi\n\
 passa alla cartella indicata.\n\n\
 PUSHD [percorso | ..]\n\n\
@@ -206,7 +193,7 @@ PUSHD [percorso | ..]\n\n\
   ECHO [messagio]\n\
   ECHO.             Stampa una linea vuota\n\n\
 Usa ECHO senza parametri pr visualizzare lo stato attuale di ECHO."
-    STRING_ECHO_HELP5 "ECHO è %s\n"
+    STRING_ECHO_HELP5 "ECHO è %s.\n"
     STRING_EXIT_HELP "Esce dall'interprete dei comandi.\n\n\
   EXIT [/b] [ExitCode]\n\n\
     /B            Esce solo dalle procedure batch.\n\
@@ -235,7 +222,7 @@ f,d,p,n,x,s,a,t,z.\n\n\
 Per usare FOR in un batch usare %%variable invece di %variable.\n"
     STRING_FREE_HELP1 "\nIl Volume del disco %s è %-11s\n\
  Il numero di serie è %s\n\
-  %16s bytes totali su disco \n\
+  %16s bytes totali su disco\n\
   %16s bytes usati\n\
   %16s bytes liberi\n"
     STRING_FREE_HELP2 "Visualizza le informazioni sul disco.\n\nFREE [disco: ...]\n"
@@ -243,13 +230,13 @@ Per usare FOR in un batch usare %%variable invece di %variable.\n"
                      indicata.\n\n\
 GOTO etichetta\n\n\
   etichetta  Indica il testo utilizzato come etichetta in un batch.\n\n\
-Nel batch questa deve trovarsi da sola in una linea con davanti due punti :.\n"
+Nel batch questa deve trovarsi da sola in una linea con davanti due punti (:).\n"
     STRING_IF_HELP1 "Esegue una elaborazione condizionale nei batch.\n\n\
   IF [NOT] ERRORLEVEL numero comando\n\
   IF [NOT] stringa1==stringa2 comando\n\
   IF [NOT] EXIST nomefile comando\n\
   IF [NOT] DEFINED variabile comando\n\n\
-NOT               Indica che il comando deve essere eseguito solo se \n\
+NOT               Indica che il comando deve essere eseguito solo se\n\
                   la condizione è falsa\n\
 ERRORLEVEL number La condizione è verificata se l'ultimo programma eseguito\n\
                   ha lasciato un codice d'uscita maggiore o uguale a quello\n\
@@ -258,13 +245,8 @@ command           E' il comando da eseguire se la condizione è verificata.\n\
 string1==string2  E' verificata se sono uguali le due stringhe\n\
 EXIST nomefile    E' verificata se il file esiste.\n\
 DEFINED variabile E' verificata se la variabile è definita.\n"
-    STRING_LABEL_HELP1 "Visualizza o modifica l'etichetta di un disco.\n\n\
-LABEL [disco:][etichetta]\n"
-    STRING_LABEL_HELP2 "Il Volume nel disco %c: è %s\n"
-    STRING_LABEL_HELP3 "Il Volume nel disco %c: non ha etichetta\n"
-    STRING_LABEL_HELP4 "Il numero di serie del Volume è %04X-%04X\n"
-    STRING_LABEL_HELP5 "Etichetta del disco (11 Caratteri, INVIO per nessuna)? "
-    STRING_LOCALE_HELP1 "L'ora attuale è"
+    STRING_DATE_NOW "The current date is: "
+    STRING_TIME_NOW "L'ora attuale è: "
     STRING_MKDIR_HELP "Crea una cartella.\n\n\
 MKDIR [disco:]percorso\nMD    [disco:]percorso"
     STRING_MKLINK_HELP "Crea un oggetto di collegamento nel filesystem.\n\n\
@@ -286,9 +268,9 @@ MEMORY"
     STRING_MOVE_HELP1 "Sovrascrivi %s (Si/No/Tutti)? "
     STRING_MOVE_HELP2 "Sposta i file o cambia il nome a file e cartelle.\n\n\
 Per spostare uno o più file:\n\
-MOVE [/N][disco:][percorso]nomefile1[,...] destinazione\n\n\
+MOVE [/N][/Y|/-Y][disco:][percorso]nomefile1[,...] destinazione\n\n\
 Per rinominare una cartella:\n\
-MOVE [/N][disco:][percorso]]cartella1 cartella2\n\n\
+MOVE [/N][/Y|/-Y][disco:][percorso]]cartella1 cartella2\n\n\
   [disco:][percorso]nomefile1  indica la posizione e il nome del file\n\
                                o dei file da spostare.\n\
   /N                           Nulla. Effettua il comando ma senza alterare\n\
@@ -313,6 +295,9 @@ PATH ;\n\n\
 Usa PATH ; per rimuovere tutti i percorsi di ricerca e indicare all'interprete\n\
 dei comandi di cercare solo nella cartella corrente\n\
 PATH senza parametri visualizza i percorsi attualmente impostati.\n"
+    STRING_PAUSE_HELP1 "Ferma l'esecuzione del batch e mostra il seguente messaggio:\n\
+'Premi un tasto per continuare...' o il messaggio indicato.\n\n\
+PAUSE [messaggio]"
     STRING_PROMPT_HELP1 "Modifica il messaggio di pronto a eseguire comandi.\n\n\
 PROMPT [testo]\n\n\
   testo   Indica il nuovo messaggio.\n\n\
@@ -335,17 +320,14 @@ Può essere composto da un testo qualunque e dai seguenti codici speciali:\n\n\
   $V   Versione del sistema operativo\n\
   $_   CR LF (a capo)\n\
   $$   $ (simbolo dollaro)\n"
-    STRING_PAUSE_HELP1 "Ferma l'esecuzione del batch e mostra il seguente messaggio:\n\
-'Premi un tasto per continuare...' o il messaggio indicato.\n\n\
-PAUSE [messaggio]"
     STRING_PROMPT_HELP2 "  $+   Mostra la profondità attuale dello stack delle cartelle"
     STRING_PROMPT_HELP3 "\nUsa PROMPT senza parametri per attivare quello predefinito."
     STRING_REM_HELP "Inizia una linea di commento.\n\n\
 REM [Commento]"
     STRING_RMDIR_HELP "Cancella una cartella.\n\n\
-RMDIR [disco:]percorso\nRD [disco:]percorso\n\
-/S          cancella tutti i file e le cartelle indicate\n\
-/Q          non chiede conferma\n"
+RMDIR [/S] [/Q] [disco:]percorso\nRD [/S] [/Q] [disco:]percorso\n\
+  /S    Cancella tutti i file e le cartelle indicate.\n\
+  /Q    Non chiede conferma.\n"
     STRING_RMDIR_HELP2 "La cartella non è vuota!\n"
     STRING_REN_HELP1 "Rinomina file/cartella or file/cartelle.\n\n\
 RENAME [/E /N /P /Q /S /T] vecchio_nome ... nuovo_nome\n\
@@ -361,34 +343,6 @@ Non è possibile indicare un nuovo disco o percorso nella destinazione.\n\
 Usare il comando MOVE.\n"
     STRING_REN_HELP2 "    %lu file rinominato\n"
     STRING_REN_HELP3 "    %lu files rinominati\n"
-    STRING_REPLACE_HELP1 "Sostituisce i file.\n\n\
-REPLACE [disco1:][percorso1]nomefile [disco2:][percorso2] [/A] [/P] [/R] [/W]\n\
-REPLACE [disco1:][percorso1]nomefile [disco2:][percorso2] [/P] [/R] [/S] [/W] [/U]\n\n\
-  [drive1:][path1]nomefile Specifica il o i file sorgenti.\n\
-  [disco2:][percorso2]     Specifica la cartella dove i file devono essere\n\
-                           sostituiti.\n\
-  /A                       Aggiunge i file alla cartella di destinazione. Non può\n\
-                           essere usato con /S o /U .\n\
-  /P                       Chiede conferma prima di sostituire o aggiungere\n\
-                           un file.\n\
-  /R                       Sostituisce sia i file in sola lettura che quelli\n\
-                           non protetti.\n\
-  /S                       Sostituisce i file in tutte le sottocartelle\n\
-                           della cartella di destinazione. Non può essere\n\
-                           usato con /A .\n\
-  /W                       Aspetta che sia inserito un disco prima di iniziare.\n\
-  /U                       Sostituisce (aggiorna) solo i file più vecchi\n\
-                           dei file sorgenti. Non può essere usato con /A .\n"
-    STRING_REPLACE_HELP2 "Il percorso sorgente è obbligatorio\n"
-    STRING_REPLACE_HELP3 "Nessun file sostituito\n"
-    STRING_REPLACE_HELP4 "%lu file sostituiti\n"
-    STRING_REPLACE_HELP5 "Sostituzione di %s in corso\n"
-    STRING_REPLACE_HELP6 "Sostituzione di %s\n"
-    STRING_REPLACE_HELP7 "Nessun file aggiunto\n"
-    STRING_REPLACE_HELP8 "%lu file aggiunti\n"
-    STRING_REPLACE_HELP9 "Aggiungere %s (S/N)? "
-    STRING_REPLACE_HELP10 "Sostituire %s (S/N)? "
-    STRING_REPLACE_HELP11 "Aggiunta di %s in corso\n"
     STRING_SHIFT_HELP "Cambia la posizione dei parametri in un batch.\n\n\
 SHIFT [DOWN]"
     STRING_SCREEN_HELP "muove il cursore e opzionalmente stampa del testo\n\n\
@@ -424,7 +378,7 @@ quella nuova. Premere INVIO per non modificarla.\n"
     STRING_TIME_HELP2 "Inserisci la nuova ora: "
     STRING_TIMER_HELP1 "Sono trascorsi %d millisecondi\n"
     STRING_TIMER_HELP2 "Sono trascorsi %02d%c%02d%c%02d%c%02d\n"
-    STRING_TIMER_HELP3 "permette l'uso di dieci cronometri.\n\n\
+    STRING_TIMER_HELP3 "Permette l'uso di dieci cronometri.\n\n\
 TIMER  [ON|OFF] [/S] [/n] [/Fn]\n\n\
   ON          attiva il cronometro\n\
   OFF         ferma il cronometro\n\
@@ -433,14 +387,14 @@ TIMER  [ON|OFF] [/S] [/n] [/Fn]\n\n\
   /n          Indica quale cronometro.\n\
               Sono validi i numeri da 0 a 9\n\
               Se non indicato è predefinito 1\n\
-  /Fn         tipo di formato \n\
+  /Fn         tipo di formato\n\
               n può essere:\n\
                     0    millisecondi\n\
                     1    hh%cmm%css%cdd\n\n\
 se non sono indicati ON, OFF o /S verrà commutato lo stato\n\
 del cronometro da attivo a fermo o viceversa\n\n"
     STRING_TYPE_HELP1 "Visualizza il contenuto di un file di testo.\n\n\
-TYPE [disco:][percorso]nomefile \n\
+TYPE [disco:][percorso]nomefile\n\
   /P          Mostra una schermata alla volta.\n"
     STRING_VERIFY_HELP1 "Questo comando non è implementato!!\n\
 Attiva o disattiva la verifica automatica della scrittura dei file\n\
@@ -463,11 +417,11 @@ elenco dei crediti."
  VENDIBILITA o ADEGUATEZZA PER UN PARTICOLARE SCOPO.  Vedere\n\
  la 'GNU General Public License' per ulteriori dettagli."
     STRING_VERSION_HELP4 "\n Questo è software libero; potete distribuirlo e/o modificarlo\n\
- nell'ambito della licenza 'GNU General Public License' così come pubblicata da \n\
+ nell'ambito della licenza 'GNU General Public License' così come pubblicata da\n\
  Free Software Foundation; a scelta la versione 2 della licenza o una\n\
  qualunque successiva.\n"
     STRING_VERSION_HELP5 "\nInviare le segnalazioni di anomalie a <ros-dev@reactos.org>.\n\
-Gli aggiornamenti sono disponibili presso: http://www.reactos.org"
+Gli aggiornamenti sono disponibili presso: https://reactos.org"
     STRING_VERSION_HELP6 "\nVersione FreeDOS scritto da:\n"
     STRING_VERSION_HELP7 "\nVersione ReactOS scritto da:\n"
     STRING_VOL_HELP1 " Il Volume del disco %c è %s\n"
@@ -496,43 +450,43 @@ titolo        il nuovo titolo\n"
     STRING_ALIAS_ERROR "Linea di comando troppo lunga dopo l'espansione degli alias!\n"
     STRING_ASSOC_ERROR "File association not found for extension %s\n"
     STRING_BATCH_ERROR "Errore durante l'apertura di un batch\n"
-    STRING_CHOICE_ERROR "Opzione non valida. Formato atteso: /C[:]opzioni"
-    STRING_CHOICE_ERROR_TXT "Opzione non valida. Formato atteso: /T[:]c,nn"
-    STRING_CHOICE_ERROR_OPTION "Opzione non valida: %s"
+    STRING_CHOICE_ERROR "Opzione non valida. Formato atteso: /C[:]opzioni\n"
+    STRING_CHOICE_ERROR_TXT "Opzione non valida. Formato atteso: /T[:]c,nn\n"
+    STRING_CHOICE_ERROR_OPTION "Opzione non valida: %s\n"
     STRING_CMD_ERROR1 "Impossibile ridirigere dal file %s\n"
     STRING_CMD_ERROR2 "Errore nella creazione del file temporaneo per la ridirezione\n"
     STRING_CMD_ERROR3 "Impossibile ridirigere nel file %s\n"
     STRING_CMD_ERROR4 "Esecuzione di %s...\n"
     STRING_CMD_ERROR5 "Esecuzione di cmdexit.bat...\n"
-    STRING_COLOR_ERROR1 "Il colore di primo piano e sfondo non possono essere uguali"
-    STRING_COLOR_ERROR2 "Errore nella indicazione dei colori"
+    STRING_COLOR_ERROR1 "Il colore di primo piano e sfondo non possono essere uguali\n"
+    STRING_COLOR_ERROR2 "Errore nella indicazione dei colori\n"
     STRING_CONSOLE_ERROR "Errore sconosciuto: %d\n"
     STRING_COPY_ERROR1 "Errore: Impossibile aprire il file sorgente - %s!\n"
     STRING_COPY_ERROR2 "Errore: Impossibile copiare un file su se stesso!\n"
     STRING_COPY_ERROR3 "Errore durante la scrittura della destinazione!\n"
     STRING_COPY_ERROR4 "Errore: Non ancora implementato!\n"
-    STRING_DATE_ERROR "Data non valida."
+    STRING_DATE_ERROR "Data non valida.\n"
     STRING_DEL_ERROR5 "Il file %s sarà cancellato! "
     STRING_DEL_ERROR6 "Sei sicuro (S/N)? "
     STRING_DEL_ERROR7 "Cancellazione di: %s\n"
     STRING_ERROR_ERROR1 "Errore sconosciuto! Codice errore: 0x%lx\n"
     STRING_ERROR_ERROR2 "Errore di sintassi"
-    STRING_FOR_ERROR1 "'in' mancante nella istruzione for."
-    STRING_FOR_ERROR2 "Parentesi mancanti."
-    STRING_FOR_ERROR3 "'do' mancante."
-    STRING_FOR_ERROR4 "nessuno comando dopo 'do'."
+    STRING_FOR_ERROR1 "'in' mancante nella istruzione for.\n"
+    STRING_FOR_ERROR2 "Parentesi mancanti.\n"
+    STRING_FOR_ERROR3 "'do' mancante.\n"
+    STRING_FOR_ERROR4 "nessuno comando dopo 'do'.\n"
     STRING_FREE_ERROR1 "Disco non valido"
     STRING_FREE_ERROR2 "non etichettato"
-    STRING_GOTO_ERROR1 "Nessuna etichetta indicata per GOTO"
+    STRING_GOTO_ERROR1 "Nessuna etichetta indicata per GOTO\n"
     STRING_GOTO_ERROR2 "Etichetta '%s' non trovata\n"
-    STRING_MD_ERROR "Una cartella o file esiste già.\n"
+    STRING_MD_ERROR "Una cartella o file %s esiste già.\n"
     STRING_MD_ERROR2 "Il percorso della nuova cartella non esiste.\n"
     STRING_MOVE_ERROR1 "[OK]\n"
     STRING_MOVE_ERROR2 "[Errore]\n"
-    STRING_REN_ERROR1 "MoveFile() fallita. Errore: %lu\n"
-    STRING_TIME_ERROR1 "Ora non valida."
-    STRING_TYPE_ERROR1 "Opzione '/%s' non valida\n"
-    STRING_WINDOW_ERROR1 "Finestra non trovata"
+    STRING_REN_ERROR "MoveFile() fallita. Errore: %lu\n"
+    STRING_TIME_ERROR "Ora non valida.\n"
+    STRING_TYPE_ERROR "Opzione '/%s' non valida\n"
+    STRING_WINDOW_ERROR "Finestra non trovata\n"
     STRING_ERROR_PARAMETERF_ERROR "Formato del parametro errato - %c\n"
     STRING_ERROR_INVALID_SWITCH "Selezione non valida - /%c\n"
     STRING_ERROR_TOO_MANY_PARAMETERS "Troppi parametri - %s\n"
@@ -544,34 +498,35 @@ titolo        il nuovo titolo\n"
     STRING_ERROR_BADCOMMAND "Comando o nome di file errato - %s\n"
     STRING_ERROR_OUT_OF_MEMORY "Errore di memoria esaurita.\n"
     STRING_ERROR_CANNOTPIPE "Errore!  Impossibile ridirigere!  Impossibile aprire un file temporaneo!\n"
-    STRING_ERROR_D_PAUSEMSG "Premi un tasto per continuare . . ."
+    STRING_ERROR_D_PAUSEMSG "Premi un tasto per continuare . . . "
     STRING_ERROR_DRIVER_NOT_READY "Disco non pronto"
-    STRING_PATH_ERROR "CMD: Non nell'ambiente '%s'\n"
-    STRING_REPLACE_ERROR1 "Parametro non valido - %s\n"
-    STRING_REPLACE_ERROR2 "Percorso non trovato - %s\n"
-    STRING_REPLACE_ERROR3 "Il nome del file, della cartella o della etichetta di volume è errato.\n"
-    STRING_REPLACE_ERROR4 "Combinazione di parametri non valida\n"
-    STRING_REPLACE_ERROR5 "Accesso negato - %s\n"
-    STRING_REPLACE_ERROR6 "Nessun file trovato - %s\n"
-    STRING_REPLACE_ERROR7 "Errore esteso 32\n"
+    STRING_ERROR_INVALID_NUMBER1 "Invalid number. Numeric constants are either decimal (42), hexadecimal (0x2A), or octal (052).\n"
+    STRING_ERROR_INVALID_NUMBER2 "Invalid number. Numbers are limited to 32-bits of precision.\n"
+    STRING_ERROR_DIVISION_BY_ZERO "Division by zero error.\n"
+    STRING_ERROR_INVALID_DEVICE L"Invalid device '%s'\n"
+    STRING_ERROR_CALL_BAD_LABEL "Invalid attempt to call batch label outside of batch script.\n"
+    STRING_ERROR_UNEXPECTED "%s was unexpected.\n"
+    STRING_ERROR_WHILE_PROCESSING "Error occurred while processing: %s.\n"
+    STRING_SET_ENV_ERROR "Environment variable '%s' is not defined\n"
     STRING_CMD_INFOLINE "  ReactOS Command Prompt                                      Type HELP = Help  "
-    STRING_REACTOS_VERSION "ReactOS Operating System [Version %s %s]\n"
+    STRING_CMD_COPYRIGHT "(C) Copyright 1996-%s ReactOS Team.\n"
+    STRING_REACTOS_VERSION "ReactOS [Version %s %s]\n"
     STRING_CMD_SHELLINFO "\nInterprete di linea di comando di ReactOS\nVersion %s %s"
     STRING_VERSION_RUNNING_ON "In esecuzione su: "
     STRING_VERSION_RUNVER "%s [Version %d.%d.%d] %s"
     STRING_COPY_FILE "        %d file copiati\n"
     STRING_DELETE_WIPE "resi illeggibili"
-    STRING_FOR_ERROR "variabile non valida."
-    STRING_SCREEN_COL "valore non valido per colonna"
-    STRING_SCREEN_ROW "valore non valido per riga"
+    STRING_FOR_ERROR "variabile non valida.\n"
+    STRING_SCREEN_COL "valore non valido per colonna\n"
+    STRING_SCREEN_ROW "valore non valido per riga\n"
     STRING_TIMER_TIME "Timer %d è %s: "
     STRING_MKLINK_CREATED_SYMBOLIC "Link simbolico creato per %s <<===>> %s\n"
     STRING_MKLINK_CREATED_HARD "Hard link creato per %s <<===>> %s\n"
     STRING_MKLINK_CREATED_JUNCTION "Junction creato per %s <<===>> %s\n"
     STRING_MORE "Avanti? "
     STRING_CANCEL_BATCH_FILE "\r\nCtrl-Break.  Interrompere il file batch? (Si/No/Tutti)"
-    STRING_INVALID_OPERAND "Operando non valido."
-    STRING_EXPECTED_CLOSE_PAREN "Attesa una ')'."
-    STRING_EXPECTED_NUMBER_OR_VARIABLE "Attesa un numero o un nome di variabile."
-    STRING_SYNTAX_COMMAND_INCORRECT "La sintassi del comando è errata."
+    STRING_INVALID_OPERAND "Operando non valido.\n"
+    STRING_EXPECTED_CLOSE_PAREN "Attesa una ')'.\n"
+    STRING_EXPECTED_NUMBER_OR_VARIABLE "Attesa un numero o un nome di variabile.\n"
+    STRING_SYNTAX_COMMAND_INCORRECT "La sintassi del comando è errata.\n"
 END

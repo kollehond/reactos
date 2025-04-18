@@ -14,8 +14,8 @@
 #pragma warning(disable:4255)
 #endif
 
-#if defined(__LP64__) || (!defined(_M_AMD64) && defined(__WINESRC__))
-#if !defined(__ROS_LONG64__)
+#if (defined(_LP64) || defined(__LP64__)) && !defined(_M_AMD64)
+#ifndef __ROS_LONG64__
 #define __ROS_LONG64__
 #endif
 #endif
@@ -166,9 +166,9 @@ typedef BOOL *LPBOOL;
 typedef unsigned char BYTE;
 typedef unsigned short WORD;
 #ifndef __ROS_LONG64__
-    typedef unsigned long DWORD;
+typedef unsigned long DWORD;
 #else
-    typedef unsigned int DWORD;
+typedef unsigned int DWORD;
 #endif
 typedef float FLOAT;
 typedef FLOAT *PFLOAT;
@@ -244,15 +244,10 @@ typedef HANDLE HGLOBAL;
 typedef HANDLE HLOCAL;
 typedef HANDLE GLOBALHANDLE;
 typedef HANDLE LOCALHANDLE;
-#ifdef _WIN64
+
 typedef INT_PTR (WINAPI *FARPROC)();
 typedef INT_PTR (WINAPI *NEARPROC)();
 typedef INT_PTR (WINAPI *PROC)();
-#else
-typedef int (WINAPI *FARPROC)();
-typedef int (WINAPI *NEARPROC)();
-typedef int (WINAPI *PROC)();
-#endif
 
 typedef void *HGDIOBJ;
 
@@ -284,6 +279,21 @@ DECLARE_HANDLE(HKL);
 DECLARE_HANDLE(HMONITOR);
 DECLARE_HANDLE(HWINEVENTHOOK);
 DECLARE_HANDLE(HUMPD);
+
+DECLARE_HANDLE(DPI_AWARENESS_CONTEXT);
+
+typedef enum DPI_AWARENESS {
+  DPI_AWARENESS_INVALID = -1,
+  DPI_AWARENESS_UNAWARE = 0,
+  DPI_AWARENESS_SYSTEM_AWARE,
+  DPI_AWARENESS_PER_MONITOR_AWARE
+} DPI_AWARENESS;
+
+#define DPI_AWARENESS_CONTEXT_UNAWARE              ((DPI_AWARENESS_CONTEXT)-1)
+#define DPI_AWARENESS_CONTEXT_SYSTEM_AWARE         ((DPI_AWARENESS_CONTEXT)-2)
+#define DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE    ((DPI_AWARENESS_CONTEXT)-3)
+#define DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 ((DPI_AWARENESS_CONTEXT)-4)
+#define DPI_AWARENESS_CONTEXT_UNAWARE_GDISCALED    ((DPI_AWARENESS_CONTEXT)-5)
 
 typedef int HFILE;
 typedef HICON HCURSOR;

@@ -12,7 +12,6 @@
 #define RTL_HEAP_H
 
 /* Core heap definitions */
-#define HEAP_FREELISTS 128
 #define HEAP_SEGMENTS 64
 
 #define HEAP_ENTRY_SIZE ((ULONG)sizeof(HEAP_ENTRY))
@@ -144,6 +143,7 @@ C_ASSERT(sizeof(HEAP_ENTRY) == 16);
 C_ASSERT(sizeof(HEAP_ENTRY) == 8);
 #endif
 C_ASSERT((1 << HEAP_ENTRY_SHIFT) == sizeof(HEAP_ENTRY));
+C_ASSERT((2 << HEAP_ENTRY_SHIFT) == sizeof(HEAP_FREE_ENTRY));
 
 typedef struct _HEAP_TAG_ENTRY
 {
@@ -203,22 +203,25 @@ typedef struct _HEAP_LIST_LOOKUP
     PLIST_ENTRY *ListHints;
 } HEAP_LIST_LOOKUP, *PHEAP_LIST_LOOKUP;
 
+#define HEAP_SEGMENT_MEMBERS                \
+    HEAP_ENTRY Entry;                       \
+    ULONG SegmentSignature;                 \
+    ULONG SegmentFlags;                     \
+    LIST_ENTRY SegmentListEntry;            \
+    struct _HEAP *Heap;                     \
+    PVOID BaseAddress;                      \
+    ULONG NumberOfPages;                    \
+    PHEAP_ENTRY FirstEntry;                 \
+    PHEAP_ENTRY LastValidEntry;             \
+    ULONG NumberOfUnCommittedPages;         \
+    ULONG NumberOfUnCommittedRanges;        \
+    USHORT SegmentAllocatorBackTraceIndex;  \
+    USHORT Reserved;                        \
+    LIST_ENTRY UCRSegmentList
+
 typedef struct _HEAP
 {
-    HEAP_ENTRY Entry;
-    ULONG SegmentSignature;
-    ULONG SegmentFlags;
-    LIST_ENTRY SegmentListEntry;
-    struct _HEAP *Heap;
-    PVOID BaseAddress;
-    ULONG NumberOfPages;
-    PHEAP_ENTRY FirstEntry;
-    PHEAP_ENTRY LastValidEntry;
-    ULONG NumberOfUnCommittedPages;
-    ULONG NumberOfUnCommittedRanges;
-    USHORT SegmentAllocatorBackTraceIndex;
-    USHORT Reserved;
-    LIST_ENTRY UCRSegmentList;
+    HEAP_SEGMENT_MEMBERS;
 
     ULONG Flags;
     ULONG ForceFlags;
@@ -253,13 +256,7 @@ typedef struct _HEAP
     PVOID BlocksIndex; // HEAP_LIST_LOOKUP
     PVOID UCRIndex;
     PHEAP_PSEUDO_TAG_ENTRY PseudoTagEntries;
-    LIST_ENTRY FreeLists[HEAP_FREELISTS]; //FIXME: non-Vista
-    //LIST_ENTRY FreeLists;
-    union
-    {
-        ULONG FreeListsInUseUlong[HEAP_FREELISTS / (sizeof(ULONG) * 8)]; //FIXME: non-Vista
-        UCHAR FreeListsInUseBytes[HEAP_FREELISTS / (sizeof(UCHAR) * 8)]; //FIXME: non-Vista
-    } u;
+    LIST_ENTRY FreeLists;
     PHEAP_LOCK LockVariable;
     PRTL_HEAP_COMMIT_ROUTINE CommitRoutine;
     PVOID FrontEndHeap;
@@ -267,24 +264,13 @@ typedef struct _HEAP
     UCHAR FrontEndHeapType;
     HEAP_COUNTERS Counters;
     HEAP_TUNING_PARAMETERS TuningParameters;
+    RTL_BITMAP FreeHintBitmap;  // FIXME: non-Vista
+    PLIST_ENTRY FreeHints[ANYSIZE_ARRAY]; // FIXME: non-Vista
 } HEAP, *PHEAP;
 
 typedef struct _HEAP_SEGMENT
 {
-    HEAP_ENTRY Entry;
-    ULONG SegmentSignature;
-    ULONG SegmentFlags;
-    LIST_ENTRY SegmentListEntry;
-    PHEAP Heap;
-    PVOID BaseAddress;
-    ULONG NumberOfPages;
-    PHEAP_ENTRY FirstEntry;
-    PHEAP_ENTRY LastValidEntry;
-    ULONG NumberOfUnCommittedPages;
-    ULONG NumberOfUnCommittedRanges;
-    USHORT SegmentAllocatorBackTraceIndex;
-    USHORT Reserved;
-    LIST_ENTRY UCRSegmentList;
+    HEAP_SEGMENT_MEMBERS;
 } HEAP_SEGMENT, *PHEAP_SEGMENT;
 
 typedef struct _HEAP_UCR_DESCRIPTOR
@@ -353,6 +339,7 @@ BOOLEAN NTAPI
 RtlpValidateHeapHeaders(PHEAP Heap, BOOLEAN Recalculate);
 
 /* heapdbg.c */
+NTSYSAPI
 HANDLE NTAPI
 RtlDebugCreateHeap(ULONG Flags,
                    PVOID Addr,

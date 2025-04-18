@@ -2,7 +2,7 @@
 * PROJECT:         ReactOS api tests
 * LICENSE:         GPL - See COPYING in the top level directory
 * PURPOSE:         Test for WSAAsync
-* PROGRAMMERS:     Miroslav Mastny 
+* PROGRAMMERS:     Miroslav Mastny
 */
 
 #include "ws2_32.h"
@@ -10,6 +10,7 @@
 #define SVR_PORT 5000
 #define WAIT_TIMEOUT_ 10000
 #define EXIT_FLAGS (FD_ACCEPT|FD_CONNECT)
+#define MAX_LOOPCOUNT 9u
 
 START_TEST(WSAAsync)
 {
@@ -36,6 +37,8 @@ START_TEST(WSAAsync)
     struct fd_set select_efds;
     struct timeval timeval;
     BOOL ConnectSent = FALSE;
+    unsigned int Addr_con_locLoopCount = 0,
+                 ServerSocketLoopCount = 0;
 
     if (WSAStartup(MAKEWORD(2, 2), &WsaData) != 0)
     {
@@ -91,13 +94,13 @@ START_TEST(WSAAsync)
     server_addr_in.sin_port   = htons(SVR_PORT);
     memcpy(&server_addr_in.sin_addr.S_un.S_addr, ent->h_addr_list[0], 4);
 
-    // server inialialization
+    // Server initialization.
     trace("Initializing server and client connections ...\n");
     ok(bind(ServerSocket, (struct sockaddr*)&server_addr_in, sizeof(server_addr_in)) == 0, "ERROR: server bind failed\n");
     ok(ioctlsocket(ServerSocket, FIONBIO, &ulValue) == 0, "ERROR: server ioctlsocket FIONBIO failed\n");
     ok(WSAEventSelect(ServerSocket, ServerEvent, FD_ACCEPT | FD_CLOSE) == 0, "ERROR: server accept EventSelect failed\n");
 
-    // client inialialization
+    // Client initialization.
     ok(WSAEventSelect(ClientSocket, ClientEvent, FD_CONNECT | FD_CLOSE) == 0, "ERROR: client EventSelect failed\n");
     ok(ioctlsocket(ClientSocket, FIONBIO, &ulValue) == 0, "ERROR: client ioctlsocket FIONBIO failed\n");
 
@@ -121,11 +124,10 @@ START_TEST(WSAAsync)
     {
         dwWait = WaitForMultipleObjects(2, fEvents, FALSE, WAIT_TIMEOUT_);
 
-        ok(dwWait == WAIT_OBJECT_0 || // server socket event
-           dwWait == WAIT_OBJECT_0+1, // client socket event
-           "Unknown event received %ld\n", dwWait);
-        if (dwWait != WAIT_OBJECT_0 && dwWait != WAIT_OBJECT_0+1)
+        if (dwWait != WAIT_OBJECT_0 && // server socket event
+            dwWait != WAIT_OBJECT_0+1) // client socket event
         {
+            ok(FALSE, "Unknown event received %lu\n", dwWait);
             skip("ERROR: Connection timeout\n");
             break;
         }
@@ -144,7 +146,7 @@ START_TEST(WSAAsync)
                 dwFlags |= FD_ACCEPT;
             }
         }
- 
+
         if ((WsaNetworkEvents.lNetworkEvents & FD_CONNECT) != 0)
         {// client connected
             trace("Event FD_CONNECT...\n");
@@ -193,12 +195,12 @@ START_TEST(WSAAsync)
     server_addr_in.sin_port = htons(SVR_PORT);
     memcpy(&server_addr_in.sin_addr.S_un.S_addr, ent->h_addr_list[0], 4);
 
-    // server inialialization
+    // Server initialization.
     trace("Initializing server and client connections ...\n");
     ok(bind(ServerSocket, (struct sockaddr*)&server_addr_in, sizeof(server_addr_in)) == 0, "ERROR: server bind failed\n");
     ok(ioctlsocket(ServerSocket, FIONBIO, &ulValue) == 0, "ERROR: server ioctlsocket FIONBIO failed\n");
 
-    // client inialialization
+    // Client initialization.
     ok(ioctlsocket(ClientSocket, FIONBIO, &ulValue) == 0, "ERROR: client ioctlsocket FIONBIO failed\n");
 
     // listen
@@ -227,9 +229,28 @@ START_TEST(WSAAsync)
         }
         else
         {
-            ok(nSockNameRes == 0, "ERROR: getsockname function failed, expected %d error %d\n", 0, nSockNameRes);
-            ok(len == sizeof(addr_con_loc), "ERROR: getsockname function wrong size, expected %d returned %d\n", sizeof(addr_con_loc), len);
-            ok(addr_con_loc.sin_addr.s_addr == server_addr_in.sin_addr.s_addr, "ERROR: getsockname function wrong addr, expected %lx returned %lx\n", server_addr_in.sin_addr.s_addr, addr_con_loc.sin_addr.s_addr);
+            if (nSockNameRes != 0)
+                ok(FALSE, "ERROR: getsockname function failed, expected 0 error %d\n", nSockNameRes);
+            if (len != sizeof(addr_con_loc))
+                ok(FALSE, "ERROR: getsockname function wrong size, expected %Iu returned %d\n", sizeof(addr_con_loc), len);
+
+            if (addr_con_loc.sin_addr.s_addr == 0ul)
+            {
+                if (++Addr_con_locLoopCount >= MAX_LOOPCOUNT)
+                {
+                    ok(FALSE, "Giving up, on getsockname() (%u/%u), as addr_con_loc is not set yet\n",
+                       Addr_con_locLoopCount, MAX_LOOPCOUNT);
+                    goto done;
+                }
+
+                trace("Looping, for getsockname() (%u/%u), as addr_con_loc is not set yet\n",
+                      Addr_con_locLoopCount, MAX_LOOPCOUNT);
+                Sleep(1);
+                continue;
+            }
+
+            if (addr_con_loc.sin_addr.s_addr != server_addr_in.sin_addr.s_addr)
+                ok(FALSE, "ERROR: getsockname function wrong addr, expected %08lx returned %08lx\n", server_addr_in.sin_addr.s_addr, addr_con_loc.sin_addr.s_addr);
         }
         if ((dwFlags & FD_ACCEPT) != 0)
         {// client connected
@@ -277,6 +298,20 @@ START_TEST(WSAAsync)
                     sockaccept = accept(ServerSocket, (struct sockaddr*)&addr_remote, &addrsize);
                     ok(sockaccept != INVALID_SOCKET, "ERROR: Connection accept function failed, error %d\n", WSAGetLastError());
                     dwFlags |= FD_ACCEPT;
+                }
+                else
+                {
+                    if (++ServerSocketLoopCount >= MAX_LOOPCOUNT)
+                    {
+                        ok(FALSE, "Giving up, on select() (%u/%u), as ServerSocket is not readable yet\n",
+                           ServerSocketLoopCount, MAX_LOOPCOUNT);
+                        goto done;
+                    }
+
+                    trace("Looping, for select() (%u/%u), as ServerSocket is not readable yet\n",
+                          ServerSocketLoopCount, MAX_LOOPCOUNT);
+                    Sleep(1);
+                    continue;
                 }
             }
         }

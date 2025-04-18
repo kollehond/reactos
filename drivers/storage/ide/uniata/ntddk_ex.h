@@ -13,7 +13,7 @@
 
 #ifndef FILE_CHARACTERISTIC_PNP_DEVICE
 #define FILE_CHARACTERISTIC_PNP_DEVICE  0x00000800
-#endif 
+#endif
 
 typedef enum _SYSTEM_INFORMATION_CLASS {
     SystemBasicInformation,
@@ -93,11 +93,7 @@ typedef enum _SYSTEM_INFORMATION_CLASS {
     SystemProcessorPowerInformation,
     SystemEmulationBasicInformation,
     SystemEmulationProcessorInformation,
-#ifdef __REACTOS__
-    SystemExtendedHandleInformation,
-#else // Typo!
     SystemExtendedHanfleInformation,
-#endif
     SystemLostDelayedWriteInformation,
     SystemBigPoolInformation,
     SystemSessionPoolTagInformation,

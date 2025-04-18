@@ -16,19 +16,26 @@ list(APPEND SOURCE
     winemm.h
     ${CMAKE_CURRENT_BINARY_DIR}/winmm_stubs.c)
 
-add_library(winmm SHARED
+add_library(winmm MODULE
     ${SOURCE}
     winmm_res.rc
     ${CMAKE_CURRENT_BINARY_DIR}/winmm.def)
 
+
+if(MSVC)
+    # Disable warning C4090: 'function': different 'const' qualifiers
+    # Disable warning C4312: 'type cast': conversion from 'DWORD' to 'HTASK' of greater size
+    target_compile_options(winmm PRIVATE /wd4090 /wd4312)
+endif()
+
 set_module_type(winmm win32dll)
-target_link_libraries(winmm wine ${PSEH_LIB})
-add_importlibs(winmm advapi32 user32 msvcrt kernel32 ntdll)
+target_link_libraries(winmm wine ${PSEH_LIB} oldnames)
+add_importlibs(winmm userenv advapi32 user32 msvcrt kernel32 ntdll)
 add_pch(winmm winemm.h SOURCE)
 add_cd_file(TARGET winmm DESTINATION reactos/system32 FOR all)
 
-if(NOT MSVC)
-    add_target_compile_flags(winmm "-Wno-unused-but-set-variable")
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(winmm PRIVATE -Wno-unused-but-set-variable)
 endif()
 
 add_subdirectory(midimap)

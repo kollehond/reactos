@@ -12,10 +12,6 @@
 #define NDEBUG
 #include <debug.h>
 
-#if defined (ALLOC_PRAGMA)
-#pragma alloc_text(INIT, ExpInitLookasideLists)
-#endif
-
 /* GLOBALS *******************************************************************/
 
 LIST_ENTRY ExpNonPagedLookasideListHead;
@@ -24,14 +20,14 @@ LIST_ENTRY ExpPagedLookasideListHead;
 KSPIN_LOCK ExpPagedLookasideListLock;
 LIST_ENTRY ExSystemLookasideListHead;
 LIST_ENTRY ExPoolLookasideListHead;
-GENERAL_LOOKASIDE ExpSmallNPagedPoolLookasideLists[MAXIMUM_PROCESSORS];
-GENERAL_LOOKASIDE ExpSmallPagedPoolLookasideLists[MAXIMUM_PROCESSORS];
+GENERAL_LOOKASIDE ExpSmallNPagedPoolLookasideLists[NUMBER_POOL_LOOKASIDE_LISTS];
+GENERAL_LOOKASIDE ExpSmallPagedPoolLookasideLists[NUMBER_POOL_LOOKASIDE_LISTS];
 
 /* PRIVATE FUNCTIONS *********************************************************/
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 ExInitializeSystemLookasideList(IN PGENERAL_LOOKASIDE List,
                                 IN POOL_TYPE Type,
                                 IN ULONG Size,
@@ -57,9 +53,9 @@ ExInitializeSystemLookasideList(IN PGENERAL_LOOKASIDE List,
     List->LastAllocateHits = 0;
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 ExInitPoolLookasidePointers(VOID)
 {
     ULONG i;
@@ -67,7 +63,7 @@ ExInitPoolLookasidePointers(VOID)
     PGENERAL_LOOKASIDE Entry;
 
     /* Loop for all pool lists */
-    for (i = 0; i < MAXIMUM_PROCESSORS; i++)
+    for (i = 0; i < NUMBER_POOL_LOOKASIDE_LISTS; i++)
     {
         /* Initialize the non-paged list */
         Entry = &ExpSmallNPagedPoolLookasideLists[i];
@@ -87,9 +83,9 @@ ExInitPoolLookasidePointers(VOID)
     }
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 ExpInitLookasideLists(VOID)
 {
     ULONG i;
@@ -103,7 +99,7 @@ ExpInitLookasideLists(VOID)
     KeInitializeSpinLock(&ExpPagedLookasideListLock);
 
     /* Initialize the system lookaside lists */
-    for (i = 0; i < MAXIMUM_PROCESSORS; i++)
+    for (i = 0; i < NUMBER_POOL_LOOKASIDE_LISTS; i++)
     {
         /* Initialize the non-paged list */
         ExInitializeSystemLookasideList(&ExpSmallNPagedPoolLookasideLists[i],

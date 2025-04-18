@@ -5,7 +5,7 @@
  * PROGRAMMERS:
  */
 
-#include <win32nt.h>
+#include "../win32nt.h"
 
 ULONG gMonitorCount = 0;
 HDC ghdcMonitor = 0;
@@ -43,7 +43,7 @@ START_TEST(NtUserEnumDisplayMonitors)
     BOOL ret;
 
     // WILL crash!
-//	TEST(NtUserEnumDisplayMonitors1(NULL, NULL, NULL, 0) == 0);
+//  TEST(NtUserEnumDisplayMonitors1(NULL, NULL, NULL, 0) == 0);
 
     ret = NtUserEnumDisplayMonitors(0, NULL, MonitorEnumProc, 0);
     TEST(ret == TRUE);

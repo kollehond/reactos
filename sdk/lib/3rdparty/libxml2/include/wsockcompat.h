@@ -5,11 +5,13 @@
 #if !defined __XML_WSOCKCOMPAT_H__
 #define __XML_WSOCKCOMPAT_H__
 
-#ifdef _WIN32_WCE
-#include <winsock.h>
-#else
 #include <errno.h>
 #include <winsock2.h>
+
+/* Fix for old MinGW. */
+#ifndef _WINSOCKAPI_
+#define _WINSOCKAPI_
+#endif
 
 /* the following is a workaround a problem for 'inline' keyword in said
    header when compiled with Borland C++ 6 */
@@ -24,7 +26,6 @@
 #if defined(GetAddrInfo)
 #include <wspiapi.h>
 #define HAVE_GETADDRINFO
-#endif
 #endif
 
 #undef XML_SOCKLEN_T

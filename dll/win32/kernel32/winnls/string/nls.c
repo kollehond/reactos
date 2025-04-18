@@ -7,6 +7,7 @@
  *                  Hartmut Birr
  *                  Gunnar Andre Dalsnes
  *                  Thomas Weidenmueller
+ *                  Katayama Hirofumi MZ
  * UPDATE HISTORY:
  *                  Created 24/08/2004
  */
@@ -27,14 +28,18 @@ static const char UTF8Length[128] =
    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 0x90 - 0x9F */
    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 0xA0 - 0xAF */
    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 0xB0 - 0xBF */
-   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, /* 0xC0 - 0xCF */
+   0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, /* 0xC0 - 0xCF */
    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, /* 0xD0 - 0xDF */
    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, /* 0xE0 - 0xEF */
-   3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 0, 0  /* 0xF0 - 0xFF */
+   3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0  /* 0xF0 - 0xFF */
 };
 
 /* First byte mask depending on UTF-8 sequence length. */
 static const unsigned char UTF8Mask[6] = {0x7f, 0x1f, 0x0f, 0x07, 0x03, 0x01};
+
+/* UTF-8 length to lower bound */
+static const unsigned long UTF8LBound[] =
+    {0, 0x80, 0x800, 0x10000, 0x200000, 0x2000000, 0xFFFFFFFF};
 
 /* FIXME: Change to HASH table or linear array. */
 static LIST_ENTRY CodePageListHead;
@@ -51,7 +56,89 @@ GetNlsSectionName(UINT CodePage, UINT Base, ULONG Unknown,
 BOOL WINAPI
 GetCPFileNameFromRegistry(UINT CodePage, LPWSTR FileName, ULONG FileNameSize);
 
+NTSTATUS
+WINAPI
+CreateNlsSecurityDescriptor(
+    _Out_ PSECURITY_DESCRIPTOR SecurityDescriptor,
+    _In_ SIZE_T DescriptorSize,
+    _In_ ULONG AccessMask);
+
 /* PRIVATE FUNCTIONS **********************************************************/
+
+/**
+ * @brief
+ * Creates a security descriptor for the NLS object directory.
+ *
+ * @param[out]  SecurityDescriptor
+ * @param[in]   DescriptorSize
+ * Same parameters as for CreateNlsSecurityDescriptor().
+ *
+ * @remark
+ * Everyone (World SID) is given read access to the NLS directory,
+ * whereas Admins are given full access.
+ */
+static NTSTATUS
+CreateNlsDirectorySecurity(
+    _Out_ PSECURITY_DESCRIPTOR SecurityDescriptor,
+    _In_ SIZE_T DescriptorSize)
+{
+    static SID_IDENTIFIER_AUTHORITY NtAuthority = {SECURITY_NT_AUTHORITY};
+    NTSTATUS Status;
+    PSID AdminsSid;
+    PACL Dacl;
+    BOOLEAN DaclPresent, DaclDefaulted;
+
+    /* Give everyone basic directory access */
+    Status = CreateNlsSecurityDescriptor(SecurityDescriptor,
+                                         DescriptorSize,
+                                         DIRECTORY_TRAVERSE | DIRECTORY_CREATE_OBJECT);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("Failed to create basic NLS SD (Status 0x%08x)\n", Status);
+        return Status;
+    }
+
+    /* Create the Admins SID */
+    // NOTE: Win <= 2k3 uses SYSTEM instead (SECURITY_LOCAL_SYSTEM_RID with one SubAuthority)
+    Status = RtlAllocateAndInitializeSid(&NtAuthority,
+                                         2,
+                                         SECURITY_BUILTIN_DOMAIN_RID,
+                                         DOMAIN_ALIAS_RID_ADMINS,
+                                         0, 0, 0, 0, 0, 0,
+                                         &AdminsSid);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("Failed to create Admins SID (Status 0x%08x)\n", Status);
+        goto Quit;
+    }
+
+    /* Retrieve the DACL from the descriptor */
+    Status = RtlGetDaclSecurityDescriptor(SecurityDescriptor,
+                                          &DaclPresent,
+                                          &Dacl,
+                                          &DaclDefaulted);
+    if (!NT_SUCCESS(Status) || !DaclPresent || !Dacl)
+    {
+        DPRINT1("Failed to get DACL from descriptor (Status 0x%08x)\n", Status);
+        goto Quit;
+    }
+
+    /* Add an allowed access ACE to the Admins SID with full access.
+     * The function verifies the DACL is large enough to accommodate it. */
+    Status = RtlAddAccessAllowedAce(Dacl,
+                                    ACL_REVISION,
+                                    DIRECTORY_ALL_ACCESS,
+                                    AdminsSid);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("Failed to add allowed access ACE for Admins SID (Status 0x%08x)\n", Status);
+        goto Quit;
+    }
+
+Quit:
+    RtlFreeSid(AdminsSid);
+    return Status;
+}
 
 /**
  * @name NlsInit
@@ -63,9 +150,12 @@ BOOL
 FASTCALL
 NlsInit(VOID)
 {
+    NTSTATUS Status;
     UNICODE_STRING DirName;
     OBJECT_ATTRIBUTES ObjectAttributes;
     HANDLE Handle;
+    UCHAR SecurityDescriptor[NLS_SECTION_SECURITY_DESCRIPTOR_SIZE +
+                             NLS_SIZEOF_ACE_AND_SIDS(2)];
 
     InitializeListHead(&CodePageListHead);
     RtlInitializeCriticalSection(&CodePageListLock);
@@ -73,17 +163,29 @@ NlsInit(VOID)
     /*
      * FIXME: Eventually this should be done only for the NLS Server
      * process, but since we don't have anything like that (yet?) we
-     * always try to create the "\Nls" directory here.
+     * always try to create the "\NLS" directory here.
      */
-    RtlInitUnicodeString(&DirName, L"\\Nls");
+    RtlInitUnicodeString(&DirName, L"\\NLS");
+
+    /* Create a security descriptor for the NLS directory */
+    Status = CreateNlsDirectorySecurity(&SecurityDescriptor,
+                                        sizeof(SecurityDescriptor));
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("Failed to create NLS directory security (Status 0x%08x)\n", Status);
+        return FALSE;
+    }
 
     InitializeObjectAttributes(&ObjectAttributes,
                                &DirName,
                                OBJ_CASE_INSENSITIVE | OBJ_PERMANENT,
                                NULL,
-                               NULL);
+                               &SecurityDescriptor);
 
-    if (NT_SUCCESS(NtCreateDirectoryObject(&Handle, DIRECTORY_ALL_ACCESS, &ObjectAttributes)))
+    Status = NtCreateDirectoryObject(&Handle,
+                                     DIRECTORY_TRAVERSE | DIRECTORY_CREATE_OBJECT,
+                                     &ObjectAttributes);
+    if (NT_SUCCESS(Status))
     {
         NtClose(Handle);
     }
@@ -190,16 +292,18 @@ PCODEPAGE_ENTRY
 FASTCALL
 IntGetCodePageEntry(UINT CodePage)
 {
-    CHAR SectionName[40];
     NTSTATUS Status;
+    CHAR SectionName[40];
     HANDLE SectionHandle = INVALID_HANDLE_VALUE, FileHandle;
     PBYTE SectionMapping;
     OBJECT_ATTRIBUTES ObjectAttributes;
+    UCHAR SecurityDescriptor[NLS_SECTION_SECURITY_DESCRIPTOR_SIZE];
     ANSI_STRING AnsiName;
     UNICODE_STRING UnicodeName;
     WCHAR FileName[MAX_PATH + 1];
     UINT FileNamePos;
     PCODEPAGE_ENTRY CodePageEntry;
+
     if (CodePage == CP_ACP)
     {
         return &AnsiCodePage;
@@ -262,10 +366,35 @@ IntGetCodePageEntry(UINT CodePage)
     RtlInitAnsiString(&AnsiName, SectionName);
     RtlAnsiStringToUnicodeString(&UnicodeName, &AnsiName, TRUE);
 
-    InitializeObjectAttributes(&ObjectAttributes, &UnicodeName, 0, NULL, NULL);
+    /*
+     * FIXME: IntGetCodePageEntry should not create any security
+     * descriptor here but instead this responsibility should be
+     * assigned to Base Server API (aka basesrv.dll). That is,
+     * kernel32 must instruct basesrv.dll on creating NLS section
+     * names that do not exist through API message communication.
+     * However since we do not do that, let the kernel32 do the job
+     * by assigning security to NLS section names for the time being...
+     */
+    Status = CreateNlsSecurityDescriptor(&SecurityDescriptor,
+                                         sizeof(SecurityDescriptor),
+                                         SECTION_MAP_READ);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("CreateNlsSecurityDescriptor FAILED! (Status 0x%08x)\n", Status);
+        RtlLeaveCriticalSection(&CodePageListLock);
+        return NULL;
+    }
+
+    InitializeObjectAttributes(&ObjectAttributes,
+                               &UnicodeName,
+                               OBJ_CASE_INSENSITIVE,
+                               NULL,
+                               SecurityDescriptor);
 
     /* Try to open the section first */
-    Status = NtOpenSection(&SectionHandle, SECTION_MAP_READ, &ObjectAttributes);
+    Status = NtOpenSection(&SectionHandle,
+                           SECTION_MAP_READ,
+                           &ObjectAttributes);
 
     /* If the section doesn't exist, try to create it. */
     if (Status == STATUS_UNSUCCESSFUL ||
@@ -351,10 +480,10 @@ IntGetCodePageEntry(UINT CodePage)
  *
  * Internal version of MultiByteToWideChar for UTF8.
  *
+ * @note We use Win10's behaviour due to security reason.
+ *
  * @see MultiByteToWideChar
- * @todo Add UTF8 validity checks.
  */
-
 static
 INT
 WINAPI
@@ -364,10 +493,12 @@ IntMultiByteToWideCharUTF8(DWORD Flags,
                            LPWSTR WideCharString,
                            INT WideCharCount)
 {
-    LPCSTR MbsEnd;
-    UCHAR Char, Length;
+    LPCSTR MbsEnd, MbsPtrSave;
+    UCHAR Char, TrailLength;
     WCHAR WideChar;
     LONG Count;
+    BOOL CharIsValid, StringIsValid = TRUE;
+    const WCHAR InvalidChar = 0xFFFD;
 
     if (Flags != 0 && Flags != MB_ERR_INVALID_CHARS)
     {
@@ -378,17 +509,68 @@ IntMultiByteToWideCharUTF8(DWORD Flags,
     /* Does caller query for output buffer size? */
     if (WideCharCount == 0)
     {
+        /* validate and count the wide characters */
         MbsEnd = MultiByteString + MultiByteCount;
         for (; MultiByteString < MbsEnd; WideCharCount++)
         {
             Char = *MultiByteString++;
-            if (Char < 0xC0)
+            if (Char < 0x80)
+            {
+                TrailLength = 0;
                 continue;
-            MultiByteString += UTF8Length[Char - 0x80];
+            }
+            if ((Char & 0xC0) == 0x80)
+            {
+                TrailLength = 0;
+                StringIsValid = FALSE;
+                continue;
+            }
+
+            TrailLength = UTF8Length[Char - 0x80];
+            if (TrailLength == 0)
+            {
+                StringIsValid = FALSE;
+                continue;
+            }
+
+            CharIsValid = TRUE;
+            MbsPtrSave = MultiByteString;
+            WideChar = Char & UTF8Mask[TrailLength];
+
+            while (TrailLength && MultiByteString < MbsEnd)
+            {
+                if ((*MultiByteString & 0xC0) != 0x80)
+                {
+                    CharIsValid = StringIsValid = FALSE;
+                    break;
+                }
+
+                WideChar = (WideChar << 6) | (*MultiByteString++ & 0x7f);
+                TrailLength--;
+            }
+
+            if (!CharIsValid || WideChar < UTF8LBound[UTF8Length[Char - 0x80]])
+            {
+                MultiByteString = MbsPtrSave;
+            }
         }
+
+        if (TrailLength)
+        {
+            WideCharCount++;
+            StringIsValid = FALSE;
+        }
+
+        if (Flags == MB_ERR_INVALID_CHARS && !StringIsValid)
+        {
+            SetLastError(ERROR_NO_UNICODE_TRANSLATION);
+            return 0;
+        }
+
         return WideCharCount;
     }
 
+    /* convert */
     MbsEnd = MultiByteString + MultiByteCount;
     for (Count = 0; Count < WideCharCount && MultiByteString < MbsEnd; Count++)
     {
@@ -396,20 +578,70 @@ IntMultiByteToWideCharUTF8(DWORD Flags,
         if (Char < 0x80)
         {
             *WideCharString++ = Char;
+            TrailLength = 0;
             continue;
         }
-        Length = UTF8Length[Char - 0x80];
-        WideChar = Char & UTF8Mask[Length];
-        while (Length && MultiByteString < MbsEnd)
+        if ((Char & 0xC0) == 0x80)
         {
-            WideChar = (WideChar << 6) | (*MultiByteString++ & 0x7f);
-            Length--;
+            *WideCharString++ = InvalidChar;
+            TrailLength = 0;
+            StringIsValid = FALSE;
+            continue;
         }
-        *WideCharString++ = WideChar;
+
+        TrailLength = UTF8Length[Char - 0x80];
+        if (TrailLength == 0)
+        {
+            *WideCharString++ = InvalidChar;
+            StringIsValid = FALSE;
+            continue;
+        }
+
+        CharIsValid = TRUE;
+        MbsPtrSave = MultiByteString;
+        WideChar = Char & UTF8Mask[TrailLength];
+
+        while (TrailLength && MultiByteString < MbsEnd)
+        {
+            if ((*MultiByteString & 0xC0) != 0x80)
+            {
+                CharIsValid = StringIsValid = FALSE;
+                break;
+            }
+
+            WideChar = (WideChar << 6) | (*MultiByteString++ & 0x7f);
+            TrailLength--;
+        }
+
+        if (CharIsValid && UTF8LBound[UTF8Length[Char - 0x80]] <= WideChar)
+        {
+            *WideCharString++ = WideChar;
+        }
+        else
+        {
+            *WideCharString++ = InvalidChar;
+            MultiByteString = MbsPtrSave;
+            StringIsValid = FALSE;
+        }
+    }
+
+    if (TrailLength && Count < WideCharCount && MultiByteString < MbsEnd)
+    {
+        *WideCharString = InvalidChar;
+        WideCharCount++;
     }
 
     if (MultiByteString < MbsEnd)
+    {
         SetLastError(ERROR_INSUFFICIENT_BUFFER);
+        return 0;
+    }
+
+    if (Flags == MB_ERR_INVALID_CHARS && (!StringIsValid || TrailLength))
+    {
+        SetLastError(ERROR_NO_UNICODE_TRANSLATION);
+        return 0;
+    }
 
     return Count;
 }
@@ -547,14 +779,9 @@ IntMultiByteToWideCharCP(UINT CodePage,
                 continue;
             }
 
-            if (MultiByteString == MbsEnd)
+            if (MultiByteString == MbsEnd || *MultiByteString == 0)
             {
-                *WideCharString++ = UNICODE_NULL;
-            }
-            else if (*MultiByteString == 0)
-            {
-                *WideCharString++ = UNICODE_NULL;
-                MultiByteString++;
+                *WideCharString++ = CodePageTable->UniDefaultChar;
             }
             else
             {
@@ -1531,7 +1758,6 @@ static INT Utf7ToWideChar(const char *src, int srclen, WCHAR *dst, int dstlen)
  *
  * @implemented
  */
-
 INT
 WINAPI
 MultiByteToWideChar(UINT CodePage,
@@ -1726,7 +1952,8 @@ UINT
 GetLocalisedText(
     IN UINT uID,
     IN LPWSTR lpszDest,
-    IN UINT cchDest)
+    IN UINT cchDest,
+    IN LANGID lang)
 {
     HRSRC hrsrc;
     HGLOBAL hmem;
@@ -1739,8 +1966,7 @@ GetLocalisedText(
     if (uID == 37)
         uID = uID * 100;
 
-    lcid = GetUserDefaultLCID();
-    lcid = ConvertDefaultLocale(lcid);
+    lcid = ConvertDefaultLocale(lang);
 
     langId = LANGIDFROMLCID(lcid);
 
@@ -1879,7 +2105,8 @@ GetCPInfoExW(UINT CodePage,
             lpCPInfoEx->UnicodeDefaultChar = 0x3f;
             return GetLocalisedText(lpCPInfoEx->CodePage,
                                     lpCPInfoEx->CodePageName,
-                                    ARRAYSIZE(lpCPInfoEx->CodePageName)) != 0;
+                                    ARRAYSIZE(lpCPInfoEx->CodePageName),
+                                    GetThreadLocale()) != 0;
         }
         break;
 
@@ -1889,7 +2116,8 @@ GetCPInfoExW(UINT CodePage,
             lpCPInfoEx->UnicodeDefaultChar = 0x3f;
             return GetLocalisedText(lpCPInfoEx->CodePage,
                                     lpCPInfoEx->CodePageName,
-                                    ARRAYSIZE(lpCPInfoEx->CodePageName)) != 0;
+                                    ARRAYSIZE(lpCPInfoEx->CodePageName),
+                                    GetThreadLocale()) != 0;
         }
 
         default:
@@ -1908,7 +2136,8 @@ GetCPInfoExW(UINT CodePage,
             lpCPInfoEx->UnicodeDefaultChar = CodePageEntry->CodePageTable.UniDefaultChar;
             return GetLocalisedText(lpCPInfoEx->CodePage,
                                     lpCPInfoEx->CodePageName,
-                                    ARRAYSIZE(lpCPInfoEx->CodePageName)) != 0;
+                                    ARRAYSIZE(lpCPInfoEx->CodePageName),
+                                    GetThreadLocale()) != 0;
         }
         break;
     }
@@ -2132,13 +2361,104 @@ IsDBCSLeadByte(BYTE TestByte)
     return IntIsLeadByte(&AnsiCodePage.CodePageTable, TestByte);
 }
 
-/*
- * @unimplemented
- */
-NTSTATUS WINAPI CreateNlsSecurityDescriptor(PSECURITY_DESCRIPTOR SecurityDescriptor,ULONG Size,ULONG AccessMask)
+/**
+ * @brief
+ * Creates a security descriptor for each NLS section. Typically used by
+ * BASESRV to give Everyone (World SID) read access to the sections.
+ *
+ * @param[out]  SecurityDescriptor
+ * A pointer to a correctly sized user-allocated buffer, that receives
+ * a security descriptor containing one ACL with one World SID.
+ * Its size should be at least equal to NLS_SECTION_SECURITY_DESCRIPTOR_SIZE.
+ *
+ * @param[in]   DescriptorSize
+ * Size (in bytes) of the user-provided SecurityDescriptor buffer.
+ *
+ * @param[in]   AccessMask
+ * An access mask that grants Everyone an access specific to that mask.
+ *
+ * @return
+ * STATUS_SUCCESS is returned if the function has successfully
+ * created a security descriptor for a NLS section name. Otherwise
+ * a NTSTATUS failure code is returned.
+ *
+ * @remark
+ * This implementation has to be made compatible with NT <= 5.2 in order
+ * to inter-operate with BASESRV. In particular, the security descriptor
+ * is a user-provided buffer correctly sized. The caller is responsible
+ * to submit the exact size of the descriptor.
+ **/
+NTSTATUS
+WINAPI
+CreateNlsSecurityDescriptor(
+    _Out_ PSECURITY_DESCRIPTOR SecurityDescriptor,
+    _In_ SIZE_T DescriptorSize,
+    _In_ ULONG AccessMask)
 {
-    STUB;
-    return 0;
+    static SID_IDENTIFIER_AUTHORITY WorldAuthority = {SECURITY_WORLD_SID_AUTHORITY};
+    NTSTATUS Status;
+    PSID WorldSid;
+    PACL Dacl;
+    ULONG DaclSize;
+
+    if (DescriptorSize < NLS_SECTION_SECURITY_DESCRIPTOR_SIZE)
+    {
+        DPRINT1("Security descriptor size too small\n");
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    /* Create the World SID */
+    Status = RtlAllocateAndInitializeSid(&WorldAuthority,
+                                         1,
+                                         SECURITY_WORLD_RID,
+                                         0, 0, 0, 0, 0, 0, 0,
+                                         &WorldSid);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("Failed to create World SID (Status 0x%08x)\n", Status);
+        return Status;
+    }
+
+    /* Initialize the security descriptor */
+    Status = RtlCreateSecurityDescriptor(SecurityDescriptor,
+                                         SECURITY_DESCRIPTOR_REVISION);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("Failed to create security descriptor (Status 0x%08x)\n", Status);
+        goto Quit;
+    }
+
+    /* The DACL follows the security descriptor, and includes the World SID */
+    Dacl = (PACL)((ULONG_PTR)SecurityDescriptor + sizeof(SECURITY_DESCRIPTOR));
+    DaclSize = DescriptorSize - sizeof(SECURITY_DESCRIPTOR);
+
+    /* Create the DACL */
+    Status = RtlCreateAcl(Dacl, DaclSize, ACL_REVISION);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("Failed to create DACL (Status 0x%08x)\n", Status);
+        goto Quit;
+    }
+
+    /* Add an allowed access ACE to the World SID */
+    Status = RtlAddAccessAllowedAce(Dacl, ACL_REVISION, AccessMask, WorldSid);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("Failed to add allowed access ACE for World SID (Status 0x%08x)\n", Status);
+        goto Quit;
+    }
+
+    /* Set the DACL to the descriptor */
+    Status = RtlSetDaclSecurityDescriptor(SecurityDescriptor, TRUE, Dacl, FALSE);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("Failed to set DACL into descriptor (Status 0x%08x)\n", Status);
+        goto Quit;
+    }
+
+Quit:
+    RtlFreeSid(WorldSid);
+    return Status;
 }
 
 /*
@@ -2256,6 +2576,19 @@ WINAPI
 GetNLSVersion(IN NLS_FUNCTION Function,
               IN LCID Locale,
               IN OUT LPNLSVERSIONINFO lpVersionInformation)
+{
+    STUB;
+    return TRUE;
+}
+
+/*
+ * @unimplemented
+ */
+BOOL
+WINAPI
+GetNLSVersionEx(IN NLS_FUNCTION function,
+                IN LPCWSTR lpLocaleName,
+                IN OUT LPNLSVERSIONINFOEX lpVersionInformation)
 {
     STUB;
     return TRUE;

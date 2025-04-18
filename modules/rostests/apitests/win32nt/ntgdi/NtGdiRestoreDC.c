@@ -5,7 +5,7 @@
  * PROGRAMMERS:
  */
 
-#include <win32nt.h>
+#include "../win32nt.h"
 
 static HBRUSH hbrush;
 static HBITMAP hbitmap;
@@ -102,8 +102,8 @@ Test_IsSpecialState(HDC hdc, BOOL bMemDC)
     TEST(pt.x == 56);
     TEST(pt.y == 78);
     GetWindowExtEx(hdc, &sz);
-    TESTX(sz.cx == 123, "sz.cx == %ld\n", sz.cx);
-    TESTX(sz.cy == 456, "sz.cy == %ld\n", sz.cy);
+    ok(sz.cx == 123, "sz.cx == %ld\n", sz.cx);
+    ok(sz.cy == 456, "sz.cy == %ld\n", sz.cy);
     GetViewportExtEx(hdc, &sz);
     TEST(sz.cx == 234);
     TEST(sz.cy == 567);

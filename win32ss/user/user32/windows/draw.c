@@ -6,7 +6,7 @@
  * Copyright 2003 Andrew Greenwood
  * Copyright 2003 Filip Navara
  * Copyright 2009 Matthias Kupfer
- * Copyright 2017 Katayama Hirofumi MZ
+ * Copyright 2017-2022 Katayama Hirofumi MZ
  *
  * Based on Wine code.
  *
@@ -704,7 +704,6 @@ static BOOL UITOOLS95_DFC_ButtonCheckRadio(HDC dc, LPRECT r, UINT uFlags, BOOL R
         // FIXME: improve font rendering
         RECT Rect;
         HGDIOBJ hbrOld, hpenOld;
-        FillRect(dc, r, (HBRUSH)GetStockObject(WHITE_BRUSH));
         SetRect(&Rect, X, Y, X + Shorter, Y + Shorter);
         InflateRect(&Rect, -(Shorter * 8) / 54, -(Shorter * 8) / 54);
         hbrOld = SelectObject(dc, GetStockObject(BLACK_BRUSH));
@@ -760,7 +759,7 @@ static BOOL UITOOLS95_DFC_ButtonCheckRadio(HDC dc, LPRECT r, UINT uFlags, BOOL R
         {
             TCHAR Check = (Radio) ? 'i' : 'b';
 
-            SetTextColor(dc, GetSysColor(COLOR_WINDOWTEXT));
+            SetTextColor(dc, GetSysColor((uFlags & DFCS_INACTIVE) ? COLOR_BTNSHADOW : COLOR_WINDOWTEXT));
             TextOut(dc, X, Y, &Check, 1);
         }
     }
@@ -777,7 +776,7 @@ static BOOL UITOOLS95_DFC_ButtonCheckRadio(HDC dc, LPRECT r, UINT uFlags, BOOL R
 /* Ported from WINE20020904 */
 static BOOL UITOOLS95_DrawFrameButton(HDC hdc, LPRECT rc, UINT uState)
 {
-    switch(uState & 0xff)
+    switch(uState & 0x1f)
     {
         case DFCS_BUTTONPUSH:
             return UITOOLS95_DFC_ButtonPush(hdc, rc, uState);
@@ -788,13 +787,18 @@ static BOOL UITOOLS95_DrawFrameButton(HDC hdc, LPRECT rc, UINT uState)
 
         case DFCS_BUTTONRADIOIMAGE:
         case DFCS_BUTTONRADIOMASK:
+            if (uState & DFCS_BUTTONRADIOIMAGE)
+                FillRect(hdc, rc, (HBRUSH)GetStockObject(BLACK_BRUSH)); /* Fill by black */
+            else
+                FillRect(hdc, rc, (HBRUSH)GetStockObject(WHITE_BRUSH)); /* Fill by white */
+
+            return UITOOLS95_DFC_ButtonCheckRadio(hdc, rc, uState, TRUE);
+
         case DFCS_BUTTONRADIO:
             return UITOOLS95_DFC_ButtonCheckRadio(hdc, rc, uState, TRUE);
 
-/*
         default:
-            DbgPrint("Invalid button state=0x%04x\n", uState);
-*/
+            ERR("Invalid button state=0x%04x\n", uState);
     }
 
     return FALSE;
@@ -808,7 +812,7 @@ static BOOL UITOOLS95_DrawFrameCaption(HDC dc, LPRECT r, UINT uFlags)
     RECT myr;
     INT bkmode;
     TCHAR Symbol;
-    switch(uFlags & 0xff)
+    switch(uFlags & 0xf)
     {
         case DFCS_CAPTIONCLOSE:
 		Symbol = 'r';
@@ -826,7 +830,7 @@ static BOOL UITOOLS95_DrawFrameCaption(HDC dc, LPRECT r, UINT uFlags)
 		Symbol = '2';
 		break;
         default:
-             WARN("Invalid caption; flags=0x%04x\n", uFlags);
+             ERR("Invalid caption; flags=0x%04x\n", uFlags);
              return FALSE;
     }
     IntDrawRectEdge(dc,r,(uFlags&DFCS_PUSHED) ? EDGE_SUNKEN : EDGE_RAISED, BF_RECT | BF_MIDDLE | BF_SOFT, 1);
@@ -875,7 +879,7 @@ static BOOL UITOOLS95_DrawFrameScroll(HDC dc, LPRECT r, UINT uFlags)
     RECT myr;
     INT bkmode;
     TCHAR Symbol;
-    switch(uFlags & 0xff)
+    switch(uFlags & 0x1f)
     {
         case DFCS_SCROLLCOMBOBOX:
         case DFCS_SCROLLDOWN:
@@ -929,7 +933,7 @@ static BOOL UITOOLS95_DrawFrameScroll(HDC dc, LPRECT r, UINT uFlags)
 		DeleteObject(hFont);
             return TRUE;
 	default:
-	    WARN("Invalid scroll; flags=0x%04x\n", uFlags);
+	    ERR("Invalid scroll; flags=0x%04x\n", uFlags);
             return FALSE;
     }
     IntDrawRectEdge(dc, r, (uFlags & DFCS_PUSHED) ? EDGE_SUNKEN : EDGE_RAISED, (uFlags&DFCS_FLAT) | BF_MIDDLE | BF_RECT, 1);
@@ -975,7 +979,10 @@ static BOOL UITOOLS95_DrawFrameMenu(HDC dc, LPRECT r, UINT uFlags)
     LOGFONTW lf;
     HFONT hFont, hOldFont;
     TCHAR Symbol;
-    switch(uFlags & 0xff)
+    RECT myr;
+    INT cxy;
+    cxy = UITOOLS_MakeSquareRect(r, &myr);
+    switch(uFlags & 0x1f)
     {
         case DFCS_MENUARROWUP:
             Symbol = '5';
@@ -998,16 +1005,17 @@ static BOOL UITOOLS95_DrawFrameMenu(HDC dc, LPRECT r, UINT uFlags)
             break;
 
         case DFCS_MENUCHECK:
+        case DFCS_MENUCHECK | DFCS_MENUBULLET:
             Symbol = 'a';
             break;
 
         default:
-            WARN("Invalid menu; flags=0x%04x\n", uFlags);
+            ERR("Invalid menu; flags=0x%04x\n", uFlags);
             return FALSE;
     }
     /* acquire ressources only if valid menu */
     ZeroMemory(&lf, sizeof(LOGFONTW));
-    lf.lfHeight = r->bottom - r->top;
+    lf.lfHeight = cxy;
     lf.lfWidth = 0;
     lf.lfWeight = FW_NORMAL;
     lf.lfCharSet = DEFAULT_CHARSET;
@@ -1016,21 +1024,21 @@ static BOOL UITOOLS95_DrawFrameMenu(HDC dc, LPRECT r, UINT uFlags)
     /* save font */
     hOldFont = SelectObject(dc, hFont);
 
-    if ((uFlags & 0xff) == DFCS_MENUARROWUP ||  
-        (uFlags & 0xff) == DFCS_MENUARROWDOWN ) 
+    if ((uFlags & 0x1f) == DFCS_MENUARROWUP ||  
+        (uFlags & 0x1f) == DFCS_MENUARROWDOWN ) 
     {
 #if 0
        if (uFlags & DFCS_INACTIVE)
        {
            /* draw shadow */
            SetTextColor(dc, GetSysColor(COLOR_BTNHIGHLIGHT));
-           TextOut(dc, r->left + 1, r->top + 1, &Symbol, 1);
+           TextOut(dc, myr.left + 1, myr.top + 1, &Symbol, 1);
        }
 #endif
        SetTextColor(dc, GetSysColor((uFlags & DFCS_INACTIVE) ? COLOR_BTNSHADOW : COLOR_BTNTEXT));
     }
     /* draw selected symbol */
-    TextOut(dc, r->left, r->top, &Symbol, 1);
+    TextOut(dc, myr.left, myr.top, &Symbol, 1);
     /* restore previous settings */
     SelectObject(dc, hOldFont);
     DeleteObject(hFont);
@@ -1424,7 +1432,28 @@ RealDrawFrameControl(HDC hDC, LPRECT rc, UINT uType, UINT uState)
         case DFC_CAPTION:
             return UITOOLS95_DrawFrameCaption(hDC, rc, uState);
         case DFC_MENU:
-            return UITOOLS95_DrawFrameMenu(hDC, rc, uState);
+        {
+            BOOL ret;
+            COLORREF rgbOldText;
+            INT iOldBackMode;
+
+            if (uState & (DFCS_MENUARROWUP | DFCS_MENUARROWDOWN))
+            {
+                if (!(uState & DFCS_TRANSPARENT))
+                    FillRect(hDC, rc, (HBRUSH)(COLOR_MENU + 1)); /* Fill by menu color */
+            }
+            else
+            {
+                FillRect(hDC, rc, (HBRUSH)GetStockObject(WHITE_BRUSH)); /* Fill by white */
+            }
+
+            rgbOldText = SetTextColor(hDC, RGB(0, 0, 0)); /* Draw by black */
+            iOldBackMode = SetBkMode(hDC, TRANSPARENT);
+            ret = UITOOLS95_DrawFrameMenu(hDC, rc, uState);
+            SetBkMode(hDC, iOldBackMode);
+            SetTextColor(hDC, rgbOldText);
+            return ret;
+        }
 #if 0
         case DFC_POPUPMENU:
             UNIMPLEMENTED;

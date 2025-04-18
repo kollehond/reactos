@@ -688,6 +688,11 @@ EXTINLINE BOOL NtUserxUpdateUiState(HWND hWnd, DWORD Param)
     return (BOOL)NtUserCallTwoParam((DWORD_PTR)hWnd, (DWORD_PTR)Param, TWOPARAM_ROUTINE_ROS_UPDATEUISTATE);
 }
 
+EXTINLINE VOID NtUserxSwitchToThisWindow(HWND hWnd, BOOL fAltTab)
+{
+    NtUserCallTwoParam((DWORD_PTR)hWnd, (DWORD_PTR)fAltTab, TWOPARAM_ROUTINE_SWITCHTOTHISWINDOW);
+}
+
 EXTINLINE BOOL NtUserxShowOwnedPopups(HWND hWnd, BOOL fShow)
 {
     return (BOOL)NtUserCallTwoParam((DWORD_PTR)hWnd, fShow, TWOPARAM_ROUTINE_SHOWOWNEDPOPUPS);
@@ -720,22 +725,22 @@ EXTINLINE VOID NtUserxNotifyWinEvent(HWND hWnd, PVOID ne)
 
 EXTINLINE DWORD NtUserxGetWindowContextHelpId(HWND hwnd)
 {
-    return NtUserCallHwnd(hwnd, HWND_ROUTINE_GETWNDCONTEXTHLPID);
+    return (DWORD)NtUserCallHwnd(hwnd, HWND_ROUTINE_GETWNDCONTEXTHLPID);
 }
 
 EXTINLINE BOOL NtUserxDeregisterShellHookWindow(HWND hWnd)
 {
-    return NtUserCallHwnd(hWnd, HWND_ROUTINE_DEREGISTERSHELLHOOKWINDOW);
+    return (BOOL)NtUserCallHwnd(hWnd, HWND_ROUTINE_DEREGISTERSHELLHOOKWINDOW);
 }
 
 EXTINLINE BOOL NtUserxRegisterShellHookWindow(HWND hWnd)
 {
-    return NtUserCallHwnd(hWnd, HWND_ROUTINE_REGISTERSHELLHOOKWINDOW);
+    return (BOOL)NtUserCallHwnd(hWnd, HWND_ROUTINE_REGISTERSHELLHOOKWINDOW);
 }
 
 EXTINLINE BOOL NtUserxSetMessageBox(HWND hWnd)
 {
-    return NtUserCallHwnd(hWnd, HWND_ROUTINE_SETMSGBOX);
+    return (BOOL)NtUserCallHwnd(hWnd, HWND_ROUTINE_SETMSGBOX);
 }
 
 EXTINLINE VOID NtUserxClearWindowState(PWND pWnd, UINT Flag)

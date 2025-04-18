@@ -27,6 +27,7 @@ Author:
 #ifdef CONFIG_SMP
 #define PCR                                     fs:
 #else
+/* Address at KIP0PCRADDRESS */
 #define PCR                                     ds:[0xFFDFF000]
 #endif
 #endif
@@ -43,16 +44,18 @@ Author:
 #ifdef __ASM__
 #define RPL_MASK                                0x0003
 #define MODE_MASK                               0x0001
-#define KGDT_R0_CODE                            (0x8)
-#define KGDT_R0_DATA                            (0x10)
-#define KGDT_R3_CODE                            (0x18)
-#define KGDT_R3_DATA                            (0x20)
-#define KGDT_TSS                                (0x28)
-#define KGDT_R0_PCR                             (0x30)
-#define KGDT_R3_TEB                             (0x38)
-#define KGDT_LDT                                (0x48)
-#define KGDT_DF_TSS                             (0x50)
-#define KGDT_NMI_TSS                            (0x58)
+#define KGDT_NULL                               0x00
+#define KGDT_R0_CODE                            0x08
+#define KGDT_R0_DATA                            0x10
+#define KGDT_R3_CODE                            0x18
+#define KGDT_R3_DATA                            0x20
+#define KGDT_TSS                                0x28
+#define KGDT_R0_PCR                             0x30
+#define KGDT_R3_TEB                             0x38
+#define KGDT_VDM_TILE                           0x40
+#define KGDT_LDT                                0x48
+#define KGDT_DF_TSS                             0x50
+#define KGDT_NMI_TSS                            0x58
 #endif
 
 //
@@ -575,8 +578,10 @@ Author:
 #define APC_LEVEL                               0x1
 #define DISPATCH_LEVEL                          0x2
 #define PROFILE_LEVEL                           0x1B
+#define CLOCK1_LEVEL                            0x1C
 #define CLOCK2_LEVEL                            0x1C
 #define IPI_LEVEL                               0x1D
+#define POWER_LEVEL                             0x1E
 #define HIGH_LEVEL                              0x1F
 
 //
@@ -586,9 +591,9 @@ Author:
 #define SYNCH_LEVEL                             DISPATCH_LEVEL
 #else
 #if (NTDDI_VERSION < NTDDI_WS03)
-#define SYNCH_LEVEL                             (IPI_LEVEL - 0x1)
+#define SYNCH_LEVEL                             (IPI_LEVEL - 1)
 #else
-#define SYNCH_LEVEL                             (IPI_LEVEL - 0x2)
+#define SYNCH_LEVEL                             (IPI_LEVEL - 2)
 #endif
 #endif
 

@@ -52,7 +52,7 @@
 static TCHAR DefaultPrompt[] = _T("$P$G");
 
 /*
- * Initialize prompt support
+ * Initialize prompt support.
  */
 VOID InitPrompt(VOID)
 {
@@ -62,12 +62,37 @@ VOID InitPrompt(VOID)
      * Set the PROMPT environment variable if it doesn't exist already.
      * You can change the PROMPT environment variable before cmd starts.
      */
-    if (GetEnvironmentVariable(_T("PROMPT"), Buffer, ARRAYSIZE(Buffer)) == 0)
+    if (GetEnvironmentVariable(_T("PROMPT"), Buffer, _countof(Buffer)) == 0)
         SetEnvironmentVariable(_T("PROMPT"), DefaultPrompt);
 }
 
 /*
- * Print an information line on top of the screen
+ * Checks if information line should be displayed.
+ */
+BOOL HasInfoLine(VOID)
+{
+    LPTSTR pr;
+    TCHAR szPrompt[256];
+
+    if (GetEnvironmentVariable(_T("PROMPT"), szPrompt, _countof(szPrompt)))
+    {
+        pr = szPrompt;
+        while (*pr)
+        {
+            if (*pr++ != _T('$'))
+                continue;
+            if (!*pr || _totupper(*pr++) != _T('I'))
+                continue;
+
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
+/*
+ * Print an information line on top of the screen.
  */
 VOID PrintInfoLine(VOID)
 {
@@ -104,19 +129,28 @@ VOID PrintInfoLine(VOID)
 }
 
 /*
- * Print the command-line prompt
+ * Print the command-line prompt.
  */
 VOID PrintPrompt(VOID)
 {
-    TCHAR  szPrompt[256];
-    LPTSTR pr;
+    LPTSTR pr, Prompt;
+    TCHAR szPrompt[256];
+    TCHAR szPath[MAX_PATH];
 
-    if (GetEnvironmentVariable(_T("PROMPT"), szPrompt, 256))
-        pr = szPrompt;
+    if (GetEnvironmentVariable(_T("PROMPT"), szPrompt, _countof(szPrompt)))
+        Prompt = szPrompt;
     else
-        pr = DefaultPrompt;
+        Prompt = DefaultPrompt;
 
-    while (*pr)
+    /*
+     * Special pre-handling for $I: If the information line is displayed
+     * on top of the screen, ensure that the prompt won't be hidden below it.
+     */
+    if (HasInfoLine() && GetCursorY() == 0)
+        ConOutChar(_T('\n'));
+
+    /* Parse the prompt string */
+    for (pr = Prompt; *pr; ++pr)
     {
         if (*pr != _T('$'))
         {
@@ -124,8 +158,8 @@ VOID PrintPrompt(VOID)
         }
         else
         {
-            pr++;
-
+            ++pr;
+            if (!*pr) break;
             switch (_totupper(*pr))
             {
                 case _T('A'):
@@ -157,9 +191,7 @@ VOID PrintPrompt(VOID)
                     break;
 
                 case _T('H'):
-                    ConOutChar(_T('\x08'));
-                    ConOutChar(_T(' '));
-                    ConOutChar(_T('\x08'));
+                    ConOutPuts(_T("\x08 \x08"));
                     break;
 
                 case _T('I'):
@@ -171,20 +203,18 @@ VOID PrintPrompt(VOID)
                     break;
 
                 case _T('N'):
-                    {
-                        TCHAR szPath[MAX_PATH];
-                        GetCurrentDirectory(MAX_PATH, szPath);
-                        ConOutChar(szPath[0]);
-                    }
+                {
+                    GetCurrentDirectory(_countof(szPath), szPath);
+                    ConOutChar(szPath[0]);
                     break;
+                }
 
                 case _T('P'):
-                    {
-                        TCHAR szPath[MAX_PATH];
-                        GetCurrentDirectory(MAX_PATH, szPath);
-                        ConOutPrintf(_T("%s"), szPath);
-                    }
+                {
+                    GetCurrentDirectory(_countof(szPath), szPath);
+                    ConOutPrintf(_T("%s"), szPath);
                     break;
+                }
 
                 case _T('Q'):
                     ConOutChar(_T('='));
@@ -206,22 +236,21 @@ VOID PrintPrompt(VOID)
                     ConOutChar(_T('\n'));
                     break;
 
-                case '$':
+                case _T('$'):
                     ConOutChar(_T('$'));
                     break;
 
 #ifdef FEATURE_DIRECTORY_STACK
-                case '+':
-                    {
-                        INT i;
-                        for (i = 0; i < GetDirectoryStackDepth (); i++)
-                            ConOutChar(_T('+'));
-                    }
+                case _T('+'):
+                {
+                    INT i;
+                    for (i = 0; i < GetDirectoryStackDepth(); i++)
+                        ConOutChar(_T('+'));
                     break;
+                }
 #endif
             }
         }
-        pr++;
     }
 }
 
@@ -230,10 +259,11 @@ VOID PrintPrompt(VOID)
 
 INT cmd_prompt(LPTSTR param)
 {
+    INT retval = 0;
+
     if (!_tcsncmp(param, _T("/?"), 2))
     {
         ConOutResPaging(TRUE, STRING_PROMPT_HELP1);
-
 #ifdef FEATURE_DIRECTORY_STACK
         ConOutResPaging(FALSE, STRING_PROMPT_HELP2);
 #endif
@@ -250,10 +280,20 @@ INT cmd_prompt(LPTSTR param)
     if (!SetEnvironmentVariable(_T("PROMPT"),
                                 (param && param[0] != _T('\0') ? param : NULL)))
     {
-        return 1;
+        retval = 1;
     }
 
-    return 0;
+    if (BatType != CMD_TYPE)
+    {
+        if (retval != 0)
+            nErrorLevel = retval;
+    }
+    else
+    {
+        nErrorLevel = retval;
+    }
+
+    return retval;
 }
 #endif
 

@@ -8,37 +8,54 @@
 
 #include "private.hpp"
 
-#ifndef YDEBUG
 #define NDEBUG
-#endif
-
 #include <debug.h>
 
-class CPortPinWaveCyclic : public IPortPinWaveCyclic,
-                           public IServiceSink
+class CPortPinWaveCyclic : public CUnknownImpl<IPortPinWaveCyclic, IServiceSink>
 {
 public:
+    inline
+    PVOID
+    operator new(
+        size_t Size,
+        POOL_TYPE PoolType,
+        ULONG Tag)
+    {
+        return ExAllocatePoolWithTag(PoolType, Size, Tag);
+    }
+
     STDMETHODIMP QueryInterface( REFIID InterfaceId, PVOID* Interface);
 
-    STDMETHODIMP_(ULONG) AddRef()
-    {
-        InterlockedIncrement(&m_Ref);
-        return m_Ref;
-    }
-    STDMETHODIMP_(ULONG) Release()
-    {
-        InterlockedDecrement(&m_Ref);
-
-        if (!m_Ref)
-        {
-            delete this;
-            return 0;
-        }
-        return m_Ref;
-    }
     IMP_IPortPinWaveCyclic;
     IMP_IServiceSink;
-    CPortPinWaveCyclic(IUnknown *OuterUnknown){}
+    CPortPinWaveCyclic(IUnknown *OuterUnknown) :
+        m_Port(nullptr),
+        m_Filter(nullptr),
+        m_KsPinDescriptor(nullptr),
+        m_Miniport(nullptr),
+        m_ServiceGroup(nullptr),
+        m_DmaChannel(nullptr),
+        m_Stream(nullptr),
+        m_State(KSSTATE_STOP),
+        m_Format(nullptr),
+        m_ConnectDetails(nullptr),
+        m_CommonBuffer(nullptr),
+        m_CommonBufferSize(0),
+        m_CommonBufferOffset(0),
+        m_IrpQueue(nullptr),
+        m_FrameSize(0),
+        m_Capture(FALSE),
+        m_TotalPackets(0),
+        m_StopCount(0),
+        m_Position({0}),
+        m_AllocatorFraming({{0}}),
+        m_Descriptor(nullptr),
+        m_EventListLock(0),
+        m_EventList({nullptr}),
+        m_ResetState(KSRESET_BEGIN),
+        m_Delay(0)
+    {
+    }
     virtual ~CPortPinWaveCyclic(){}
 
 protected:
@@ -87,10 +104,7 @@ protected:
     KSRESET m_ResetState;
 
     ULONG m_Delay;
-
-    LONG m_Ref;
 };
-
 
 typedef struct
 {
@@ -103,8 +117,6 @@ typedef struct
     ULONG bLoopedStreaming;
 }ENDOFSTREAM_EVENT_CONTEXT, *PENDOFSTREAM_EVENT_CONTEXT;
 
-
-
 NTSTATUS NTAPI PinWaveCyclicState(IN PIRP Irp, IN PKSIDENTIFIER Request, IN OUT PVOID Data);
 NTSTATUS NTAPI PinWaveCyclicDataFormat(IN PIRP Irp, IN PKSIDENTIFIER Request, IN OUT PVOID Data);
 NTSTATUS NTAPI PinWaveCyclicAudioPosition(IN PIRP Irp, IN PKSIDENTIFIER Request, IN OUT PVOID Data);
@@ -112,7 +124,6 @@ NTSTATUS NTAPI PinWaveCyclicAllocatorFraming(IN PIRP Irp, IN PKSIDENTIFIER Reque
 NTSTATUS NTAPI PinWaveCyclicAddEndOfStreamEvent(IN PIRP Irp, IN PKSEVENTDATA  EventData, IN PKSEVENT_ENTRY  EventEntry);
 NTSTATUS NTAPI PinWaveCyclicAddLoopedStreamEvent(IN PIRP Irp, IN PKSEVENTDATA  EventData, IN PKSEVENT_ENTRY EventEntry);
 NTSTATUS NTAPI PinWaveCyclicDRMHandler(IN PIRP Irp, IN PKSIDENTIFIER Request, IN OUT PVOID Data);
-
 
 DEFINE_KSPROPERTY_CONNECTIONSET(PinWaveCyclicConnectionSet, PinWaveCyclicState, PinWaveCyclicDataFormat, PinWaveCyclicAllocatorFraming);
 DEFINE_KSPROPERTY_AUDIOSET(PinWaveCyclicAudioSet, PinWaveCyclicAudioPosition);
@@ -137,7 +148,6 @@ KSEVENT_ITEM PinWaveCyclicStreamingEventSet =
     0,
     0
 };
-
 
 KSPROPERTY_SET PinWaveCyclicPropertySet[] =
 {
@@ -164,7 +174,7 @@ KSPROPERTY_SET PinWaveCyclicPropertySet[] =
     }
 };
 
-KSEVENT_SET PinWaveCyclicEventSet[] = 
+KSEVENT_SET PinWaveCyclicEventSet[] =
 {
     {
         &KSEVENTSETID_LoopedStreaming,
@@ -178,7 +188,6 @@ KSEVENT_SET PinWaveCyclicEventSet[] =
     }
 };
 
-
 //==================================================================================================================================
 
 NTSTATUS
@@ -189,7 +198,7 @@ CPortPinWaveCyclic::QueryInterface(
 {
     DPRINT("IServiceSink_fnQueryInterface entered\n");
 
-    if (IsEqualGUIDAligned(refiid, IID_IIrpTarget) || 
+    if (IsEqualGUIDAligned(refiid, IID_IIrpTarget) ||
         IsEqualGUIDAligned(refiid, IID_IUnknown))
     {
         *Output = PVOID(PUNKNOWN((IIrpTarget*)this));
@@ -219,7 +228,6 @@ PinWaveCyclicDRMHandler(
     return STATUS_INVALID_PARAMETER;
 }
 
-
 NTSTATUS
 NTAPI
 PinWaveCyclicAddEndOfStreamEvent(
@@ -231,10 +239,10 @@ PinWaveCyclicAddEndOfStreamEvent(
     PSUBDEVICE_DESCRIPTOR Descriptor;
     CPortPinWaveCyclic *Pin;
 
-    // get sub device descriptor 
+    // get sub device descriptor
     Descriptor = (PSUBDEVICE_DESCRIPTOR)KSPROPERTY_ITEM_IRP_STORAGE(Irp);
 
-    // sanity check 
+    // sanity check
     PC_ASSERT(Descriptor);
     PC_ASSERT(Descriptor->PortPin);
     PC_ASSERT_IRQL(DISPATCH_LEVEL);
@@ -267,10 +275,10 @@ PinWaveCyclicAddLoopedStreamEvent(
     PSUBDEVICE_DESCRIPTOR Descriptor;
     CPortPinWaveCyclic *Pin;
 
-    // get sub device descriptor 
+    // get sub device descriptor
     Descriptor = (PSUBDEVICE_DESCRIPTOR)KSEVENT_ITEM_IRP_STORAGE(Irp);
 
-    // sanity check 
+    // sanity check
     PC_ASSERT(Descriptor);
     PC_ASSERT(Descriptor->PortPin);
     PC_ASSERT_IRQL(DISPATCH_LEVEL);
@@ -306,17 +314,16 @@ PinWaveCyclicAllocatorFraming(
     CPortPinWaveCyclic *Pin;
     PSUBDEVICE_DESCRIPTOR Descriptor;
 
-    // get sub device descriptor 
+    // get sub device descriptor
     Descriptor = (PSUBDEVICE_DESCRIPTOR)KSEVENT_ITEM_IRP_STORAGE(Irp);
 
-    // sanity check 
+    // sanity check
     PC_ASSERT(Descriptor);
     PC_ASSERT(Descriptor->PortPin);
     PC_ASSERT_IRQL(DISPATCH_LEVEL);
 
     // cast to pin impl
     Pin = (CPortPinWaveCyclic*)Descriptor->PortPin;
-
 
     if (Request->Flags & KSPROPERTY_TYPE_GET)
     {
@@ -342,10 +349,10 @@ PinWaveCyclicAudioPosition(
     PSUBDEVICE_DESCRIPTOR Descriptor;
     PKSAUDIO_POSITION Position;
 
-    // get sub device descriptor 
+    // get sub device descriptor
     Descriptor = (PSUBDEVICE_DESCRIPTOR)KSPROPERTY_ITEM_IRP_STORAGE(Irp);
 
-    // sanity check 
+    // sanity check
     PC_ASSERT(Descriptor);
     PC_ASSERT(Descriptor->PortPin);
     PC_ASSERT_IRQL(DISPATCH_LEVEL);
@@ -434,7 +441,6 @@ PinSetStateWorkerRoutine(
 
 }
 
-
 NTSTATUS
 NTAPI
 PinWaveCyclicState(
@@ -447,10 +453,10 @@ PinWaveCyclicState(
     PSUBDEVICE_DESCRIPTOR Descriptor;
     PKSSTATE State = (PKSSTATE)Data;
 
-    // get sub device descriptor 
+    // get sub device descriptor
     Descriptor = (PSUBDEVICE_DESCRIPTOR)KSPROPERTY_ITEM_IRP_STORAGE(Irp);
 
-    // sanity check 
+    // sanity check
     PC_ASSERT(Descriptor);
     PC_ASSERT(Descriptor->PortPin);
     PC_ASSERT_IRQL(DISPATCH_LEVEL);
@@ -522,10 +528,10 @@ PinWaveCyclicDataFormat(
     // get current irp stack location
     IoStack = IoGetCurrentIrpStackLocation(Irp);
 
-    // get sub device descriptor 
+    // get sub device descriptor
     Descriptor = (PSUBDEVICE_DESCRIPTOR)KSPROPERTY_ITEM_IRP_STORAGE(Irp);
 
-    // sanity check 
+    // sanity check
     PC_ASSERT(Descriptor);
     PC_ASSERT(Descriptor->PortPin);
 
@@ -582,7 +588,6 @@ PinWaveCyclicDataFormat(
             PC_ASSERT(IsEqualGUIDAligned(((PKSDATAFORMAT_WAVEFORMATEX)NewDataFormat)->DataFormat.SubFormat, KSDATAFORMAT_SUBTYPE_PCM));
             PC_ASSERT(IsEqualGUIDAligned(((PKSDATAFORMAT_WAVEFORMATEX)NewDataFormat)->DataFormat.Specifier, KSDATAFORMAT_SPECIFIER_WAVEFORMATEX));
 
-
             DPRINT("NewDataFormat: Channels %u Bits %u Samples %u\n", ((PKSDATAFORMAT_WAVEFORMATEX)NewDataFormat)->WaveFormatEx.nChannels,
                                                                        ((PKSDATAFORMAT_WAVEFORMATEX)NewDataFormat)->WaveFormatEx.wBitsPerSample,
                                                                        ((PKSDATAFORMAT_WAVEFORMATEX)NewDataFormat)->WaveFormatEx.nSamplesPerSec);
@@ -594,7 +599,6 @@ PinWaveCyclicDataFormat(
             // failed to set format
             FreeItem(NewDataFormat, TAG_PORTCLASS);
         }
-
 
         // done
         return Status;
@@ -754,7 +758,6 @@ CPortPinWaveCyclic::UpdateCommonBufferOverlap(
     ULONG BufferSize;
     PUCHAR Buffer;
     NTSTATUS Status;
-
 
     BufferLength = Gap = m_CommonBufferSize - m_CommonBufferOffset;
     BufferLength = Length = min(BufferLength, MaxTransferCount);
@@ -1058,7 +1061,6 @@ CPortPinWaveCyclic::Close(
         m_Stream = NULL;
     }
 
-
     if (m_Filter)
     {
         // disconnect pin from filter
@@ -1123,7 +1125,6 @@ CPortPinWaveCyclic::FastDeviceIoControl(
     return KsDispatchFastIoDeviceControlFailure(FileObject, Wait, InputBuffer, InputBufferLength, OutputBuffer, OutputBufferLength, IoControlCode, StatusBlock, DeviceObject);
 }
 
-
 BOOLEAN
 NTAPI
 CPortPinWaveCyclic::FastRead(
@@ -1139,7 +1140,6 @@ CPortPinWaveCyclic::FastRead(
     return KsDispatchFastReadFailure(FileObject, FileOffset, Length, Wait, LockKey, Buffer, StatusBlock, DeviceObject);
 }
 
-
 BOOLEAN
 NTAPI
 CPortPinWaveCyclic::FastWrite(
@@ -1154,7 +1154,6 @@ CPortPinWaveCyclic::FastWrite(
 {
     return KsDispatchFastReadFailure(FileObject, FileOffset, Length, Wait, LockKey, Buffer, StatusBlock, DeviceObject);
 }
-
 
 NTSTATUS
 NTAPI
@@ -1199,7 +1198,6 @@ CPortPinWaveCyclic::Init(
         DbgBreakPoint();
         while(TRUE);
     }
-
 
     Status = m_Miniport->NewStream(&m_Stream,
                                    NULL,
@@ -1287,7 +1285,7 @@ CPortPinWaveCyclic::Init(
     m_Stream->SetState(KSSTATE_STOP);
     m_State = KSSTATE_STOP;
     m_CommonBufferOffset = 0;
-    m_CommonBufferSize = m_DmaChannel->AllocatedBufferSize();
+    m_CommonBufferSize = m_DmaChannel->BufferSize();
     m_CommonBuffer = m_DmaChannel->SystemAddress();
     m_Capture = Capture;
     // delay of 10 millisec
@@ -1302,7 +1300,6 @@ CPortPinWaveCyclic::Init(
     PC_ASSERT(m_FrameSize);
 
     DPRINT1("Bits %u Samples %u Channels %u Tag %u FrameSize %u CommonBufferSize %lu, CommonBuffer %p\n", ((PKSDATAFORMAT_WAVEFORMATEX)(DataFormat))->WaveFormatEx.wBitsPerSample, ((PKSDATAFORMAT_WAVEFORMATEX)(DataFormat))->WaveFormatEx.nSamplesPerSec, ((PKSDATAFORMAT_WAVEFORMATEX)(DataFormat))->WaveFormatEx.nChannels, ((PKSDATAFORMAT_WAVEFORMATEX)(DataFormat))->WaveFormatEx.wFormatTag, m_FrameSize, m_CommonBufferSize, m_DmaChannel->SystemAddress());
-
 
     /* set up allocator framing */
     m_AllocatorFraming.RequirementsFlags = KSALLOCATOR_REQUIREMENTF_SYSTEM_MEMORY | KSALLOCATOR_REQUIREMENTF_PREFERENCES_ONLY;
@@ -1336,7 +1333,6 @@ CPortPinWaveCyclic::Init(
     return STATUS_SUCCESS;
 }
 
-
 ULONG
 NTAPI
 CPortPinWaveCyclic::GetCompletedPosition()
@@ -1344,7 +1340,6 @@ CPortPinWaveCyclic::GetCompletedPosition()
     UNIMPLEMENTED;
     return 0;
 }
-
 
 ULONG
 NTAPI
@@ -1354,14 +1349,12 @@ CPortPinWaveCyclic::GetCycleCount()
     return 0;
 }
 
-
 ULONG
 NTAPI
 CPortPinWaveCyclic::GetDeviceBufferSize()
 {
     return m_CommonBufferSize;
 }
-
 
 PVOID
 NTAPI
@@ -1370,14 +1363,12 @@ CPortPinWaveCyclic::GetIrpStream()
     return (PVOID)m_IrpQueue;
 }
 
-
 PMINIPORT
 NTAPI
 CPortPinWaveCyclic::GetMiniport()
 {
     return (PMINIPORT)m_Miniport;
 }
-
 
 NTSTATUS
 NewPortPinWaveCyclic(
@@ -1396,4 +1387,3 @@ NewPortPinWaveCyclic(
 
     return STATUS_SUCCESS;
 }
-

@@ -1,4 +1,5 @@
 #include <windef.h>
+#define OEMRESOURCE
 #include <winuser.h>
 
 #include "include/resource.h"
@@ -158,6 +159,9 @@ OBM_OLD_CLOSE BITMAP "resources/obm_old_close.bmp"
 #ifdef LANGUAGE_PT_BR
     #include "lang/pt-BR.rc"
 #endif
+#ifdef LANGUAGE_PT_PT
+    #include "lang/pt-PT.rc"
+#endif
 #ifdef LANGUAGE_RO_RO
     #include "lang/ro-RO.rc"
 #endif
@@ -178,4 +182,10 @@ OBM_OLD_CLOSE BITMAP "resources/obm_old_close.bmp"
 #endif
 #ifdef LANGUAGE_ZH_CN
     #include "lang/zh-CN.rc"
+#endif
+#ifdef LANGUAGE_ZH_HK
+    #include "lang/zh-HK.rc"
+#endif
+#ifdef LANGUAGE_ZH_TW
+    #include "lang/zh-TW.rc"
 #endif

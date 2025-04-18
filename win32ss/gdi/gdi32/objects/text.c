@@ -70,7 +70,7 @@ TextOutW(
     _In_reads_(cchString) LPCWSTR lpString,
     _In_ INT cchString)
 {
-    return ExtTextOutW(hdc, nXStart, nYStart, 0, NULL, (LPWSTR)lpString, cchString, NULL);
+    return ExtTextOutW(hdc, nXStart, nYStart, 0, NULL, lpString, cchString, NULL);
 }
 
 
@@ -296,6 +296,9 @@ GetTextExtentExPointW(
         DPRINT("nMaxExtent is invalid: %d\n", nMaxExtent);
     }
 
+    if (LoadLPK(LPK_GTEP))
+        return LpkGetTextExtentExPoint(hdc, lpszString, cchString, nMaxExtent, lpnFit, lpnDx, lpSize, 0, 0);
+
     return NtGdiGetTextExtentExW (
                hdc, (LPWSTR)lpszString, cchString, nMaxExtent, (PULONG)lpnFit, (PULONG)lpnDx, lpSize, 0 );
 }
@@ -308,14 +311,14 @@ BOOL
 WINAPI
 GetTextExtentExPointWPri(
     _In_ HDC hdc,
-    _In_reads_(cwc) LPWSTR lpwsz,
-    _In_ ULONG cwc,
-    _In_ ULONG dxMax,
-    _Out_opt_ ULONG *pcCh,
-    _Out_writes_to_opt_(cwc, *pcCh) PULONG pdxOut,
+    _In_reads_(cwc) LPCWSTR lpwsz,
+    _In_ INT cwc,
+    _In_ INT dxMax,
+    _Out_opt_ LPINT pcCh,
+    _Out_writes_to_opt_(cwc, *pcCh) LPINT pdxOut,
     _In_ LPSIZE psize)
 {
-    return NtGdiGetTextExtentExW(hdc, lpwsz, cwc, dxMax, pcCh, pdxOut, psize, 0);
+    return NtGdiGetTextExtentExW(hdc, (LPWSTR)lpwsz, cwc, dxMax, (PULONG)pcCh, (PULONG)pdxOut, psize, 0);
 }
 
 /*
@@ -462,8 +465,15 @@ ExtTextOutA(
     UNICODE_STRING StringU;
     BOOL ret;
 
-    RtlInitAnsiString(&StringA, (LPSTR)lpString);
+    if (fuOptions & ETO_GLYPH_INDEX)
+        return ExtTextOutW(hdc, x, y, fuOptions, lprc, (LPCWSTR)lpString, cch, lpDx);
+
+    StringA.Buffer = (PCHAR)lpString;
+    StringA.Length = StringA.MaximumLength = cch;
     RtlAnsiStringToUnicodeString(&StringU, &StringA, TRUE);
+
+    if (StringU.Length != StringA.Length * sizeof(WCHAR))
+        DPRINT1("ERROR: Should convert lpDx properly!\n");
 
     ret = ExtTextOutW(hdc, x, y, fuOptions, lprc, StringU.Buffer, cch, lpDx);
 
@@ -472,6 +482,7 @@ ExtTextOutA(
     return ret;
 }
 
+static BOOL bBypassETOWMF = FALSE;
 
 /*
  * @implemented
@@ -488,32 +499,158 @@ ExtTextOutW(
     _In_ UINT cwc,
     _In_reads_opt_(cwc) const INT *lpDx)
 {
-    HANDLE_METADC(BOOL,
-                  ExtTextOut,
-                  FALSE,
-                  hdc,
-                  x,
-                  y,
-                  fuOptions,
-                  lprc,
-                  lpString,
-                  cwc,
-                  lpDx);
+    PDC_ATTR pdcattr;
+
+    // Need both, should return a parameter error? No they don't!
+    if ( !lpDx && fuOptions & ETO_PDY )
+        return FALSE;
+
+    // Now sorting out rectangle.
+
+    // Here again, need both.
+    if ( lprc && !(fuOptions & (ETO_CLIPPED|ETO_OPAQUE)) )
+    {
+        lprc = NULL; // No flags, no rectangle.
+    }
+    else if (!lprc) // No rectangle, force clear flags if set and continue.
+    {
+       fuOptions &= ~(ETO_CLIPPED|ETO_OPAQUE);
+    }
+
+    if ( !bBypassETOWMF )
+    {
+        HANDLE_METADC(BOOL,
+                      ExtTextOut,
+                      FALSE,
+                      hdc,
+                      x,
+                      y,
+                      fuOptions,
+                      lprc,
+                      lpString,
+                      cwc,
+                      lpDx);
+    }
+
+    if ( GdiConvertAndCheckDC(hdc) == NULL ) return FALSE;
 
     if (!(fuOptions & (ETO_GLYPH_INDEX | ETO_IGNORELANGUAGE)))
     {
+        bBypassETOWMF = TRUE;
+
         if (LoadLPK(LPK_ETO))
             return LpkExtTextOut(hdc, x, y, fuOptions, lprc, lpString, cwc , lpDx, 0);
     }
+    else
+    {
+        bBypassETOWMF = FALSE;
+    }
 
+    /* Get the DC attribute */
+    pdcattr = GdiGetDcAttr(hdc);
+    if ( pdcattr &&
+         !(pdcattr->ulDirty_ & DC_DIBSECTION) &&
+         !(pdcattr->lTextAlign & TA_UPDATECP))
+    {
+        if ( lprc && !cwc )
+        {
+            if ( fuOptions & ETO_OPAQUE )
+            {
+                PGDIBSEXTTEXTOUT pgO;
+
+                pgO = GdiAllocBatchCommand(hdc, GdiBCExtTextOut);
+                if (pgO)
+                {
+                    pdcattr->ulDirty_ |= DC_MODE_DIRTY;
+                    pgO->Count = cwc;
+                    pgO->Rect = *lprc;
+                    pgO->Options = fuOptions;
+                    /* Snapshot attribute */
+                    pgO->ulBackgroundClr = pdcattr->ulBackgroundClr;
+                    pgO->ptlViewportOrg  = pdcattr->ptlViewportOrg;
+                    return TRUE;
+                }
+            }
+            else // Do nothing, old explorer pops this off.
+            {
+                DPRINT("GdiBCExtTextOut nothing\n");
+                return TRUE;
+            }
+        }         // Max 580 wchars, if offset 0
+        else if ( cwc <= ((GDIBATCHBUFSIZE - sizeof(GDIBSTEXTOUT)) / sizeof(WCHAR)) )
+        {
+            PGDIBSTEXTOUT pgO;
+            PTEB pTeb = NtCurrentTeb();
+
+            pgO = GdiAllocBatchCommand(hdc, GdiBCTextOut);
+            if (pgO)
+            {
+                USHORT cjSize = 0;
+                ULONG DxSize = 0;
+
+                if (cwc > 2) cjSize = (cwc * sizeof(WCHAR)) - sizeof(pgO->String);
+
+                /* Calculate buffer size for string and Dx values */
+                if (lpDx)
+                {
+                    /* If ETO_PDY is specified, we have pairs of INTs */
+                    DxSize = (cwc * sizeof(INT)) * (fuOptions & ETO_PDY ? 2 : 1);
+                    cjSize += DxSize;
+                    // The structure buffer holds 4 bytes. Store Dx data then string.
+                    // Result one wchar -> Buf[ Dx ]Str[wC], [4][2][X] one extra unused wchar
+                    // to assure alignment of 4.
+                }
+
+                if ((pTeb->GdiTebBatch.Offset + cjSize ) <= GDIBATCHBUFSIZE)
+                {
+                    pdcattr->ulDirty_ |= DC_MODE_DIRTY|DC_FONTTEXT_DIRTY;
+                    pgO->cbCount = cwc;
+                    pgO->x = x;
+                    pgO->y = y;
+                    pgO->Options = fuOptions;
+                    pgO->iCS_CP = 0;
+
+                    if (lprc) pgO->Rect = *lprc;
+                    else
+                    {
+                       pgO->Options |= GDIBS_NORECT; // Tell the other side lprc is nill.
+                    }
+
+                    /* Snapshot attributes */
+                    pgO->crForegroundClr = pdcattr->crForegroundClr;
+                    pgO->crBackgroundClr = pdcattr->crBackgroundClr;
+                    pgO->ulForegroundClr = pdcattr->ulForegroundClr;
+                    pgO->ulBackgroundClr = pdcattr->ulBackgroundClr;
+                    pgO->lBkMode         = pdcattr->lBkMode == OPAQUE ? OPAQUE : TRANSPARENT;
+                    pgO->hlfntNew        = pdcattr->hlfntNew;
+                    pgO->flTextAlign     = pdcattr->flTextAlign;
+                    pgO->ptlViewportOrg  = pdcattr->ptlViewportOrg;
+
+                    pgO->Size = DxSize; // of lpDx then string after.
+                    /* Put the Dx before the String to assure alignment of 4 */
+                    if (lpDx) RtlCopyMemory( &pgO->Buffer, lpDx, DxSize);
+
+                    if (cwc) RtlCopyMemory( &pgO->String[DxSize/sizeof(WCHAR)], lpString, cwc * sizeof(WCHAR));
+
+                    // Recompute offset and return size
+                    pTeb->GdiTebBatch.Offset += cjSize;
+                    ((PGDIBATCHHDR)pgO)->Size += cjSize;
+                    return TRUE;
+                }
+                // Reset offset and count then fall through
+                pTeb->GdiTebBatch.Offset -= sizeof(GDIBSTEXTOUT);
+                pTeb->GdiBatchCount--;
+            }
+        }
+    }
     return NtGdiExtTextOutW(hdc,
                             x,
                             y,
                             fuOptions,
-                            (LPRECT)lprc,
-                            (LPWSTR)lpString,
+                            lprc,
+                            lpString,
                             cwc,
-                            (LPINT)lpDx,
+                            lpDx,
                             0);
 }
 
@@ -668,10 +805,7 @@ SetTextCharacterExtra(
         return 0x80000000;
     }
 
-    if (GDI_HANDLE_GET_TYPE(hdc) == GDILoObjType_LO_METADC16_TYPE)
-    {
-        HANDLE_METADC(INT, SetTextCharacterExtra, 0x80000000, hdc, nCharExtra);
-    }
+    HANDLE_METADC16(INT, SetTextCharacterExtra, 0x80000000, hdc, nCharExtra);
 
     /* Get the DC attribute */
     pdcattr = GdiGetDcAttr(hdc);
@@ -821,10 +955,7 @@ SetTextJustification(
 {
     PDC_ATTR pdcattr;
 
-    if (GDI_HANDLE_GET_TYPE(hdc) == GDILoObjType_LO_METADC16_TYPE)
-    {
-        HANDLE_METADC(BOOL, SetTextJustification, FALSE, hdc, nBreakExtra, nBreakCount);
-    }
+    HANDLE_METADC16(BOOL, SetTextJustification, FALSE, hdc, nBreakExtra, nBreakCount);
 
     /* Get the DC attribute */
     pdcattr = GdiGetDcAttr(hdc);

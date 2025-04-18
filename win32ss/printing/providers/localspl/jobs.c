@@ -205,7 +205,7 @@ InitializeGlobalJobList(void)
         if (!IS_VALID_JOB_ID(dwJobID))
             continue;
 
-        if (wcsicmp(p, L".SHD") != 0)
+        if (_wcsicmp(p, L".SHD") != 0)
             continue;
 
         // This shadow file has a valid name. Construct the full path and try to load it.
@@ -455,7 +455,7 @@ _LocalGetJobLevel1(PLOCAL_JOB pJob, PJOB_INFO_1W* ppJobInfo, PBYTE* ppJobInfoEnd
     DWORD cbPrinterName;
     DWORD cbStatus = 0;
     DWORD cbUserName = 0;
-    PWSTR pwszStrings[6];
+    PCWSTR pwszStrings[6];
 
     // Calculate the string lengths.
     if (!ppJobInfo)
@@ -536,7 +536,7 @@ _LocalGetJobLevel2(PLOCAL_JOB pJob, PJOB_INFO_2W* ppJobInfo, PBYTE* ppJobInfoEnd
     DWORD cbUserName = 0;
     FILETIME ftNow;
     FILETIME ftSubmitted;
-    PWSTR pwszStrings[10];
+    PCWSTR pwszStrings[10];
     ULARGE_INTEGER uliNow;
     ULARGE_INTEGER uliSubmitted;
 
@@ -1475,7 +1475,7 @@ FreeJob(PLOCAL_JOB pJob)
     // Free memory for the optional fields if they are present.
     if (pJob->pwszOutputFile)
         DllFreeSplStr(pJob->pwszOutputFile);
-    
+
     if (pJob->pwszPrintProcessorParameters)
         DllFreeSplStr(pJob->pwszPrintProcessorParameters);
 

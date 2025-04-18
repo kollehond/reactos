@@ -2,9 +2,6 @@
 #ifndef WINCODECS_PRECOMP_H
 #define WINCODECS_PRECOMP_H
 
-#include <wine/config.h>
-#include <wine/port.h>
-
 #include <stdarg.h>
 
 #define WIN32_NO_STATUS
@@ -12,8 +9,6 @@
 #define COM_NO_WINDOWS_H
 
 #define COBJMACROS
-#define NONAMELESSUNION
-#define NONAMELESSSTRUCT
 
 #include <windef.h>
 #include <winbase.h>
@@ -21,6 +16,7 @@
 #include <winreg.h>
 #include <objbase.h>
 #include <oleauto.h>
+#include <winnls.h>
 
 #include "wincodecs_private.h"
 

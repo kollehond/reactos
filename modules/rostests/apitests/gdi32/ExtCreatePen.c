@@ -7,6 +7,8 @@
 
 #include "precomp.h"
 
+#include <pseh/pseh2.h>
+
 #define ok_lasterror(err) \
     ok(GetLastError() == err, "expected last error " #err " but got 0x%lx\n", GetLastError());
 
@@ -173,7 +175,7 @@ void Test_ExtCreatePen_Params()
     ok(pelp->elpWidth == 0, "Wrong elpWidth, expected 0, got %lu\n", pelp->elpWidth);
     ok(pelp->elpBrushStyle == BS_SOLID, "Wrong elpBrushStyle, expected BS_SOLID, got 0x%x\n", pelp->elpBrushStyle);
     ok(pelp->elpColor == 0, "Wrong elpColor, expected 0, got 0x%lx\n", pelp->elpColor);
-    ok(pelp->elpHatch == 0, "Wrong elpHatch, expected 0, got 0x%p\n", (PVOID)pelp->elpColor);
+    ok(pelp->elpHatch == 0, "Wrong elpHatch, expected 0, got 0x%lx\n", pelp->elpHatch);
     ok(pelp->elpNumEntries == 0, "Wrong elpNumEntries, expected %u got %lu\n", 0, pelp->elpNumEntries);
 
     /* Test PS_NULL with styles */

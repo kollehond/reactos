@@ -40,7 +40,6 @@
 #include "objbase.h"
 #include "commdlg.h"
 
-#include "wine/unicode.h"
 #include "wine/debug.h"
 
 #include "dlgs.h"
@@ -157,7 +156,7 @@ static LPWSTR strdupW(LPCWSTR p)
     DWORD len;
 
     if(!p) return NULL;
-    len = (strlenW(p) + 1) * sizeof(WCHAR);
+    len = (lstrlenW(p) + 1) * sizeof(WCHAR);
     ret = HeapAlloc(GetProcessHeap(), 0, len);
     memcpy(ret, p, len);
     return ret;
@@ -461,6 +460,11 @@ static INT PRINTDLG_SetUpPrinterListComboW(HWND hDlg, UINT id, LPCWSTR name)
     return num;
 }
 
+#ifdef __REACTOS__
+static const CHAR  cDriverName[] = "winspool";
+static const WCHAR wDriverName[] = L"winspool";
+#endif
+
 /***********************************************************************
  *             PRINTDLG_CreateDevNames          [internal]
  *
@@ -482,8 +486,11 @@ static BOOL PRINTDLG_CreateDevNames(HGLOBAL *hmem, const char* DeviceDriverName,
 
     p = strrchr( DeviceDriverName, '\\' );
     if (p) DeviceDriverName = p + 1;
-
+#ifndef __REACTOS__
     size = strlen(DeviceDriverName) + 1
+#else
+    size = strlen(cDriverName) + 1
+#endif
             + strlen(DeviceName) + 1
             + strlen(OutputPort) + 1
             + sizeof(DEVNAMES);
@@ -499,7 +506,11 @@ static BOOL PRINTDLG_CreateDevNames(HGLOBAL *hmem, const char* DeviceDriverName,
     lpDevNames = (LPDEVNAMES) pDevNamesSpace;
 
     pTempPtr = pDevNamesSpace + sizeof(DEVNAMES);
+#ifndef __REACTOS__
     strcpy(pTempPtr, DeviceDriverName);
+#else
+    strcpy(pTempPtr, cDriverName);
+#endif
     lpDevNames->wDriverOffset = pTempPtr - pDevNamesSpace;
 
     pTempPtr += strlen(DeviceDriverName) + 1;
@@ -527,10 +538,13 @@ static BOOL PRINTDLG_CreateDevNamesW(HGLOBAL *hmem, LPCWSTR DeviceDriverName,
     DWORD dwBufLen = ARRAY_SIZE(bufW);
     const WCHAR *p;
 
-    p = strrchrW( DeviceDriverName, '\\' );
+    p = wcsrchr( DeviceDriverName, '\\' );
     if (p) DeviceDriverName = p + 1;
-
+#ifndef __REACTOS__
     size = sizeof(WCHAR)*lstrlenW(DeviceDriverName) + 2
+#else
+    size = sizeof(WCHAR)*lstrlenW(wDriverName) + 2
+#endif
             + sizeof(WCHAR)*lstrlenW(DeviceName) + 2
             + sizeof(WCHAR)*lstrlenW(OutputPort) + 2
             + sizeof(DEVNAMES);
@@ -546,7 +560,11 @@ static BOOL PRINTDLG_CreateDevNamesW(HGLOBAL *hmem, LPCWSTR DeviceDriverName,
     lpDevNames = (LPDEVNAMES) pDevNamesSpace;
 
     pTempPtr = (LPWSTR)((LPDEVNAMES)pDevNamesSpace + 1);
+#ifndef __REACTOS__
     lstrcpyW(pTempPtr, DeviceDriverName);
+#else
+    lstrcpyW(pTempPtr, wDriverName);
+#endif
     lpDevNames->wDriverOffset = pTempPtr - pDevNamesSpace;
 
     pTempPtr += lstrlenW(DeviceDriverName) + 1;
@@ -1153,10 +1171,7 @@ static BOOL PRINTDLG_ChangePrinterA(HWND hDlg, char *name, PRINT_PTRA *PrintStru
 	        CheckRadioButton(hDlg, rad1, rad3, rad3);
 	}
 
-	/* Collate pages
-	 *
-	 * FIXME: The ico3 is not displayed for some reason. I don't know why.
-	 */
+	/* Collate pages */
 	if (lppd->Flags & PD_COLLATE) {
             SendDlgItemMessageA(hDlg, ico3, STM_SETIMAGE, IMAGE_ICON,
 				(LPARAM)PrintStructures->hCollateIcon);
@@ -1360,10 +1375,7 @@ static BOOL PRINTDLG_ChangePrinterW(HWND hDlg, WCHAR *name,
 	        CheckRadioButton(hDlg, rad1, rad3, rad3);
 	}
 
-	/* Collate pages
-	 *
-	 * FIXME: The ico3 is not displayed for some reason. I don't know why.
-	 */
+	/* Collate pages */
 	if (lppd->Flags & PD_COLLATE) {
             SendDlgItemMessageW(hDlg, ico3, STM_SETIMAGE, IMAGE_ICON,
 				(LPARAM)PrintStructures->hCollateIcon);
@@ -2618,9 +2630,9 @@ static WCHAR get_decimal_sep(void)
 
 static void size2str(const pagesetup_data *data, DWORD size, LPWSTR strout)
 {
-    WCHAR integer_fmt[] = {'%','d',0};
-    WCHAR hundredths_fmt[] = {'%','d','%','c','%','0','2','d',0};
-    WCHAR thousandths_fmt[] = {'%','d','%','c','%','0','3','d',0};
+    static const WCHAR integer_fmt[] = {'%','d',0};
+    static const WCHAR hundredths_fmt[] = {'%','d','%','c','%','0','2','d',0};
+    static const WCHAR thousandths_fmt[] = {'%','d','%','c','%','0','3','d',0};
 
     /* FIXME use LOCALE_SDECIMAL when the edit parsing code can cope */
 
@@ -2818,9 +2830,9 @@ static void pagesetup_set_devnames(pagesetup_data *data, LPCWSTR drv, LPCWSTR de
 
     if(data->unicode)
     {
-        drv_len  = (strlenW(drv) + 1) * sizeof(WCHAR);
-        dev_len  = (strlenW(devname) + 1) * sizeof(WCHAR);
-        port_len = (strlenW(port) + 1) * sizeof(WCHAR);
+        drv_len  = (lstrlenW(drv) + 1) * sizeof(WCHAR);
+        dev_len  = (lstrlenW(devname) + 1) * sizeof(WCHAR);
+        port_len = (lstrlenW(port) + 1) * sizeof(WCHAR);
     }
     else
     {
@@ -2842,15 +2854,15 @@ static void pagesetup_set_devnames(pagesetup_data *data, LPCWSTR drv, LPCWSTR de
         WCHAR *ptr = (WCHAR *)(dn + 1);
         len = sizeof(DEVNAMES) / sizeof(WCHAR);
         dn->wDriverOffset = len;
-        strcpyW(ptr, drv);
+        lstrcpyW(ptr, drv);
         ptr += drv_len / sizeof(WCHAR);
         len += drv_len / sizeof(WCHAR);
         dn->wDeviceOffset = len;
-        strcpyW(ptr, devname);
+        lstrcpyW(ptr, devname);
         ptr += dev_len / sizeof(WCHAR);
         len += dev_len / sizeof(WCHAR);
         dn->wOutputOffset = len;
-        strcpyW(ptr, port);
+        lstrcpyW(ptr, port);
     }
     else
     {
@@ -3248,7 +3260,7 @@ static void margin_edit_notification(HWND hDlg, const pagesetup_data *data, WORD
             WCHAR *end;
             WCHAR decimal = get_decimal_sep();
 
-            val = strtolW(buf, &end, 10);
+            val = wcstol(buf, &end, 10);
             if(end != buf || *end == decimal)
             {
                 int mult = is_metric(data) ? 100 : 1000;
@@ -3259,7 +3271,7 @@ static void margin_edit_notification(HWND hDlg, const pagesetup_data *data, WORD
                     {
                         end++;
                         mult /= 10;
-                        if(isdigitW(*end))
+                        if(iswdigit(*end))
                             val += (*end - '0') * mult;
                         else
                             break;
@@ -3640,7 +3652,7 @@ static LRESULT CALLBACK pagesetup_margin_editproc(HWND hwnd, UINT msg, WPARAM wp
     {
         WCHAR decimal = get_decimal_sep();
         WCHAR wc = (WCHAR)wparam;
-        if(!isdigitW(wc) && wc != decimal && wc != VK_BACK) return 0;
+        if(!iswdigit(wc) && wc != decimal && wc != VK_BACK) return 0;
     }
     return CallWindowProcW(edit_wndproc, hwnd, msg, wparam, lparam);
 }

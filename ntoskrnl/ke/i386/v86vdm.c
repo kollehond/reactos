@@ -191,13 +191,21 @@ KiVdmOpcodeINTnn(IN PKTRAP_FRAME TrapFrame,
     V86EFlags &= (EFLAGS_ALIGN_CHECK | EFLAGS_INTERRUPT_MASK);
 
     /* Check for VME support */
-    ASSERT(KeI386VirtualIntExtensions == FALSE);
+    if (KeI386VirtualIntExtensions)
+    {
+        /* Set IF based on VIF */
+        V86EFlags &= ~EFLAGS_INTERRUPT_MASK;
+        if (TrapEFlags & EFLAGS_VIF)
+        {
+            V86EFlags |= EFLAGS_INTERRUPT_MASK;
+        }
+    }
 
     /* Mask in the relevant V86 EFlags into the trap flags */
     V86EFlags |= (TrapEFlags & ~EFLAGS_INTERRUPT_MASK);
 
     /* And mask out the VIF, nested task and TF flag from the trap flags */
-    TrapFrame->EFlags = TrapEFlags &~ (EFLAGS_VIF | EFLAGS_NESTED_TASK | EFLAGS_TF);
+    TrapFrame->EFlags = TrapEFlags & ~(EFLAGS_VIF | EFLAGS_NESTED_TASK | EFLAGS_TF);
 
     /* Add the IOPL flag to the local trap flags */
     V86EFlags |= EFLAGS_IOPL;
@@ -299,11 +307,17 @@ KiVdmOpcodeIRET(IN PKTRAP_FRAME TrapFrame,
     }
 
     /* Mask out EFlags */
-    EFlags &= ~(EFLAGS_IOPL + EFLAGS_VIF + EFLAGS_NESTED_TASK + EFLAGS_VIP);
+    EFlags &= ~(EFLAGS_VIP | EFLAGS_VIF | EFLAGS_NESTED_TASK | EFLAGS_IOPL);
     V86EFlags = EFlags;
 
     /* Check for VME support */
-    ASSERT(KeI386VirtualIntExtensions == FALSE);
+    if (KeI386VirtualIntExtensions)
+    {
+        if (EFlags & EFLAGS_INTERRUPT_MASK)
+        {
+            EFlags |= EFLAGS_VIF;
+        }
+    }
 
     /* Add V86 and Interrupt flag */
     EFlags |= EFLAGS_V86_MASK | EFLAGS_INTERRUPT_MASK;
@@ -429,7 +443,9 @@ KiVdmHandleOpcode(IN PKTRAP_FRAME TrapFrame,
         case 0xF4:              return KiCallVdmHandler(HLT);
         case 0xFA:              return KiCallVdmHandler(CLI);
         case 0xFB:              return KiCallVdmHandler(STI);
-        default:                return KiCallVdmHandler(INV);
+        default:
+            DPRINT1("Unhandled instruction: 0x%02x.\n", *(PUCHAR)Eip);
+            return KiCallVdmHandler(INV);
     }
 }
 
@@ -465,17 +481,16 @@ ULONG_PTR
 FASTCALL
 KiExitV86Mode(IN PKTRAP_FRAME TrapFrame)
 {
+    PKPCR Pcr = KeGetPcr();
     ULONG_PTR StackFrameUnaligned;
     PKV8086_STACK_FRAME StackFrame;
     PKTHREAD Thread;
-    PKTRAP_FRAME PmTrapFrame;
     PKV86_FRAME V86Frame;
     PFX_SAVE_AREA NpxFrame;
 
     /* Get the stack frame back */
     StackFrameUnaligned = TrapFrame->Esi;
     StackFrame = (PKV8086_STACK_FRAME)(ROUND_UP(StackFrameUnaligned - 4, 16) + 4);
-    PmTrapFrame = &StackFrame->TrapFrame;
     V86Frame = &StackFrame->V86Frame;
     NpxFrame = &StackFrame->NpxArea;
     ASSERT((ULONG_PTR)NpxFrame % 16 == 0);
@@ -488,7 +503,9 @@ KiExitV86Mode(IN PKTRAP_FRAME TrapFrame)
     Thread->InitialStack = (PVOID)((ULONG_PTR)V86Frame->ThreadStack + sizeof(FX_SAVE_AREA));
 
     /* Set ESP0 back in the KTSS */
-    KeGetPcr()->TSS->Esp0 = (ULONG_PTR)&PmTrapFrame->V86Es;
+    Pcr->TSS->Esp0 = (ULONG_PTR)Thread->InitialStack;
+    Pcr->TSS->Esp0 -= sizeof(KTRAP_FRAME) - FIELD_OFFSET(KTRAP_FRAME, V86Es);
+    Pcr->TSS->Esp0 -= NPX_FRAME_LENGTH;
 
     /* Restore TEB addresses */
     Thread->Teb = V86Frame->ThreadTeb;
@@ -652,7 +669,7 @@ Ke386CallBios(IN ULONG Int,
     /* Allocate VDM structure */
     VdmProcessObjects = ExAllocatePoolWithTag(NonPagedPool,
                                               sizeof(VDM_PROCESS_OBJECTS),
-                                              '  eK');
+                                              TAG_KERNEL);
     if (!VdmProcessObjects) return STATUS_NO_MEMORY;
 
     /* Set it up */
@@ -666,8 +683,8 @@ Ke386CallBios(IN ULONG Int,
     /* Make sure there's space for two IOPMs, then copy & clear the current */
     ASSERT(((PKIPCR)KeGetPcr())->GDT[KGDT_TSS / 8].LimitLow >=
             (0x2000 + IOPM_OFFSET - 1));
-    RtlCopyMemory(Ki386IopmSaveArea, &Tss->IoMaps[0].IoMap, PAGE_SIZE * 2);
-    RtlZeroMemory(&Tss->IoMaps[0].IoMap, PAGE_SIZE * 2);
+    RtlCopyMemory(Ki386IopmSaveArea, &Tss->IoMaps[0].IoMap, IOPM_SIZE);
+    RtlZeroMemory(&Tss->IoMaps[0].IoMap, IOPM_SIZE);
 
     /* Save the old offset and base, and set the new ones */
     OldOffset = Process->IopmOffset;
@@ -679,7 +696,7 @@ Ke386CallBios(IN ULONG Int,
     Ki386SetupAndExitToV86Mode(VdmTeb);
 
     /* Restore IOPM */
-    RtlCopyMemory(&Tss->IoMaps[0].IoMap, Ki386IopmSaveArea, PAGE_SIZE * 2);
+    RtlCopyMemory(&Tss->IoMaps[0].IoMap, Ki386IopmSaveArea, IOPM_SIZE);
     Process->IopmOffset = OldOffset;
     Tss->IoMapBase = OldBase;
 
@@ -691,7 +708,7 @@ Ke386CallBios(IN ULONG Int,
     Context->ContextFlags = CONTEXT_FULL;
 
     /* Free VDM objects */
-    ExFreePoolWithTag(PsGetCurrentProcess()->VdmObjects, '  eK');
+    ExFreePoolWithTag(PsGetCurrentProcess()->VdmObjects, TAG_KERNEL);
     PsGetCurrentProcess()->VdmObjects = NULL;
 
     /* Return status */

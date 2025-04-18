@@ -7,10 +7,15 @@ list(APPEND SOURCE
     chmc/err.c
     lzx_compress/lz_nonslide.c
     lzx_compress/lzx_layer.c
-    port/mkstemps.c)
+    ../port/mkstemps.c)
 
 # used by lzx_compress
 add_definitions(-DNONSLIDE)
 
 add_executable(hhpcomp ${SOURCE})
 target_link_libraries(hhpcomp)
+
+if(MSVC)
+    # Disable warning "'=': conversion from 'a' to 'b', possible loss of data"
+    target_compile_options(hhpcomp PRIVATE "/wd4244")
+endif()

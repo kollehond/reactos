@@ -12,6 +12,8 @@
 /* INCLUDES ******************************************************************/
 
 #include <advapi32.h>
+#include <pseh/pseh2.h>
+
 WINE_DEFAULT_DEBUG_CHANNEL(advapi);
 
 
@@ -22,6 +24,7 @@ typedef struct _SERVICE_THREAD_PARAMSA
     LPSERVICE_MAIN_FUNCTIONA lpServiceMain;
     DWORD dwArgCount;
     LPSTR *lpArgVector;
+    DWORD dwServiceTag;
 } SERVICE_THREAD_PARAMSA, *PSERVICE_THREAD_PARAMSA;
 
 
@@ -30,6 +33,7 @@ typedef struct _SERVICE_THREAD_PARAMSW
     LPSERVICE_MAIN_FUNCTIONW lpServiceMain;
     DWORD dwArgCount;
     LPWSTR *lpArgVector;
+    DWORD dwServiceTag;
 } SERVICE_THREAD_PARAMSW, *PSERVICE_THREAD_PARAMSW;
 
 
@@ -47,6 +51,7 @@ typedef struct _ACTIVE_SERVICE
     LPVOID HandlerContext;
     BOOL bUnicode;
     BOOL bOwnProcess;
+    DWORD dwServiceTag;
 } ACTIVE_SERVICE, *PACTIVE_SERVICE;
 
 
@@ -55,6 +60,7 @@ typedef struct _ACTIVE_SERVICE
 static DWORD dwActiveServiceCount = 0;
 static PACTIVE_SERVICE lpActiveServices = NULL;
 static handle_t hStatusBinding = NULL;
+static BOOL bSecurityServiceProcess = FALSE;
 
 
 /* FUNCTIONS *****************************************************************/
@@ -164,13 +170,21 @@ ScLookupServiceByServiceName(LPCWSTR lpServiceName)
 static DWORD WINAPI
 ScServiceMainStubA(LPVOID Context)
 {
+    PTEB Teb;
     PSERVICE_THREAD_PARAMSA ThreadParams = Context;
 
     TRACE("ScServiceMainStubA(%p)\n", Context);
 
+    /* Set service tag */
+    Teb = NtCurrentTeb();
+    Teb->SubProcessTag = UlongToPtr(ThreadParams->dwServiceTag);
+
     /* Call the main service routine and free the arguments vector */
     (ThreadParams->lpServiceMain)(ThreadParams->dwArgCount,
                                   ThreadParams->lpArgVector);
+
+    /* Reset service tag */
+    Teb->SubProcessTag = 0;
 
     if (ThreadParams->lpArgVector != NULL)
     {
@@ -185,13 +199,21 @@ ScServiceMainStubA(LPVOID Context)
 static DWORD WINAPI
 ScServiceMainStubW(LPVOID Context)
 {
+    PTEB Teb;
     PSERVICE_THREAD_PARAMSW ThreadParams = Context;
 
     TRACE("ScServiceMainStubW(%p)\n", Context);
 
+    /* Set service tag */
+    Teb = NtCurrentTeb();
+    Teb->SubProcessTag = UlongToPtr(ThreadParams->dwServiceTag);
+
     /* Call the main service routine and free the arguments vector */
     (ThreadParams->lpServiceMain)(ThreadParams->dwArgCount,
                                   ThreadParams->lpArgVector);
+
+    /* Reset service tag */
+    Teb->SubProcessTag = 0;
 
     if (ThreadParams->lpArgVector != NULL)
     {
@@ -208,7 +230,7 @@ ScConnectControlPipe(HANDLE *hPipe)
 {
     DWORD dwBytesWritten;
     DWORD dwState;
-    DWORD dwServiceCurrent = 0;
+    DWORD dwServiceCurrent = 1;
     NTSTATUS Status;
     WCHAR NtControlPipeName[MAX_PATH + 1];
     RTL_QUERY_REGISTRY_TABLE QueryTable[2];
@@ -218,25 +240,32 @@ ScConnectControlPipe(HANDLE *hPipe)
           hPipe);
 
     /* Get the service number and create the named pipe */
-    RtlZeroMemory(&QueryTable,
-                  sizeof(QueryTable));
-
-    QueryTable[0].Name = L"";
-    QueryTable[0].Flags = RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_REQUIRED;
-    QueryTable[0].EntryContext = &dwServiceCurrent;
-
-    Status = RtlQueryRegistryValues(RTL_REGISTRY_CONTROL,
-                                    L"ServiceCurrent",
-                                    QueryTable,
-                                    NULL,
-                                    NULL);
-    if (!NT_SUCCESS(Status))
+    if (bSecurityServiceProcess == FALSE)
     {
-        ERR("RtlQueryRegistryValues() failed (Status %lx)\n", Status);
-        return RtlNtStatusToDosError(Status);
+        RtlZeroMemory(&QueryTable, sizeof(QueryTable));
+
+        QueryTable[0].Name = L"";
+        QueryTable[0].Flags = RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_REQUIRED;
+        QueryTable[0].EntryContext = &dwServiceCurrent;
+
+        Status = RtlQueryRegistryValues(RTL_REGISTRY_CONTROL,
+                                        L"ServiceCurrent",
+                                        QueryTable,
+                                        NULL,
+                                        NULL);
+        if (!NT_SUCCESS(Status))
+        {
+            ERR("RtlQueryRegistryValues() failed (Status %lx)\n", Status);
+            return RtlNtStatusToDosError(Status);
+        }
+    }
+    else
+    {
+        dwServiceCurrent = 0;
     }
 
     swprintf(NtControlPipeName, L"\\\\.\\pipe\\net\\NtControlPipe%u", dwServiceCurrent);
+    TRACE("PipeName: %S\n", NtControlPipeName);
 
     if (!WaitNamedPipeW(NtControlPipeName, 30000))
     {
@@ -440,6 +469,8 @@ ScStartService(PACTIVE_SERVICE lpService,
 
     /* Set the service status handle */
     lpService->hServiceStatus = ControlPacket->hServiceStatus;
+    /* Set the service tag */
+    lpService->dwServiceTag = ControlPacket->dwServiceTag;
 
     /* Build the arguments vector */
     if (lpService->bUnicode != FALSE)
@@ -456,6 +487,7 @@ ScStartService(PACTIVE_SERVICE lpService,
             return dwError;
         }
         ThreadParamsW->lpServiceMain = lpService->ServiceMain.W;
+        ThreadParamsW->dwServiceTag = ControlPacket->dwServiceTag;
         ThreadHandle = CreateThread(NULL,
                                     0,
                                     ScServiceMainStubW,
@@ -489,6 +521,7 @@ ScStartService(PACTIVE_SERVICE lpService,
             return dwError;
         }
         ThreadParamsA->lpServiceMain = lpService->ServiceMain.A;
+        ThreadParamsA->dwServiceTag = ControlPacket->dwServiceTag;
         ThreadHandle = CreateThread(NULL,
                                     0,
                                     ScServiceMainStubA,
@@ -528,6 +561,9 @@ ScControlService(PACTIVE_SERVICE lpService,
     TRACE("Size: %lu\n", ControlPacket->dwSize);
     TRACE("Service: %S\n", (PWSTR)((ULONG_PTR)ControlPacket + ControlPacket->dwServiceNameOffset));
 
+    /* Set service tag */
+    NtCurrentTeb()->SubProcessTag = UlongToPtr(lpService->dwServiceTag);
+
     if (lpService->HandlerFunction)
     {
         _SEH2_TRY
@@ -559,6 +595,9 @@ ScControlService(PACTIVE_SERVICE lpService,
     {
         dwError = ERROR_SERVICE_CANNOT_ACCEPT_CTRL;
     }
+
+    /* Reset service tag */
+    NtCurrentTeb()->SubProcessTag = 0;
 
     TRACE("ScControlService() done (Error %lu)\n", dwError);
 
@@ -632,7 +671,7 @@ ScServiceDispatcher(HANDLE hPipe,
                         break;
 
                     default:
-                        TRACE("Command %lu received", ControlPacket->dwControl);
+                        TRACE("Command %lu received\n", ControlPacket->dwControl);
                         dwError = ScControlService(lpService, ControlPacket);
                         break;
                 }
@@ -807,13 +846,14 @@ RegisterServiceCtrlHandlerExW(LPCWSTR lpServiceName,
  *
  * Undocumented
  *
- * @unimplemented
+ * @implemented
  */
 VOID
 WINAPI
 I_ScIsSecurityProcess(VOID)
 {
-    FIXME("I_ScIsSecurityProcess()\n");
+    TRACE("I_ScIsSecurityProcess()\n");
+    bSecurityServiceProcess = TRUE;
 }
 
 

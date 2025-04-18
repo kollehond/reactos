@@ -66,7 +66,7 @@ Escape(
 
     if (ulObjType == GDILoObjType_LO_METADC16_TYPE)
     {
-        return METADC16_Escape(hdc, nEscape, cbInput, lpvInData, lpvOutData);
+        return METADC_ExtEscape(hdc, nEscape, cbInput, lpvInData, 0, lpvOutData);
     }
 
     switch (nEscape)
@@ -169,7 +169,7 @@ Escape(
             di.fwType = 0;
             di.lpszDocName = lpvInData;
 
-            /* NOTE : doc for StartDocA/W at msdn http://msdn2.microsoft.com/en-us/library/ms535793(VS.85).aspx */
+            /* NOTE : doc for StartDocA/W at msdn https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-startdoca */
             retValue = StartDocA(hdc, &di);
 
             /* Check if StartDocA failed */
@@ -179,7 +179,7 @@ Escape(
                     retValue = GetLastError();
 
                     /* Translate StartDocA error code to STARTDOC error code
-                     * see msdn http://msdn2.microsoft.com/en-us/library/ms535472.aspx
+                     * see msdn https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-escape
                      */
                     switch(retValue)
                     {
@@ -301,7 +301,7 @@ static inline BOOL UXTHEME_StretchBlt(HDC hdcDst, int nXOriginDst, int nYOriginD
                                       HDC hdcSrc, int nXOriginSrc, int nYOriginSrc, int nWidthSrc, int nHeightSrc,
                                       INT transparent, COLORREF transcolor)
 {
-    static const BLENDFUNCTION blendFunc = 
+    static const BLENDFUNCTION blendFunc =
     {
       AC_SRC_OVER, /* BlendOp */
       0,           /* BlendFlag */
@@ -356,11 +356,11 @@ static inline BOOL UXTHEME_Blt(HDC hdcDest, int nXOriginDest, int nYOriginDest, 
  *
  * Stretches or tiles, depending on sizingtype.
  */
-static inline BOOL UXTHEME_SizedBlt (HDC hdcDst, int nXOriginDst, int nYOriginDst, 
+static inline BOOL UXTHEME_SizedBlt (HDC hdcDst, int nXOriginDst, int nYOriginDst,
                                      int nWidthDst, int nHeightDst,
-                                     HDC hdcSrc, int nXOriginSrc, int nYOriginSrc, 
+                                     HDC hdcSrc, int nXOriginSrc, int nYOriginSrc,
                                      int nWidthSrc, int nHeightSrc,
-                                     int sizingtype, 
+                                     int sizingtype,
                                      INT transparent, COLORREF transcolor)
 {
     if (sizingtype == ST_TILE)
@@ -533,34 +533,34 @@ static HRESULT UXTHEME_DrawImageBackground(HDC hdc, HBITMAP bmpSrc, RECT *prcSrc
 
         /* Upper left corner */
         if(!UXTHEME_Blt(hdcDst, 0, 0, sm.cxLeftWidth, sm.cyTopHeight,
-                        hdcSrc, rcSrc.left, rcSrc.top, 
+                        hdcSrc, rcSrc.left, rcSrc.top,
                         transparent, transparentcolor)) {
             hr = HRESULT_FROM_WIN32(GetLastError());
-            goto draw_error; 
+            goto draw_error;
         }
         /* Upper right corner */
-        if(!UXTHEME_Blt (hdcDst, dstSize.x-sm.cxRightWidth, 0, 
+        if(!UXTHEME_Blt (hdcDst, dstSize.x-sm.cxRightWidth, 0,
                          sm.cxRightWidth, sm.cyTopHeight,
-                         hdcSrc, rcSrc.right-sm.cxRightWidth, rcSrc.top, 
+                         hdcSrc, rcSrc.right-sm.cxRightWidth, rcSrc.top,
                          transparent, transparentcolor)) {
             hr = HRESULT_FROM_WIN32(GetLastError());
-            goto draw_error; 
+            goto draw_error;
         }
         /* Lower left corner */
-        if(!UXTHEME_Blt (hdcDst, 0, dstSize.y-sm.cyBottomHeight, 
+        if(!UXTHEME_Blt (hdcDst, 0, dstSize.y-sm.cyBottomHeight,
                          sm.cxLeftWidth, sm.cyBottomHeight,
-                         hdcSrc, rcSrc.left, rcSrc.bottom-sm.cyBottomHeight, 
+                         hdcSrc, rcSrc.left, rcSrc.bottom-sm.cyBottomHeight,
                          transparent, transparentcolor)) {
             hr = HRESULT_FROM_WIN32(GetLastError());
-            goto draw_error; 
+            goto draw_error;
         }
         /* Lower right corner */
-        if(!UXTHEME_Blt (hdcDst, dstSize.x-sm.cxRightWidth, dstSize.y-sm.cyBottomHeight, 
+        if(!UXTHEME_Blt (hdcDst, dstSize.x-sm.cxRightWidth, dstSize.y-sm.cyBottomHeight,
                          sm.cxRightWidth, sm.cyBottomHeight,
-                         hdcSrc, rcSrc.right-sm.cxRightWidth, rcSrc.bottom-sm.cyBottomHeight, 
+                         hdcSrc, rcSrc.right-sm.cxRightWidth, rcSrc.bottom-sm.cyBottomHeight,
                          transparent, transparentcolor)) {
             hr = HRESULT_FROM_WIN32(GetLastError());
-            goto draw_error; 
+            goto draw_error;
         }
 
         if ((sizingtype == ST_STRETCH) || (sizingtype == ST_TILE)) {
@@ -571,55 +571,55 @@ static HRESULT UXTHEME_DrawImageBackground(HDC hdc, HBITMAP bmpSrc, RECT *prcSrc
 
             if(destCenterWidth > 0) {
                 /* Center top */
-                if(!UXTHEME_SizedBlt (hdcDst, sm.cxLeftWidth, 0, 
+                if(!UXTHEME_SizedBlt (hdcDst, sm.cxLeftWidth, 0,
                                       destCenterWidth, sm.cyTopHeight,
-                                      hdcSrc, rcSrc.left+sm.cxLeftWidth, rcSrc.top, 
-                                      srcCenterWidth, sm.cyTopHeight, 
+                                      hdcSrc, rcSrc.left+sm.cxLeftWidth, rcSrc.top,
+                                      srcCenterWidth, sm.cyTopHeight,
                                       sizingtype, transparent, transparentcolor)) {
                     hr = HRESULT_FROM_WIN32(GetLastError());
-                    goto draw_error; 
+                    goto draw_error;
                 }
                 /* Center bottom */
-                if(!UXTHEME_SizedBlt (hdcDst, sm.cxLeftWidth, dstSize.y-sm.cyBottomHeight, 
+                if(!UXTHEME_SizedBlt (hdcDst, sm.cxLeftWidth, dstSize.y-sm.cyBottomHeight,
                                       destCenterWidth, sm.cyBottomHeight,
-                                      hdcSrc, rcSrc.left+sm.cxLeftWidth, rcSrc.bottom-sm.cyBottomHeight, 
-                                      srcCenterWidth, sm.cyBottomHeight, 
+                                      hdcSrc, rcSrc.left+sm.cxLeftWidth, rcSrc.bottom-sm.cyBottomHeight,
+                                      srcCenterWidth, sm.cyBottomHeight,
                                       sizingtype, transparent, transparentcolor)) {
                     hr = HRESULT_FROM_WIN32(GetLastError());
-                    goto draw_error; 
+                    goto draw_error;
                 }
             }
             if(destCenterHeight > 0) {
                 /* Left center */
-                if(!UXTHEME_SizedBlt (hdcDst, 0, sm.cyTopHeight, 
+                if(!UXTHEME_SizedBlt (hdcDst, 0, sm.cyTopHeight,
                                       sm.cxLeftWidth, destCenterHeight,
-                                      hdcSrc, rcSrc.left, rcSrc.top+sm.cyTopHeight, 
-                                      sm.cxLeftWidth, srcCenterHeight, 
-                                      sizingtype, 
+                                      hdcSrc, rcSrc.left, rcSrc.top+sm.cyTopHeight,
+                                      sm.cxLeftWidth, srcCenterHeight,
+                                      sizingtype,
                                       transparent, transparentcolor)) {
                     hr = HRESULT_FROM_WIN32(GetLastError());
-                    goto draw_error; 
+                    goto draw_error;
                 }
                 /* Right center */
-                if(!UXTHEME_SizedBlt (hdcDst, dstSize.x-sm.cxRightWidth, sm.cyTopHeight, 
+                if(!UXTHEME_SizedBlt (hdcDst, dstSize.x-sm.cxRightWidth, sm.cyTopHeight,
                                       sm.cxRightWidth, destCenterHeight,
-                                      hdcSrc, rcSrc.right-sm.cxRightWidth, rcSrc.top+sm.cyTopHeight, 
-                                      sm.cxRightWidth, srcCenterHeight, 
+                                      hdcSrc, rcSrc.right-sm.cxRightWidth, rcSrc.top+sm.cyTopHeight,
+                                      sm.cxRightWidth, srcCenterHeight,
                                       sizingtype, transparent, transparentcolor)) {
                     hr = HRESULT_FROM_WIN32(GetLastError());
-                    goto draw_error; 
+                    goto draw_error;
                 }
             }
             if(destCenterHeight > 0 && destCenterWidth > 0) {
                 if(!borderonly) {
                     /* Center */
-                    if(!UXTHEME_SizedBlt (hdcDst, sm.cxLeftWidth, sm.cyTopHeight, 
+                    if(!UXTHEME_SizedBlt (hdcDst, sm.cxLeftWidth, sm.cyTopHeight,
                                           destCenterWidth, destCenterHeight,
-                                          hdcSrc, rcSrc.left+sm.cxLeftWidth, rcSrc.top+sm.cyTopHeight, 
-                                          srcCenterWidth, srcCenterHeight, 
+                                          hdcSrc, rcSrc.left+sm.cxLeftWidth, rcSrc.top+sm.cyTopHeight,
+                                          srcCenterWidth, srcCenterHeight,
                                           sizingtype, transparent, transparentcolor)) {
                         hr = HRESULT_FROM_WIN32(GetLastError());
-                        goto draw_error; 
+                        goto draw_error;
                     }
                 }
             }
@@ -667,7 +667,7 @@ GdiDrawStream(HDC dc, ULONG l, PGDI_DRAW_STREAM pDS)
             transparent = ALPHABLEND_FULL;
         else if (pDS->drawOption & DS_TRANSPARENTCLR)
             transparent = ALPHABLEND_BINARY;
-        else 
+        else
             transparent = ALPHABLEND_NONE;
 
         if (pDS->drawOption & DS_TILE)
@@ -690,11 +690,11 @@ GdiDrawStream(HDC dc, ULONG l, PGDI_DRAW_STREAM pDS)
             sm.cyTopHeight = sm.cyBottomHeight = 0;
         }
 
-        UXTHEME_DrawImageBackground(pDS->hDC, 
-                                    pDS->hImage, 
-                                    &pDS->rcSrc, 
-                                    transparent, 
-                                    pDS->crTransparent, 
+        UXTHEME_DrawImageBackground(pDS->hDC,
+                                    pDS->hImage,
+                                    &pDS->rcSrc,
+                                    transparent,
+                                    pDS->crTransparent,
                                     FALSE,
                                     sizingtype,
                                     &sm,
@@ -735,7 +735,7 @@ GdiFixUpHandle(HGDIOBJ hGdiObj)
 {
     PGDI_TABLE_ENTRY Entry;
 
-    if (((ULONG_PTR)(hGdiObj)) & GDI_HANDLE_UPPER_MASK )
+    if (GDI_HANDLE_GET_UPPER(hGdiObj))
     {
         return hGdiObj;
     }
@@ -745,7 +745,7 @@ GdiFixUpHandle(HGDIOBJ hGdiObj)
     Entry = GdiHandleTable + GDI_HANDLE_GET_INDEX(hGdiObj);
 
     /* Rebuild handle for Object */
-    return hGdiObj = (HGDIOBJ)(((LONG_PTR)(hGdiObj)) | (Entry->Type << GDI_ENTRY_UPPER_SHIFT));
+    return (HGDIOBJ)(((ULONG_PTR)(hGdiObj)) | (Entry->Type << GDI_ENTRY_UPPER_SHIFT));
 }
 
 /*
@@ -962,6 +962,7 @@ bMakePathNameW(LPWSTR lpBuffer,LPCWSTR lpFileName,LPWSTR *lpFilePart,DWORD unkno
 
 /*
  * @implemented
+ * Synchronized with WINE dlls/gdi32/driver.c
  */
 DEVMODEW *
 WINAPI
@@ -986,15 +987,19 @@ GdiConvertToDevmodeW(const DEVMODEA *dmA)
     dmW = HeapAlloc(GetProcessHeap(), 0, dmW_size + dmA->dmDriverExtra);
     if (!dmW) return NULL;
 
-    MultiByteToWideChar(CP_ACP, 0, (const char*) dmA->dmDeviceName, CCHDEVICENAME,
-                        dmW->dmDeviceName, CCHDEVICENAME);
+    MultiByteToWideChar(CP_ACP, 0, (const char*) dmA->dmDeviceName, -1,
+                                   dmW->dmDeviceName, CCHDEVICENAME);
     /* copy slightly more, to avoid long computations */
     memcpy(&dmW->dmSpecVersion, &dmA->dmSpecVersion, dmA_size - CCHDEVICENAME);
 
     if (dmA_size >= FIELD_OFFSET(DEVMODEA, dmFormName) + CCHFORMNAME)
     {
-        MultiByteToWideChar(CP_ACP, 0, (const char*) dmA->dmFormName, CCHFORMNAME,
-                            dmW->dmFormName, CCHFORMNAME);
+        if (dmA->dmFields & DM_FORMNAME)
+            MultiByteToWideChar(CP_ACP, 0, (const char*) dmA->dmFormName, -1,
+                                       dmW->dmFormName, CCHFORMNAME);
+        else
+            dmW->dmFormName[0] = 0;
+
         if (dmA_size > FIELD_OFFSET(DEVMODEA, dmLogPixels))
             memcpy(&dmW->dmLogPixels, &dmA->dmLogPixels, dmA_size - FIELD_OFFSET(DEVMODEA, dmLogPixels));
     }
@@ -1021,12 +1026,34 @@ GdiRealizationInfo(HDC hdc,
 
 
 /*
- * @unimplemented
+ * @halfplemented
  */
 VOID WINAPI GdiInitializeLanguagePack(DWORD InitParam)
 {
-    UNIMPLEMENTED;
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    /* Lpk function pointers to be passed to user32 */
+#if 0
+    FARPROC hookfuncs[4];
+#endif
+
+#ifdef LANGPACK
+    if (!LoadLPK(LPK_INIT)) // no lpk found!
+#endif
+        return;
+
+     /* Call InitializeLpkHooks with 4 procedure addresses
+        loaded from lpk.dll but currently only one of them is currently implemented.
+        Then InitializeLpkHooks (in user32) uses these to replace certain internal functions
+        and ORs a DWORD being used also by ClientThreadSetup and calls
+        NtUserOneParam with parameter 54 which is ONEPARAM_ROUTINE_REGISTERLPK
+        which most likely changes the value of dwLpkEntryPoints in the
+        PROCESSINFO struct */
+
+#if 0
+        hookfuncs[0] = GetProcAddress(hLpk, "LpkPSMTextOut");
+        InitializeLpkHooks(hookfuncs);
+#endif
+
+    gbLpk = TRUE;
 }
 
 BOOL

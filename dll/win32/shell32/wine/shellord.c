@@ -3,7 +3,7 @@
  * (NT uses Unicode strings, 95 uses ASCII strings)
  *
  * Copyright 1997 Marcus Meissner
- *           1998 Jürgen Schmied
+ *           1998 JÃ¼rgen Schmied
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -45,6 +45,10 @@
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 WINE_DECLARE_DEBUG_CHANNEL(pidl);
 
+#ifdef __REACTOS__
+#include <comctl32_undoc.h>
+#include <shlwapi_undoc.h>
+#else
 /* FIXME: !!! move CREATEMRULIST and flags to header file !!! */
 /*        !!! it is in both here and comctl32undoc.c      !!! */
 typedef struct tagCREATEMRULIST
@@ -67,7 +71,7 @@ extern VOID WINAPI FreeMRUList(HANDLE hMRUList);
 extern INT    WINAPI AddMRUData(HANDLE hList, LPCVOID lpData, DWORD cbData);
 extern INT    WINAPI FindMRUData(HANDLE hList, LPCVOID lpData, DWORD cbData, LPINT lpRegNum);
 extern INT    WINAPI EnumMRUListA(HANDLE hList, INT nItemPos, LPVOID lpBuffer, DWORD nBufferSize);
-
+#endif
 
 /*************************************************************************
  * ParseFieldA					[internal]
@@ -192,11 +196,197 @@ typedef BOOL (WINAPI *GetOpenFileNameProc)(OPENFILENAMEW *ofn);
     return ret;
 }
 
+#ifdef __REACTOS__
+BOOL SHELL_GlobalCounterChanged(LONG *pCounter, SHELL_GCOUNTER_DECLAREPARAMETERS(handle, id))
+{
+    LONG count = SHELL_GlobalCounterGet(SHELL_GCOUNTER_PARAMETERS(handle, id));
+    if (*pCounter == count)
+        return FALSE;
+    *pCounter = count;
+    return TRUE;
+}
+
+EXTERN_C void SHELL32_GetDefaultShellState(LPSHELLSTATE pss);
+EXTERN_C BOOL SHELL32_ReadRegShellState(PREGSHELLSTATE prss);
+EXTERN_C LSTATUS SHELL32_WriteRegShellState(PREGSHELLSTATE prss);
+SHELL_GCOUNTER_DEFINE_GUID(SHGCGUID_ShellState, 0x7cb834f0, 0x527b, 0x11d2, 0x9d, 0x1f, 0x00, 0x00, 0xf8, 0x05, 0xca, 0x57);
+SHELL_GCOUNTER_DEFINE_HANDLE(g_hShellState);
+#define SHELL_GCOUNTER_SHELLSTATE SHELL_GCOUNTER_PARAMETERS(g_hShellState, GLOBALCOUNTER_SHELLSETTINGSCHANGED)
+static LONG g_ShellStateCounter = 0;
+static UINT g_CachedSSF = 0;
+static REGSHELLSTATE g_ShellState;
+enum { ssf_autocheckselect = 0x00800000, ssf_iconsonly = 0x01000000,
+       ssf_showtypeoverlay = 0x02000000, ssf_showstatusbar = 0x04000000 };
+#endif //__REACTOS__
+
 /*************************************************************************
  * SHGetSetSettings				[SHELL32.68]
  */
 VOID WINAPI SHGetSetSettings(LPSHELLSTATE lpss, DWORD dwMask, BOOL bSet)
 {
+#ifdef __REACTOS__
+    const DWORD inverted = SSF_SHOWEXTENSIONS;
+    LPSHELLSTATE gpss = &g_ShellState.ss;
+    HKEY hKeyAdv;
+
+    if (!SHELL_GlobalCounterIsInitialized(g_hShellState))
+    {
+        SHELL_GlobalCounterCreate(&SHGCGUID_ShellState, g_hShellState);
+    }
+
+    if (!lpss)
+    {
+        SHELL_GlobalCounterIncrement(SHELL_GCOUNTER_SHELLSTATE);
+        return;
+    }
+
+    hKeyAdv = SHGetShellKey(SHKEY_Root_HKCU | SHKEY_Key_Explorer, L"Advanced", bSet);
+    if (!hKeyAdv && bSet)
+        return;
+
+#define SSF_STRUCTONLY (SSF_NOCONFIRMRECYCLE | SSF_DOUBLECLICKINWEBVIEW | SSF_DESKTOPHTML | \
+                        SSF_WIN95CLASSIC | SSF_SORTCOLUMNS | SSF_STARTPANELON)
+#define SHGSS_GetSetStruct(getsetmacro) \
+    do { \
+        getsetmacro(fNoConfirmRecycle, SSF_NOCONFIRMRECYCLE); \
+        getsetmacro(fDoubleClickInWebView, SSF_DOUBLECLICKINWEBVIEW); \
+        getsetmacro(fDesktopHTML, SSF_DESKTOPHTML); \
+        getsetmacro(fWin95Classic, SSF_WIN95CLASSIC); \
+        getsetmacro(lParamSort, SSF_SORTCOLUMNS); \
+        getsetmacro(iSortDirection, SSF_SORTCOLUMNS); \
+        getsetmacro(fStartPanelOn, SSF_STARTPANELON); \
+    } while (0)
+#define SHGSS_GetSetAdv(getsetmacro) \
+    do { \
+        getsetmacro(L"HideFileExt", fShowExtensions, SSF_SHOWEXTENSIONS); \
+        getsetmacro(L"ShowCompColor", fShowCompColor, SSF_SHOWCOMPCOLOR); \
+        getsetmacro(L"DontPrettyPath", fDontPrettyPath, SSF_DONTPRETTYPATH); \
+        getsetmacro(L"ShowAttribCol", fShowAttribCol, SSF_SHOWATTRIBCOL); \
+        getsetmacro(L"MapNetDrvBtn", fMapNetDrvBtn, SSF_MAPNETDRVBUTTON); \
+        getsetmacro(L"ShowInfoTip", fShowInfoTip, SSF_SHOWINFOTIP); \
+        getsetmacro(L"HideIcons", fHideIcons, SSF_HIDEICONS); \
+        getsetmacro(L"WebView", fWebView, SSF_WEBVIEW); \
+        getsetmacro(L"Filter", fFilter, SSF_FILTER); \
+        getsetmacro(L"ShowSuperHidden", fShowSuperHidden, SSF_SHOWSUPERHIDDEN); \
+        getsetmacro(L"NoNetCrawling", fNoNetCrawling, SSF_NONETCRAWLING); \
+        getsetmacro(L"SeparateProcess", fSepProcess, SSF_SEPPROCESS); \
+        getsetmacro(L"AutoCheckSelect", fAutoCheckSelect, ssf_autocheckselect); \
+        getsetmacro(L"IconsOnly", fIconsOnly, ssf_iconsonly); \
+        getsetmacro(L"ShowTypeOverlay", fShowTypeOverlay, ssf_showtypeoverlay); \
+        getsetmacro(L"ShowStatusBar", fShowStatusBar, ssf_showstatusbar); \
+    } while (0)
+
+    if (bSet)
+    {
+        DWORD changed = 0;
+        if (dwMask & ~g_CachedSSF)
+        {
+            SHELLSTATE tempstate;
+            SHGetSetSettings(&tempstate, dwMask, FALSE); // Read entries that are not in g_CachedSSF
+        }
+
+#define SHGSS_WriteAdv(name, value, SSF) \
+    do { \
+        DWORD val = (value), cb = sizeof(DWORD); \
+        if (SHSetValueW(hKeyAdv, NULL, (name), REG_DWORD, &val, cb) == ERROR_SUCCESS) \
+        { \
+            ++changed; \
+        } \
+    } while (0)
+#define SHGSS_SetAdv(name, field, SSF) \
+    do { \
+        if ((dwMask & (SSF)) && gpss->field != lpss->field) \
+        { \
+            const DWORD bitval = (gpss->field = lpss->field); \
+            SHGSS_WriteAdv((name), ((SSF) & inverted) ? !bitval : !!bitval, (SSF)); \
+        } \
+    } while (0)
+#define SHGSS_SetStruct(field, SSF) \
+    do { \
+        if ((dwMask & (SSF)) && gpss->field != lpss->field) \
+        { \
+            gpss->field = lpss->field; \
+            ++changed; \
+        } \
+    } while (0)
+
+        if ((dwMask & SSF_SHOWALLOBJECTS) && gpss->fShowAllObjects != lpss->fShowAllObjects)
+        {
+            gpss->fShowAllObjects = lpss->fShowAllObjects;
+            SHGSS_WriteAdv(L"Hidden", lpss->fShowAllObjects ? 1 : 2, SSF_SHOWALLOBJECTS);
+        }
+        SHGSS_SetStruct(fShowSysFiles, SSF_SHOWSYSFILES);
+        SHGSS_GetSetAdv(SHGSS_SetAdv);
+        SHGSS_GetSetStruct(SHGSS_SetStruct);
+        if (changed)
+        {
+            if ((dwMask & SSF_SHOWSUPERHIDDEN) && (DLL_EXPORT_VERSION) < _WIN32_WINNT_VISTA)
+            {
+                // This is probably a Windows bug but write this alternative name just in case someone reads it
+                DWORD val = gpss->fShowSuperHidden != FALSE;
+                SHSetValueW(hKeyAdv, NULL, L"SuperHidden", REG_DWORD, &val, sizeof(val));
+            }
+            SHELL32_WriteRegShellState(&g_ShellState); // Write the new SHELLSTATE
+            SHGetSetSettings(NULL, 0, TRUE); // Invalidate counter
+            SHSendMessageBroadcastW(WM_SETTINGCHANGE, 0, (LPARAM)L"ShellState"); // Notify everyone
+        }
+    }
+    else
+    {
+        DWORD read = 0, data, cb, dummy = 0;
+        DBG_UNREFERENCED_LOCAL_VARIABLE(dummy);
+        if (SHELL_GlobalCounterChanged(&g_ShellStateCounter, SHELL_GCOUNTER_SHELLSTATE))
+            g_CachedSSF = 0;
+
+#define SHGSS_ReadAdv(name, SSF) ( \
+    (g_CachedSSF & (SSF)) != (SSF) && (cb = sizeof(DWORD)) != 0 && \
+    SHQueryValueEx(hKeyAdv, (name), NULL, NULL, &data, &cb) == ERROR_SUCCESS && \
+    cb == sizeof(DWORD) && (read |= (SSF)) != 0 )
+#define SHGSS_GetFieldHelper(field, SSF, src, dst, cachevar) \
+    do { \
+        if (dwMask & (SSF)) \
+        { \
+            (dst)->field = (src)->field; \
+            cachevar |= (SSF); \
+        } \
+    } while (0)
+#define SHGSS_CacheField(field, SSF) SHGSS_GetFieldHelper(field, (SSF), &rss.ss, gpss, read)
+#define SHGSS_GetField(field, SSF) SHGSS_GetFieldHelper(field, (SSF), gpss, lpss, dummy)
+#define SHGSS_GetAdv(name, field, SSF) \
+    do { \
+        if (SHGSS_ReadAdv((name), (SSF))) \
+            gpss->field = ((SSF) & inverted) ? data == FALSE : data != FALSE; \
+        SHGSS_GetFieldHelper(field, (SSF), gpss, lpss, read); \
+    } while (0)
+
+        if (SHGSS_ReadAdv(L"Hidden", SSF_SHOWALLOBJECTS | SSF_SHOWSYSFILES))
+        {
+            gpss->fShowAllObjects = data == 1;
+            gpss->fShowSysFiles = data > 1;
+        }
+        SHGSS_GetField(fShowAllObjects, SSF_SHOWALLOBJECTS);
+        SHGSS_GetField(fShowSysFiles, SSF_SHOWSYSFILES);
+        SHGSS_GetSetAdv(SHGSS_GetAdv);
+        if (dwMask & ~(read | g_CachedSSF))
+        {
+            REGSHELLSTATE rss;
+            if (SHELL32_ReadRegShellState(&rss))
+            {
+                SHGSS_GetSetStruct(SHGSS_CacheField); // Copy the requested items to gpss
+            }
+            else
+            {
+                SHELL32_GetDefaultShellState(gpss);
+                read = 0; // The advanced items we read are no longer valid in gpss
+                g_CachedSSF = SSF_STRUCTONLY;
+            }
+        }
+        SHGSS_GetSetStruct(SHGSS_GetField); // Copy requested items from gpss to output
+        g_CachedSSF |= read;
+    }
+    if (hKeyAdv)
+        RegCloseKey(hKeyAdv);
+#else
   if(bSet)
   {
     FIXME("%p 0x%08x TRUE\n", lpss, dwMask);
@@ -205,6 +395,7 @@ VOID WINAPI SHGetSetSettings(LPSHELLSTATE lpss, DWORD dwMask, BOOL bSet)
   {
     SHGetSettings((LPSHELLFLAGSTATE)lpss,dwMask);
   }
+#endif //__REACTOS__
 }
 
 /*************************************************************************
@@ -217,6 +408,17 @@ VOID WINAPI SHGetSetSettings(LPSHELLSTATE lpss, DWORD dwMask, BOOL bSet)
  */
 VOID WINAPI SHGetSettings(LPSHELLFLAGSTATE lpsfs, DWORD dwMask)
 {
+#ifdef __REACTOS__
+    SHELLSTATE ss;
+    SHGetSetSettings(&ss, dwMask & ~(SSF_SORTCOLUMNS | SSF_FILTER), FALSE);
+    *lpsfs = *(LPSHELLFLAGSTATE)&ss;
+    if (dwMask & SSF_HIDEICONS)
+        lpsfs->fHideIcons = ss.fHideIcons;
+    if (dwMask & ssf_autocheckselect)
+        lpsfs->fAutoCheckSelect = ss.fAutoCheckSelect;
+    if (dwMask & ssf_iconsonly)
+        lpsfs->fIconsOnly = ss.fIconsOnly;
+#else
 	HKEY	hKey;
 	DWORD	dwData;
 	DWORD	dwDataSize = sizeof (DWORD);
@@ -260,7 +462,7 @@ VOID WINAPI SHGetSettings(LPSHELLFLAGSTATE lpsfs, DWORD dwMask)
 	  }
 	}
 	RegCloseKey (hKey);
-
+#endif //__REACTOS__
 	TRACE("-- 0x%04x\n", *(WORD*)lpsfs);
 }
 
@@ -328,12 +530,28 @@ BOOL WINAPI RegisterShellHook(
  *
  * See ShellMessageBoxA.
  *
+ */
+#ifdef __REACTOS__
+/*
+ * shell32.ShellMessageBoxW directly redirects to shlwapi.ShellMessageBoxWrapW,
+ * while shell32.ShellMessageBoxA is a copy-paste ANSI adaptation of the
+ * shlwapi.ShellMessageBoxWrapW function.
+ *
+ * From Vista+ onwards, all the implementation of ShellMessageBoxA/W that
+ * were existing in shell32 has been completely moved to shlwapi, so that
+ * shell32.ShellMessageBoxA and shell32.ShellMessageBoxW are redirections
+ * to the corresponding shlwapi functions.
+ *
+ */
+#else // !__REACTOS__
+/*
  * NOTE:
  * shlwapi.ShellMessageBoxWrapW is a duplicate of shell32.ShellMessageBoxW
  * because we can't forward to it in the .spec file since it's exported by
  * ordinal. If you change the implementation here please update the code in
  * shlwapi as well.
  */
+// Wine version, broken.
 int ShellMessageBoxW(
 	HINSTANCE hInstance,
 	HWND hWnd,
@@ -355,12 +573,12 @@ int ShellMessageBoxW(
 	    hInstance,hWnd,lpText,lpCaption,uType);
 
 	if (IS_INTRESOURCE(lpCaption))
-	  LoadStringW(hInstance, LOWORD(lpCaption), szTitle, sizeof(szTitle)/sizeof(szTitle[0]));
+	  LoadStringW(hInstance, LOWORD(lpCaption), szTitle, ARRAY_SIZE(szTitle));
 	else
 	  pszTitle = lpCaption;
 
 	if (IS_INTRESOURCE(lpText))
-	  LoadStringW(hInstance, LOWORD(lpText), szText, sizeof(szText)/sizeof(szText[0]));
+	  LoadStringW(hInstance, LOWORD(lpText), szText, ARRAY_SIZE(szText));
 	else
 	  pszText = lpText;
 
@@ -373,6 +591,7 @@ int ShellMessageBoxW(
         LocalFree(pszTemp);
 	return ret;
 }
+#endif
 
 /*************************************************************************
  * ShellMessageBoxA				[SHELL32.183]
@@ -392,6 +611,18 @@ int ShellMessageBoxW(
  * NOTES
  *     Exported by ordinal
  */
+#ifdef __REACTOS__
+/*
+ * Note that we cannot straightforwardly implement ShellMessageBoxA around
+ * ShellMessageBoxW, by converting some parameters from ANSI to UNICODE,
+ * because there may be some variadic ANSI strings, associated with '%s'
+ * printf-like formatters inside the format string, that would also need
+ * to be converted; however there is no way for us to find these and perform
+ * the conversion ourselves.
+ * Therefore, we re-implement ShellMessageBoxA by doing a copy-paste ANSI
+ * adaptation of the shlwapi.ShellMessageBoxWrapW function.
+ */
+#endif
 int ShellMessageBoxA(
 	HINSTANCE hInstance,
 	HWND hWnd,
@@ -400,6 +631,62 @@ int ShellMessageBoxA(
 	UINT uType,
 	...)
 {
+#ifdef __REACTOS__
+    CHAR *szText = NULL, szTitle[100];
+    LPCSTR pszText, pszTitle = szTitle;
+    LPSTR pszTemp;
+    __ms_va_list args;
+    int ret;
+
+    __ms_va_start(args, uType);
+
+    TRACE("(%p,%p,%p,%p,%08x)\n", hInstance, hWnd, lpText, lpCaption, uType);
+
+    if (IS_INTRESOURCE(lpCaption))
+        LoadStringA(hInstance, LOWORD(lpCaption), szTitle, ARRAY_SIZE(szTitle));
+    else
+        pszTitle = lpCaption;
+
+    if (IS_INTRESOURCE(lpText))
+    {
+        /* Retrieve the length of the Unicode string and obtain the maximum
+         * possible length for the corresponding ANSI string (not counting
+         * any possible NULL-terminator). */
+        const WCHAR *ptr;
+        UINT len = LoadStringW(hInstance, LOWORD(lpText), (LPWSTR)&ptr, 0);
+
+        len = WideCharToMultiByte(CP_ACP, 0, ptr, len,
+                                  NULL, 0, NULL, NULL);
+
+        if (len)
+        {
+            szText = HeapAlloc(GetProcessHeap(), 0, (len + 1) * sizeof(CHAR));
+            if (szText) LoadStringA(hInstance, LOWORD(lpText), szText, len + 1);
+        }
+        pszText = szText;
+        if (!pszText) {
+            WARN("Failed to load id %d\n", LOWORD(lpText));
+            __ms_va_end(args);
+            return 0;
+        }
+    }
+    else
+        pszText = lpText;
+
+    FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_STRING,
+                   pszText, 0, 0, (LPSTR)&pszTemp, 0, &args);
+
+    __ms_va_end(args);
+
+    ret = MessageBoxA(hWnd, pszTemp, pszTitle, uType | MB_SETFOREGROUND);
+
+    HeapFree(GetProcessHeap(), 0, szText);
+    LocalFree(pszTemp);
+    return ret;
+
+#else // __REACTOS__
+
+// Wine version, broken.
 	char	szText[100],szTitle[100];
 	LPCSTR  pszText = szText, pszTitle = szTitle;
 	LPSTR   pszTemp;
@@ -430,6 +717,7 @@ int ShellMessageBoxA(
 	ret = MessageBoxA(hWnd,pszTemp,pszTitle,uType);
         LocalFree(pszTemp);
 	return ret;
+#endif
 }
 
 /*************************************************************************
@@ -541,6 +829,8 @@ SignalFileOpen (PCIDLIST_ABSOLUTE pidl)
     return FALSE;
 }
 
+#ifndef __REACTOS__
+
 /*************************************************************************
  * SHADD_get_policy - helper function for SHAddToRecentDocs
  *
@@ -582,6 +872,7 @@ static INT SHADD_get_policy(LPCSTR policy, LPDWORD type, LPVOID buffer, LPDWORD 
     return ret;
 }
 
+#endif // __REACTOS__
 
 /*************************************************************************
  * SHADD_compare_mru - helper function for SHAddToRecentDocs
@@ -596,9 +887,59 @@ static INT SHADD_get_policy(LPCSTR policy, LPDWORD type, LPVOID buffer, LPDWORD 
  */
 static INT CALLBACK SHADD_compare_mru(LPCVOID data1, LPCVOID data2, DWORD cbData)
 {
+#ifdef __REACTOS__
+    LPCWSTR psz1, psz2;
+    INT iCmp = lstrcmpiW(data1, data2);
+    if (iCmp != 0)
+        return iCmp;
+    psz1 = data1;
+    psz2 = data2;
+    psz1 += lstrlenW(psz1) + 1;
+    psz2 += lstrlenW(psz2) + 1;
+    return lstrcmpiW(psz1, psz2);
+#else
     return lstrcmpiA(data1, data2);
+#endif
 }
 
+#ifdef __REACTOS__
+static BOOL
+DoStoreMRUData(LPBYTE pbBuffer, LPDWORD pcbBuffer,
+               LPCWSTR pszTargetTitle, LPCWSTR pszTargetPath, LPCWSTR pszLinkTitle)
+{
+    DWORD ib = 0, cb;
+    INT cchTargetTitle = lstrlenW(pszTargetTitle);
+    INT cchTargetPath = lstrlenW(pszTargetPath);
+    INT cchLinkTitle = lstrlenW(pszLinkTitle);
+
+    cb = (cchTargetTitle + 1 + cchTargetPath + 1 + cchLinkTitle + 2) * sizeof(WCHAR);
+    if (cb > *pcbBuffer)
+        return FALSE;
+
+    ZeroMemory(pbBuffer, *pcbBuffer);
+
+    cb = (cchTargetTitle + 1) * sizeof(WCHAR);
+    if (ib + cb > *pcbBuffer)
+        return FALSE;
+    CopyMemory(&pbBuffer[ib], pszTargetTitle, cb);
+    ib += cb;
+
+    cb = (cchTargetPath + 1) * sizeof(WCHAR);
+    if (ib + cb > *pcbBuffer)
+        return FALSE;
+    CopyMemory(&pbBuffer[ib], pszTargetPath, cb);
+    ib += cb;
+
+    cb = (cchLinkTitle + 1) * sizeof(WCHAR);
+    if (ib + cb > *pcbBuffer)
+        return FALSE;
+    CopyMemory(&pbBuffer[ib], pszLinkTitle, cb);
+    ib += cb;
+
+    *pcbBuffer = ib;
+    return TRUE;
+}
+#else
 /*************************************************************************
  * SHADD_create_add_mru_data - helper function for SHAddToRecentDocs
  *
@@ -650,6 +991,7 @@ static INT SHADD_create_add_mru_data(HANDLE mruhandle, LPCSTR doc_name, LPCSTR n
      */
     return AddMRUData(mruhandle, buffer, *len);
 }
+#endif
 
 /*************************************************************************
  * SHAddToRecentDocs				[SHELL32.@]
@@ -668,6 +1010,253 @@ static INT SHADD_create_add_mru_data(HANDLE mruhandle, LPCSTR doc_name, LPCSTR n
  */
 void WINAPI SHAddToRecentDocs (UINT uFlags,LPCVOID pv)
 {
+#ifdef __REACTOS__
+    INT ret;
+    WCHAR szTargetPath[MAX_PATH], szLinkDir[MAX_PATH], szLinkFile[MAX_PATH], szDescription[80];
+    WCHAR szPath[MAX_PATH];
+    DWORD cbBuffer;
+    HANDLE hFind;
+    WIN32_FIND_DATAW find;
+    HKEY hExplorerKey;
+    LONG error;
+    LPWSTR pchDotExt, pchTargetTitle, pchLinkTitle;
+    MRUINFOW mru;
+    HANDLE hMRUList = NULL;
+    IShellLinkW *psl = NULL;
+    IPersistFile *pPf = NULL;
+    HRESULT hr;
+    BYTE Buffer[(MAX_PATH + 64) * sizeof(WCHAR)];
+
+    TRACE("%04x %p\n", uFlags, pv);
+
+    /* check policy */
+    ret = SHRestricted(REST_NORECENTDOCSHISTORY);
+    TRACE("policy value for NoRecentDocsHistory = %08x\n", ret);
+    if (ret != 0)
+        return;
+
+    /* store to szTargetPath */
+    szTargetPath[0] = 0;
+    if (pv)
+    {
+        switch (uFlags)
+        {
+            case SHARD_PATHA:
+                MultiByteToWideChar(CP_ACP, 0, pv, -1, szLinkDir, ARRAYSIZE(szLinkDir));
+                GetFullPathNameW(szLinkDir, ARRAYSIZE(szTargetPath), szTargetPath, NULL);
+                break;
+
+            case SHARD_PATHW:
+                GetFullPathNameW(pv, ARRAYSIZE(szTargetPath), szTargetPath, NULL);
+                break;
+
+            case SHARD_PIDL:
+                SHGetPathFromIDListW(pv, szLinkDir);
+                GetFullPathNameW(szLinkDir, ARRAYSIZE(szTargetPath), szTargetPath, NULL);
+                break;
+
+            default:
+                FIXME("Unsupported flags: %u\n", uFlags);
+                return;
+        }
+    }
+
+    /* get recent folder */
+    if (!SHGetSpecialFolderPathW(NULL, szLinkDir, CSIDL_RECENT, FALSE))
+    {
+        ERR("serious issues 1\n");
+        return;
+    }
+    TRACE("Users Recent dir %S\n", szLinkDir);
+
+    /* open Explorer key */
+    error = RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer",
+                            0, NULL, 0,
+                            KEY_READ | KEY_WRITE, NULL, &hExplorerKey, NULL);
+    if (error)
+    {
+        ERR("Failed to RegCreateKeyExW: 0x%08X\n", error);
+        return;
+    }
+
+    if (!pv)
+    {
+        TRACE("pv is NULL, so delete all shortcut files in %S\n", szLinkDir);
+
+        lstrcpynW(szLinkFile, szLinkDir, ARRAYSIZE(szLinkFile));
+        PathAppendW(szLinkFile, L"*.lnk");
+
+        hFind = FindFirstFileW(szLinkFile, &find);
+        if (hFind != INVALID_HANDLE_VALUE)
+        {
+            do
+            {
+                lstrcpynW(szLinkFile, szLinkDir, ARRAYSIZE(szLinkFile));
+                PathAppendW(szLinkFile, find.cFileName);
+                DeleteFileW(szLinkFile);
+            } while (FindNextFile(hFind, &find));
+            FindClose(hFind);
+        }
+
+        SHDeleteKeyW(hExplorerKey, L"RecentDocs");
+        RegCloseKey(hExplorerKey);
+        return;
+    }
+
+    if (szTargetPath[0] == 0 || !PathFileExistsW(szTargetPath) ||
+        PathIsDirectoryW(szTargetPath))
+    {
+        /* path is not normal file */
+        RegCloseKey(hExplorerKey);
+        return;
+    }
+
+    hr = CoInitialize(NULL);
+    if (FAILED(hr))
+    {
+        ERR("CoInitialize: %08X\n", hr);
+        RegCloseKey(hExplorerKey);
+        return;
+    }
+
+    /* check if file is a shortcut */
+    ret = 0;
+    pchDotExt = PathFindExtensionW(szTargetPath);
+    while (lstrcmpiW(pchDotExt, L".lnk") == 0)
+    {
+        hr = IShellLink_ConstructFromPath(szTargetPath, &IID_IShellLinkW, (LPVOID*)&psl);
+        if (FAILED(hr))
+        {
+            ERR("IShellLink_ConstructFromPath: 0x%08X\n", hr);
+            goto Quit;
+        }
+
+        IShellLinkW_GetPath(psl, szPath, ARRAYSIZE(szPath), NULL, 0);
+        IShellLinkW_Release(psl);
+        psl = NULL;
+
+        lstrcpynW(szTargetPath, szPath, ARRAYSIZE(szTargetPath));
+        pchDotExt = PathFindExtensionW(szTargetPath);
+
+        if (++ret >= 8)
+        {
+            ERR("Link loop?\n");
+            goto Quit;
+        }
+    }
+    if (!lstrcmpiW(pchDotExt, L".exe"))
+    {
+        /* executables are not added */
+        goto Quit;
+    }
+
+    /* ***  JOB 0: Build strings *** */
+
+    pchTargetTitle = PathFindFileNameW(szTargetPath);
+
+    lstrcpyW(szDescription, L"Shortcut to ");
+    StrCatBuffW(szDescription, pchTargetTitle, ARRAYSIZE(szDescription));
+
+    lstrcpynW(szLinkFile, szLinkDir, ARRAYSIZE(szLinkFile));
+    PathAppendW(szLinkFile, pchTargetTitle);
+    StrCatBuffW(szLinkFile, L".lnk", ARRAYSIZE(szLinkFile));
+    pchLinkTitle = PathFindFileNameW(szLinkFile);
+
+    /* ***  JOB 1: Update registry for ...\Explorer\RecentDocs list  *** */
+
+    /* store MRU data */
+    cbBuffer = sizeof(Buffer);
+    ret = DoStoreMRUData(Buffer, &cbBuffer, pchTargetTitle, szTargetPath, pchLinkTitle);
+    if (!ret)
+    {
+        ERR("DoStoreMRUData failed: %d\n", ret);
+        goto Quit;
+    }
+
+    /* create MRU list */
+    mru.cbSize = sizeof(mru);
+    mru.uMax = 16;
+    mru.fFlags = MRU_BINARY | MRU_CACHEWRITE;
+    mru.hKey = hExplorerKey;
+    mru.lpszSubKey = L"RecentDocs";
+    mru.lpfnCompare = (MRUCMPPROCW)SHADD_compare_mru;
+    hMRUList = CreateMRUListW(&mru);
+    if (!hMRUList)
+    {
+        ERR("CreateMRUListW failed\n");
+        goto Quit;
+    }
+
+    /* already exists? */
+    ret = FindMRUData(hMRUList, Buffer, cbBuffer, NULL);
+    if (ret >= 0)
+    {
+        /* Just touch for speed */
+        HANDLE hFile;
+        hFile = CreateFileW(szLinkFile, GENERIC_READ | GENERIC_WRITE,
+                            FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+        if (hFile != INVALID_HANDLE_VALUE)
+        {
+            TRACE("Just touch file '%S'.\n", szLinkFile);
+            CloseHandle(hFile);
+            goto Quit;
+        }
+    }
+
+    /* add MRU data */
+    ret = AddMRUData(hMRUList, Buffer, cbBuffer);
+    if (ret < 0)
+    {
+        ERR("AddMRUData failed: %d\n", ret);
+        goto Quit;
+    }
+
+    /* ***  JOB 2: Create shortcut in user's "Recent" directory  *** */
+
+    hr = CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER,
+                          &IID_IShellLinkW, (LPVOID *)&psl);
+    if (FAILED(hr))
+    {
+        ERR("CoInitialize for IID_IShellLinkW: %08X\n", hr);
+        goto Quit;
+    }
+
+    hr = IShellLinkW_QueryInterface(psl, &IID_IPersistFile, (LPVOID *)&pPf);
+    if (FAILED(hr))
+    {
+        ERR("IShellLinkW_QueryInterface: %08X\n", hr);
+        goto Quit;
+    }
+
+    if (uFlags == SHARD_PIDL)
+        hr = IShellLinkW_SetIDList(psl, pv);
+    else
+        hr = IShellLinkW_SetPath(psl, pv);
+
+    IShellLinkW_SetDescription(psl, szDescription);
+
+    hr = IPersistFile_Save(pPf, szLinkFile, TRUE);
+    if (FAILED(hr))
+    {
+        ERR("IPersistFile_Save: 0x%08X\n", hr);
+    }
+
+    hr = IPersistFile_SaveCompleted(pPf, szLinkFile);
+    if (FAILED(hr))
+    {
+        ERR("IPersistFile_SaveCompleted: 0x%08X\n", hr);
+    }
+
+Quit:
+    if (hMRUList)
+        FreeMRUList(hMRUList);
+    if (pPf)
+        IPersistFile_Release(pPf);
+    if (psl)
+        IShellLinkW_Release(psl);
+    CoUninitialize();
+    RegCloseKey(hExplorerKey);
+#else
 /* If list is a string list lpfnCompare has the following prototype
  * int CALLBACK MRUCompareString(LPCSTR s1, LPCSTR s2)
  * for binary lists the prototype is
@@ -821,30 +1410,6 @@ void WINAPI SHAddToRecentDocs (UINT uFlags,LPCVOID pv)
     }
 
     TRACE("full document name %s\n", debugstr_a(doc_name));
-
-#ifdef __REACTOS__
-    /* check if file is a shortcut */
-    ext = strrchr(doc_name, '.');
-    if (!lstrcmpiA(ext, ".lnk"))
-    {
-        WCHAR doc_nameW[MAX_PATH];
-        IShellLinkA* ShellLink;
-        int nLength = MultiByteToWideChar(CP_ACP, 0, doc_name, -1, doc_nameW, MAX_PATH);
-        if (nLength == 0)
-            return;
-
-        IShellLink_ConstructFromPath(doc_nameW, &IID_IShellLinkA, (LPVOID*)&ShellLink);
-        IShellLinkA_GetPath(ShellLink, doc_name, MAX_PATH, NULL, 0);
-        IShellLinkA_Release(ShellLink);
-    }
-
-    ext = strrchr(doc_name, '.');
-    if (!lstrcmpiA(ext, ".exe"))
-    {
-        /* executables are not added */
-        return;
-    }
-#endif
 
     PathStripPathA(doc_name);
     TRACE("stripped document name %s\n", debugstr_a(doc_name));
@@ -1032,6 +1597,7 @@ void WINAPI SHAddToRecentDocs (UINT uFlags,LPCVOID pv)
     /* all done */
     RegCloseKey(HCUbasekey);
     return;
+#endif
 }
 
 /*************************************************************************
@@ -1076,18 +1642,46 @@ HRESULT WINAPI SHCreateShellFolderViewEx(
  *  SHWinHelp					[SHELL32.127]
  *
  */
-HRESULT WINAPI SHWinHelp (DWORD v, DWORD w, DWORD x, DWORD z)
-{	FIXME("0x%08x 0x%08x 0x%08x 0x%08x stub\n",v,w,x,z);
-	return 0;
+HRESULT WINAPI SHWinHelp(HWND hwnd, LPCWSTR pszHelp, UINT uCommand, ULONG_PTR dwData)
+{
+    TRACE("(%p, %s, 0x%08x, %p)\n", hwnd, debugstr_w(pszHelp), uCommand, dwData);
+    if (!WinHelpW(hwnd, pszHelp, uCommand, dwData))
+    {
+#if 0
+        ShellMessageBoxW(shell32_hInstance, hwnd, MAKEINTRESOURCEW(9115),
+                         MAKEINTRESOURCEW(9116), MB_ICONSTOP);
+#endif
+        return FALSE;
+    }
+    return TRUE;
 }
 /*************************************************************************
  *  SHRunControlPanel [SHELL32.161]
  *
  */
-BOOL WINAPI SHRunControlPanel (LPCWSTR commandLine, HWND parent)
+BOOL WINAPI SHRunControlPanel (_In_ LPCWSTR commandLine, _In_opt_ HWND parent)
 {
+#ifdef __REACTOS__
+    /*
+     * TODO: Run in-process when possible, using
+     * HKLM\Software\Microsoft\Windows\CurrentVersion\Explorer\ControlPanel\InProcCPLs
+     * and possibly some extra rules.
+     * See also https://docs.microsoft.com/en-us/windows/win32/api/shlobj/nf-shlobj-shruncontrolpanel
+     * "If the specified Control Panel item is already running, SHRunControlPanel
+     *  attempts to switch to that instance rather than opening a new instance."
+     * This function is not supported as of Windows Vista, where it always returns FALSE.
+     * However we need to keep it "alive" even when ReactOS is compliled as NT6+
+     * in order to keep control panel elements launch commands.
+     */
+    WCHAR parameters[MAX_PATH] = L"shell32.dll,Control_RunDLL ";
+    TRACE("(%s, %p)n", debugstr_w(commandLine), parent);
+    wcscat(parameters, commandLine);
+
+    return ((INT_PTR)ShellExecuteW(parent, L"open", L"rundll32.exe", parameters, NULL, SW_SHOWNORMAL) > 32);
+#else
 	FIXME("(%s, %p): stub\n", debugstr_w(commandLine), parent);
 	return FALSE;
+#endif
 }
 
 static LPUNKNOWN SHELL32_IExplorerInterface=0;
@@ -1206,17 +1800,6 @@ BOOL WINAPI DAD_ShowDragImage(BOOL bShow)
     return FALSE;
 }
 
-static const WCHAR szwCabLocation[] = {
-  'S','o','f','t','w','a','r','e','\\',
-  'M','i','c','r','o','s','o','f','t','\\',
-  'W','i','n','d','o','w','s','\\',
-  'C','u','r','r','e','n','t','V','e','r','s','i','o','n','\\',
-  'E','x','p','l','o','r','e','r','\\',
-  'C','a','b','i','n','e','t','S','t','a','t','e',0
-};
-
-static const WCHAR szwSettings[] = { 'S','e','t','t','i','n','g','s',0 };
-
 /*************************************************************************
  * ReadCabinetState				[SHELL32.651] NT 4.0
  *
@@ -1225,17 +1808,18 @@ BOOL WINAPI ReadCabinetState(CABINETSTATE *cs, int length)
 {
 	HKEY hkey = 0;
 	DWORD type, r;
+	C_ASSERT(sizeof(*cs) == FIELD_OFFSET(CABINETSTATE, fMenuEnumFilter) + sizeof(UINT));
 
 	TRACE("%p %d\n", cs, length);
 
 	if( (cs == NULL) || (length < (int)sizeof(*cs))  )
 		return FALSE;
 
-	r = RegOpenKeyW( HKEY_CURRENT_USER, szwCabLocation, &hkey );
+	r = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\CabinetState", &hkey );
 	if( r == ERROR_SUCCESS )
 	{
 		type = REG_BINARY;
-		r = RegQueryValueExW( hkey, szwSettings,
+		r = RegQueryValueExW( hkey, L"Settings",
 			NULL, &type, (LPBYTE)cs, (LPDWORD)&length );
 		RegCloseKey( hkey );
 
@@ -1245,6 +1829,10 @@ BOOL WINAPI ReadCabinetState(CABINETSTATE *cs, int length)
 	if ( (r != ERROR_SUCCESS) || (cs->cLength < sizeof(*cs)) ||
 		(cs->cLength != length) )
 	{
+		SHELLSTATE shellstate;
+		shellstate.fWin95Classic = FALSE;
+		SHGetSetSettings(&shellstate, SSF_WIN95CLASSIC, FALSE);
+
 		TRACE("Initializing shell cabinet settings\n");
 		memset(cs, 0, sizeof(*cs));
 		cs->cLength          = sizeof(*cs);
@@ -1254,11 +1842,11 @@ BOOL WINAPI ReadCabinetState(CABINETSTATE *cs, int length)
 		cs->fNotShell        = FALSE;
 		cs->fSimpleDefault   = TRUE;
 		cs->fDontShowDescBar = FALSE;
-		cs->fNewWindowMode   = FALSE;
+		cs->fNewWindowMode   = shellstate.fWin95Classic;
 		cs->fShowCompColor   = FALSE;
 		cs->fDontPrettyNames = FALSE;
 		cs->fAdminsCreateCommonGroups = TRUE;
-		cs->fMenuEnumFilter  = 96;
+		cs->fMenuEnumFilter  = SHCONTF_FOLDERS | SHCONTF_NONFOLDERS;
 	}
 
 	return TRUE;
@@ -1278,16 +1866,19 @@ BOOL WINAPI WriteCabinetState(CABINETSTATE *cs)
 	if( cs == NULL )
 		return FALSE;
 
-	r = RegCreateKeyExW( HKEY_CURRENT_USER, szwCabLocation, 0,
+	r = RegCreateKeyExW( HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\CabinetState", 0,
 		 NULL, 0, KEY_ALL_ACCESS, NULL, &hkey, NULL);
 	if( r == ERROR_SUCCESS )
 	{
-		r = RegSetValueExW( hkey, szwSettings, 0,
+		r = RegSetValueExW( hkey, L"Settings", 0,
 			REG_BINARY, (LPBYTE) cs, cs->cLength);
 
 		RegCloseKey( hkey );
 	}
 
+#ifdef __REACTOS__
+	/* TODO: if (r==ERROR_SUCCESS) Increment GLOBALCOUNTER_FOLDERSETTINGSCHANGE */
+#endif
 	return (r==ERROR_SUCCESS);
 }
 
@@ -1298,80 +1889,6 @@ BOOL WINAPI WriteCabinetState(CABINETSTATE *cs)
 BOOL WINAPI FileIconInit(BOOL bFullInit)
 {
     return SIC_Initialize();
-}
-
-/*************************************************************************
- * IsUserAnAdmin    [SHELL32.680] NT 4.0
- *
- * Checks whether the current user is a member of the Administrators group.
- *
- * PARAMS
- *     None
- *
- * RETURNS
- *     Success: TRUE
- *     Failure: FALSE
- */
-BOOL WINAPI IsUserAnAdmin(VOID)
-{
-    SID_IDENTIFIER_AUTHORITY Authority = {SECURITY_NT_AUTHORITY};
-    HANDLE hToken;
-    DWORD dwSize;
-    PTOKEN_GROUPS lpGroups;
-    PSID lpSid;
-    DWORD i;
-    BOOL bResult = FALSE;
-
-    TRACE("\n");
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken))
-    {
-        return FALSE;
-    }
-
-    if (!GetTokenInformation(hToken, TokenGroups, NULL, 0, &dwSize))
-    {
-        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER)
-        {
-            CloseHandle(hToken);
-            return FALSE;
-        }
-    }
-
-    lpGroups = HeapAlloc(GetProcessHeap(), 0, dwSize);
-    if (lpGroups == NULL)
-    {
-        CloseHandle(hToken);
-        return FALSE;
-    }
-
-    if (!GetTokenInformation(hToken, TokenGroups, lpGroups, dwSize, &dwSize))
-    {
-        HeapFree(GetProcessHeap(), 0, lpGroups);
-        CloseHandle(hToken);
-        return FALSE;
-    }
-
-    CloseHandle(hToken);
-    if (!AllocateAndInitializeSid(&Authority, 2, SECURITY_BUILTIN_DOMAIN_RID,
-                                  DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0,
-                                  &lpSid))
-    {
-        HeapFree(GetProcessHeap(), 0, lpGroups);
-        return FALSE;
-    }
-
-    for (i = 0; i < lpGroups->GroupCount; i++)
-    {
-        if (EqualSid(lpSid, lpGroups->Groups[i].Sid))
-        {
-            bResult = TRUE;
-            break;
-        }
-    }
-
-    FreeSid(lpSid);
-    HeapFree(GetProcessHeap(), 0, lpGroups);
-    return bResult;
 }
 
 /*************************************************************************
@@ -1394,7 +1911,7 @@ HRESULT WINAPI SetAppStartingCursor(HWND u, DWORD v)
  * The SHLoadOLE was called when OLE32.DLL was being loaded to transfer all the
  * information from the shell32 "mini-COM" to ole32.dll.
  *
- * See http://blogs.msdn.com/oldnewthing/archive/2004/07/05/173226.aspx for a
+ * See https://devblogs.microsoft.com/oldnewthing/20040705-00/?p=38573 for a
  * detailed description.
  *
  * Under wine ole32.dll is always loaded as it is imported by shlwapi.dll which is
@@ -1578,8 +2095,14 @@ DWORD WINAPI DoEnvironmentSubstAW(LPVOID x, UINT y)
  */
 BOOL WINAPI GUIDFromStringA(LPCSTR str, LPGUID guid)
 {
-    TRACE("GUIDFromStringA() stub\n");
-    return FALSE;
+    ANSI_STRING ansi_str;
+    WCHAR szWide[40];
+    UNICODE_STRING guid_str = { 0, sizeof(szWide), szWide };
+    if (*str != '{')
+        return FALSE;
+    RtlInitAnsiString(&ansi_str, str);
+    return !RtlAnsiStringToUnicodeString(&guid_str, &ansi_str, FALSE) &&
+           !RtlGUIDFromString(&guid_str, guid);
 }
 
 /*************************************************************************
@@ -1588,7 +2111,8 @@ BOOL WINAPI GUIDFromStringA(LPCSTR str, LPGUID guid)
 BOOL WINAPI GUIDFromStringW(LPCWSTR str, LPGUID guid)
 {
     UNICODE_STRING guid_str;
-
+    if (!str || *str != L'{')
+        return FALSE;
     RtlInitUnicodeString(&guid_str, str);
     return !RtlGUIDFromString(&guid_str, guid);
 }
@@ -1596,19 +2120,63 @@ BOOL WINAPI GUIDFromStringW(LPCWSTR str, LPGUID guid)
 /*************************************************************************
  *      PathIsTemporaryA    [SHELL32.713]
  */
+#ifdef __REACTOS__
+/** @see https://undoc.airesoft.co.uk/shell32.dll/PathIsTemporaryA.php */
+BOOL WINAPI PathIsTemporaryA(_In_ LPCSTR Str)
+#else
 BOOL WINAPI PathIsTemporaryA(LPSTR Str)
+#endif
 {
+#ifdef __REACTOS__
+    WCHAR szWide[MAX_PATH];
+
+    TRACE("(%s)\n", debugstr_a(Str));
+
+    SHAnsiToUnicode(Str, szWide, _countof(szWide));
+    return PathIsTemporaryW(szWide);
+#else
     FIXME("(%s)stub\n", debugstr_a(Str));
     return FALSE;
+#endif
 }
 
 /*************************************************************************
  *      PathIsTemporaryW    [SHELL32.714]
  */
+#ifdef __REACTOS__
+/** @see https://undoc.airesoft.co.uk/shell32.dll/PathIsTemporaryW.php */
+BOOL WINAPI PathIsTemporaryW(_In_ LPCWSTR Str)
+#else
 BOOL WINAPI PathIsTemporaryW(LPWSTR Str)
+#endif
 {
+#ifdef __REACTOS__
+    WCHAR szLongPath[MAX_PATH], szTempPath[MAX_PATH];
+    DWORD attrs;
+    LPCWSTR pszTarget = Str;
+
+    TRACE("(%s)\n", debugstr_w(Str));
+
+    attrs = GetFileAttributesW(Str);
+    if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_TEMPORARY))
+        return TRUE;
+
+    if (!GetTempPathW(_countof(szTempPath), szTempPath) ||
+        !GetLongPathNameW(szTempPath, szTempPath, _countof(szTempPath)))
+    {
+        return FALSE;
+    }
+
+    if (GetLongPathNameW(Str, szLongPath, _countof(szLongPath)))
+        pszTarget = szLongPath;
+
+    return (PathIsEqualOrSubFolder(szTempPath, pszTarget) ||
+            PathIsEqualOrSubFolder(UlongToPtr(CSIDL_INTERNET_CACHE), pszTarget) ||
+            PathIsEqualOrSubFolder(UlongToPtr(CSIDL_CDBURN_AREA), pszTarget));
+#else
     FIXME("(%s)stub\n", debugstr_w(Str));
     return FALSE;
+#endif
 }
 
 typedef struct _PSXA
@@ -1688,7 +2256,6 @@ HPSXA WINAPI SHCreatePropSheetExtArray(HKEY hKey, LPCWSTR pszSubKey, UINT max_if
  */
 HPSXA WINAPI SHCreatePropSheetExtArrayEx(HKEY hKey, LPCWSTR pszSubKey, UINT max_iface, LPDATAOBJECT pDataObj)
 {
-    static const WCHAR szPropSheetSubKey[] = {'s','h','e','l','l','e','x','\\','P','r','o','p','e','r','t','y','S','h','e','e','t','H','a','n','d','l','e','r','s',0};
     WCHAR szHandler[64];
     DWORD dwHandlerLen;
     WCHAR szClsidHandler[39];
@@ -1711,7 +2278,7 @@ HPSXA WINAPI SHCreatePropSheetExtArrayEx(HKEY hKey, LPCWSTR pszSubKey, UINT max_
     if (lRet != ERROR_SUCCESS)
         return NULL;
 
-    lRet = RegOpenKeyExW(hkBase, szPropSheetSubKey, 0, KEY_ENUMERATE_SUB_KEYS, &hkPropSheetHandlers);
+    lRet = RegOpenKeyExW(hkBase, L"shellex\\PropertySheetHandlers", 0, KEY_ENUMERATE_SUB_KEYS, &hkPropSheetHandlers);
     RegCloseKey(hkBase);
     if (lRet == ERROR_SUCCESS)
     {
@@ -1865,7 +2432,7 @@ HRESULT WINAPI CIDLData_CreateFromIDArray(
 	pdump (pidlFolder);
 	for (i=0; i<cpidlFiles; i++) pdump (lppidlFiles[i]);
     }
-    hResult = IDataObject_Constructor(hwnd, pidlFolder, lppidlFiles, cpidlFiles, ppdataObject);
+    hResult = IDataObject_Constructor(hwnd, pidlFolder, lppidlFiles, cpidlFiles, FALSE, ppdataObject);
     return hResult;
 }
 
@@ -1898,10 +2465,16 @@ HRESULT WINAPI SHCreateStdEnumFmtEtc(
 /*************************************************************************
  *		SHFindFiles (SHELL32.90)
  */
-BOOL WINAPI SHFindFiles( LPCITEMIDLIST pidlFolder, LPCITEMIDLIST pidlSaveFile )
+BOOL WINAPI SHFindFiles( PCIDLIST_ABSOLUTE pidlFolder, PCIDLIST_ABSOLUTE pidlSaveFile )
 {
-    FIXME("%p %p\n", pidlFolder, pidlSaveFile );
-    return FALSE;
+    FIXME("params ignored: %p %p\n", pidlFolder, pidlSaveFile);
+    if (SHRestricted(REST_NOFIND))
+    {
+        return FALSE;
+    }
+    /* Open the search results folder */
+    /* FIXME: CSearchBar should be opened as well */
+    return ShellExecuteW(NULL, NULL, L"explorer.exe", L"::{E17D4FC0-5564-11D1-83F2-00A0C90DC849}", NULL, SW_SHOWNORMAL) > (HINSTANCE)32;
 }
 
 /*************************************************************************
@@ -1938,7 +2511,7 @@ VOID WINAPI SHUpdateImageA(LPCSTR pszHashItem, INT iIndex, UINT uFlags, INT iIma
     FIXME("%s, %d, 0x%x, %d - stub\n", debugstr_a(pszHashItem), iIndex, uFlags, iImageIndex);
 }
 
-INT WINAPI SHHandleUpdateImage(LPCITEMIDLIST pidlExtra)
+INT WINAPI SHHandleUpdateImage(PCIDLIST_ABSOLUTE pidlExtra)
 {
     FIXME("%p - stub\n", pidlExtra);
 
@@ -1947,6 +2520,22 @@ INT WINAPI SHHandleUpdateImage(LPCITEMIDLIST pidlExtra)
 
 BOOL WINAPI SHObjectProperties(HWND hwnd, DWORD dwType, LPCWSTR szObject, LPCWSTR szPage)
 {
+    LPITEMIDLIST pidl = NULL;
+    switch (dwType)
+    {
+        case SHOP_FILEPATH:
+            pidl = ILCreateFromPathW(szObject);
+            break;
+    }
+    if (pidl)
+    {
+        SHELLEXECUTEINFOW sei = { sizeof(sei), SEE_MASK_INVOKEIDLIST, hwnd, L"properties",
+                                  NULL, szPage, NULL, SW_SHOWNORMAL, NULL, pidl };
+        BOOL result = ShellExecuteExW(&sei);
+        ILFree(pidl);
+        return result;
+    }
+
     FIXME("%p, 0x%08x, %s, %s - stub\n", hwnd, dwType, debugstr_w(szObject), debugstr_w(szPage));
 
     return TRUE;
@@ -1977,8 +2566,6 @@ BOOL WINAPI SHGetNewLinkInfoW(LPCWSTR pszLinkTo, LPCWSTR pszDir, LPWSTR pszName,
     const WCHAR *basename;
     WCHAR *dst_basename;
     int i=2;
-    static const WCHAR lnkformat[] = {'%','s','.','l','n','k',0};
-    static const WCHAR lnkformatnum[] = {'%','s',' ','(','%','d',')','.','l','n','k',0};
 
     TRACE("(%s, %s, %p, %p, 0x%08x)\n", debugstr_w(pszLinkTo), debugstr_w(pszDir),
           pszName, pfMustCopy, uFlags);
@@ -2010,11 +2597,11 @@ BOOL WINAPI SHGetNewLinkInfoW(LPCWSTR pszLinkTo, LPCWSTR pszDir, LPWSTR pszName,
 
     dst_basename = pszName + strlenW(pszName);
 
-    snprintfW(dst_basename, pszName + MAX_PATH - dst_basename, lnkformat, basename);
+    snprintfW(dst_basename, pszName + MAX_PATH - dst_basename, L"%s.lnk", basename);
 
     while (GetFileAttributesW(pszName) != INVALID_FILE_ATTRIBUTES)
     {
-        snprintfW(dst_basename, pszName + MAX_PATH - dst_basename, lnkformatnum, basename, i);
+        snprintfW(dst_basename, pszName + MAX_PATH - dst_basename, L"%s (%d).lnk", basename, i);
         i++;
     }
 
@@ -2023,9 +2610,15 @@ BOOL WINAPI SHGetNewLinkInfoW(LPCWSTR pszLinkTo, LPCWSTR pszDir, LPWSTR pszName,
 
 HRESULT WINAPI SHStartNetConnectionDialog(HWND hwnd, LPCSTR pszRemoteName, DWORD dwType)
 {
+#ifdef __REACTOS__
+    if (SHELL_OsIsUnicode())
+        return SHStartNetConnectionDialogW(hwnd, (LPCWSTR)pszRemoteName, dwType);
+    return SHStartNetConnectionDialogA(hwnd, pszRemoteName, dwType);
+#else
     FIXME("%p, %s, 0x%08x - stub\n", hwnd, debugstr_a(pszRemoteName), dwType);
 
     return S_OK;
+#endif
 }
 /*************************************************************************
  *              SHSetLocalizedName (SHELL32.@)
@@ -2147,5 +2740,369 @@ HRESULT WINAPI SHCreateShellFolderView(const SFV_CREATE *pcsfv,
 	IShellView_Release(psf);
 
 	return hRes;
+}
+#endif
+
+
+/*************************************************************************
+ * SHTestTokenMembership    [SHELL32.245]
+ *
+ * Checks whether a given token is a mamber of a local group with the
+ * specified RID.
+ *
+ */
+EXTERN_C BOOL
+WINAPI
+SHTestTokenMembership(HANDLE TokenHandle, ULONG ulRID)
+{
+    SID_IDENTIFIER_AUTHORITY ntAuth = {SECURITY_NT_AUTHORITY};
+    DWORD nSubAuthority0, nSubAuthority1;
+    DWORD nSubAuthorityCount;
+    PSID SidToCheck;
+    BOOL IsMember = FALSE;
+
+    if ((ulRID == SECURITY_SERVICE_RID) || ulRID == SECURITY_LOCAL_SYSTEM_RID)
+    {
+        nSubAuthority0 = ulRID;
+        nSubAuthority1 = 0;
+        nSubAuthorityCount= 1;
+    }
+    else
+    {
+        nSubAuthority0 = SECURITY_BUILTIN_DOMAIN_RID;
+        nSubAuthority1 = ulRID;
+        nSubAuthorityCount= 2;
+    }
+
+    if (!AllocateAndInitializeSid(&ntAuth,
+                                  nSubAuthorityCount,
+                                  nSubAuthority0,
+                                  nSubAuthority1,
+                                  0, 0, 0, 0, 0, 0,
+                                  &SidToCheck))
+    {
+        return FALSE;
+    }
+
+    if (!CheckTokenMembership(TokenHandle, SidToCheck, &IsMember))
+    {
+        IsMember = FALSE;
+    }
+
+    FreeSid(SidToCheck);
+    return IsMember;
+}
+
+/*************************************************************************
+ * IsUserAnAdmin    [SHELL32.680] NT 4.0
+ *
+ * Checks whether the current user is a member of the Administrators group.
+ *
+ * PARAMS
+ *     None
+ *
+ * RETURNS
+ *     Success: TRUE
+ *     Failure: FALSE
+ */
+BOOL WINAPI IsUserAnAdmin(VOID)
+{
+    return SHTestTokenMembership(NULL, DOMAIN_ALIAS_RID_ADMINS);
+}
+
+/*************************************************************************
+ *              SHLimitInputEdit(SHELL32.@)
+ */
+
+/* TODO: Show baloon popup window with TTS_BALLOON */
+
+typedef struct UxSubclassInfo
+{
+    HWND hwnd;
+    WNDPROC fnWndProc;
+    LPWSTR pwszValidChars;
+    LPWSTR pwszInvalidChars;
+} UxSubclassInfo;
+
+static void
+UxSubclassInfo_Destroy(UxSubclassInfo *pInfo)
+{
+    if (!pInfo)
+        return;
+
+    RemovePropW(pInfo->hwnd, L"UxSubclassInfo");
+
+    CoTaskMemFree(pInfo->pwszValidChars);
+    CoTaskMemFree(pInfo->pwszInvalidChars);
+
+    SetWindowLongPtrW(pInfo->hwnd, GWLP_WNDPROC, (LONG_PTR)pInfo->fnWndProc);
+
+    HeapFree(GetProcessHeap(), 0, pInfo);
+}
+
+static BOOL
+DoSanitizeText(LPWSTR pszSanitized, LPCWSTR pszInvalidChars, LPCWSTR pszValidChars)
+{
+    LPWSTR pch1, pch2;
+    BOOL bFound = FALSE;
+
+    for (pch1 = pch2 = pszSanitized; *pch1; ++pch1)
+    {
+        if (pszInvalidChars)
+        {
+            if (wcschr(pszInvalidChars, *pch1) != NULL)
+            {
+                bFound = TRUE;
+                continue;
+            }
+        }
+        else if (pszValidChars)
+        {
+            if (wcschr(pszValidChars, *pch1) == NULL)
+            {
+                bFound = TRUE;
+                continue;
+            }
+        }
+
+        *pch2 = *pch1;
+        ++pch2;
+    }
+    *pch2 = 0;
+
+    return bFound;
+}
+
+static void
+DoSanitizeClipboard(HWND hwnd, UxSubclassInfo *pInfo)
+{
+    HGLOBAL hData;
+    LPWSTR pszText, pszSanitized;
+    DWORD cbData;
+
+    if (GetWindowLongPtrW(hwnd, GWL_STYLE) & ES_READONLY)
+        return;
+    if (!OpenClipboard(hwnd))
+        return;
+
+    hData = GetClipboardData(CF_UNICODETEXT);
+    pszText = GlobalLock(hData);
+    if (!pszText)
+    {
+        CloseClipboard();
+        return;
+    }
+    SHStrDupW(pszText, &pszSanitized);
+    GlobalUnlock(hData);
+
+    if (pszSanitized &&
+        DoSanitizeText(pszSanitized, pInfo->pwszInvalidChars, pInfo->pwszValidChars))
+    {
+        MessageBeep(0xFFFFFFFF);
+
+        /* Update clipboard text */
+        cbData = (lstrlenW(pszSanitized) + 1) * sizeof(WCHAR);
+        hData = GlobalAlloc(GMEM_MOVEABLE | GMEM_SHARE, cbData);
+        pszText = GlobalLock(hData);
+        if (pszText)
+        {
+            CopyMemory(pszText, pszSanitized, cbData);
+            GlobalUnlock(hData);
+
+            SetClipboardData(CF_UNICODETEXT, hData);
+        }
+    }
+
+    CoTaskMemFree(pszSanitized);
+    CloseClipboard();
+}
+
+static LRESULT CALLBACK
+LimitEditWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    WNDPROC fnWndProc;
+    WCHAR wch;
+    UxSubclassInfo *pInfo = GetPropW(hwnd, L"UxSubclassInfo");
+    if (!pInfo)
+        return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+
+    fnWndProc = pInfo->fnWndProc;
+
+    switch (uMsg)
+    {
+        case WM_KEYDOWN:
+            if (GetKeyState(VK_SHIFT) < 0 && wParam == VK_INSERT)
+                DoSanitizeClipboard(hwnd, pInfo);
+            else if (GetKeyState(VK_CONTROL) < 0 && wParam == L'V')
+                DoSanitizeClipboard(hwnd, pInfo);
+
+            return CallWindowProcW(fnWndProc, hwnd, uMsg, wParam, lParam);
+
+        case WM_PASTE:
+            DoSanitizeClipboard(hwnd, pInfo);
+            return CallWindowProcW(fnWndProc, hwnd, uMsg, wParam, lParam);
+
+        case WM_CHAR:
+            if (GetKeyState(VK_CONTROL) < 0 && wParam == L'V')
+                break;
+
+            if (pInfo->pwszInvalidChars)
+            {
+                if (wcschr(pInfo->pwszInvalidChars, (WCHAR)wParam) != NULL)
+                {
+                    MessageBeep(0xFFFFFFFF);
+                    break;
+                }
+            }
+            else if (pInfo->pwszValidChars)
+            {
+                if (wcschr(pInfo->pwszValidChars, (WCHAR)wParam) == NULL)
+                {
+                    MessageBeep(0xFFFFFFFF);
+                    break;
+                }
+            }
+            return CallWindowProcW(fnWndProc, hwnd, uMsg, wParam, lParam);
+
+        case WM_UNICHAR:
+            if (wParam == UNICODE_NOCHAR)
+                return TRUE;
+
+            /* FALL THROUGH */
+
+        case WM_IME_CHAR:
+            wch = (WCHAR)wParam;
+            if (GetKeyState(VK_CONTROL) < 0 && wch == L'V')
+                break;
+
+            if (!IsWindowUnicode(hwnd) && HIBYTE(wch) != 0)
+            {
+                CHAR data[] = {HIBYTE(wch), LOBYTE(wch)};
+                MultiByteToWideChar(CP_ACP, 0, data, 2, &wch, 1);
+            }
+
+            if (pInfo->pwszInvalidChars)
+            {
+                if (wcschr(pInfo->pwszInvalidChars, wch) != NULL)
+                {
+                    MessageBeep(0xFFFFFFFF);
+                    break;
+                }
+            }
+            else if (pInfo->pwszValidChars)
+            {
+                if (wcschr(pInfo->pwszValidChars, wch) == NULL)
+                {
+                    MessageBeep(0xFFFFFFFF);
+                    break;
+                }
+            }
+            return CallWindowProcW(fnWndProc, hwnd, uMsg, wParam, lParam);
+
+        case WM_NCDESTROY:
+            UxSubclassInfo_Destroy(pInfo);
+            return CallWindowProcW(fnWndProc, hwnd, uMsg, wParam, lParam);
+
+        default:
+            return CallWindowProcW(fnWndProc, hwnd, uMsg, wParam, lParam);
+    }
+
+    return 0;
+}
+
+static UxSubclassInfo *
+UxSubclassInfo_Create(HWND hwnd, LPWSTR valid, LPWSTR invalid)
+{
+    UxSubclassInfo *pInfo;
+    pInfo = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(UxSubclassInfo));
+    if (!pInfo)
+    {
+        ERR("HeapAlloc failed.\n");
+        CoTaskMemFree(valid);
+        CoTaskMemFree(invalid);
+        return NULL;
+    }
+
+    pInfo->fnWndProc = (WNDPROC)SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)LimitEditWindowProc);
+    if (!pInfo->fnWndProc)
+    {
+        ERR("SetWindowLongPtrW failed\n");
+        CoTaskMemFree(valid);
+        CoTaskMemFree(invalid);
+        HeapFree(GetProcessHeap(), 0, pInfo);
+        return NULL;
+    }
+
+    pInfo->hwnd = hwnd;
+    pInfo->pwszValidChars = valid;
+    pInfo->pwszInvalidChars = invalid;
+    if (!SetPropW(hwnd, L"UxSubclassInfo", pInfo))
+    {
+        UxSubclassInfo_Destroy(pInfo);
+        pInfo = NULL;
+    }
+    return pInfo;
+}
+
+HRESULT WINAPI
+SHLimitInputEdit(HWND hWnd, IShellFolder *psf)
+{
+    IItemNameLimits *pLimits;
+    HRESULT hr;
+    LPWSTR pwszValidChars, pwszInvalidChars;
+    UxSubclassInfo *pInfo;
+
+    pInfo = GetPropW(hWnd, L"UxSubclassInfo");
+    if (pInfo)
+    {
+        UxSubclassInfo_Destroy(pInfo);
+        pInfo = NULL;
+    }
+
+    hr = psf->lpVtbl->QueryInterface(psf, &IID_IItemNameLimits, (LPVOID *)&pLimits);
+    if (FAILED(hr))
+    {
+        ERR("hr: %x\n", hr);
+        return hr;
+    }
+
+    pwszValidChars = pwszInvalidChars = NULL;
+    hr = pLimits->lpVtbl->GetValidCharacters(pLimits, &pwszValidChars, &pwszInvalidChars);
+    if (FAILED(hr))
+    {
+        ERR("hr: %x\n", hr);
+        pLimits->lpVtbl->Release(pLimits);
+        return hr;
+    }
+
+    pInfo = UxSubclassInfo_Create(hWnd, pwszValidChars, pwszInvalidChars);
+    if (!pInfo)
+        hr = E_FAIL;
+
+    pLimits->lpVtbl->Release(pLimits);
+
+    return hr;
+}
+
+#ifdef __REACTOS__
+/*************************************************************************
+ *  SHLimitInputCombo [SHELL32.748]
+ *
+ * Sets limits on valid characters for a combobox control.
+ * This function works like SHLimitInputEdit, but the target is a combobox
+ * instead of a textbox.
+ */
+HRESULT WINAPI
+SHLimitInputCombo(HWND hWnd, IShellFolder *psf)
+{
+    HWND hwndEdit;
+
+    TRACE("%p %p\n", hWnd, psf);
+
+    hwndEdit = GetTopWindow(hWnd);
+    if (!hwndEdit)
+        return E_FAIL;
+
+    return SHLimitInputEdit(hwndEdit, psf);
 }
 #endif

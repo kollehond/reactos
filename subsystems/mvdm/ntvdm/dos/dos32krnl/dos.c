@@ -161,6 +161,21 @@ static BOOLEAN DosChangeDirectory(LPSTR Directory)
     return TRUE;
 }
 
+static BOOLEAN DosIsFileOnCdRom(VOID)
+{
+    UINT DriveType;
+    CHAR RootPathName[4];
+
+    /* Construct a simple <letter>:\ string to get drive type */
+    RootPathName[0] = Sda->CurrentDrive + 'A';
+    RootPathName[1] = ':';
+    RootPathName[2] = '\\';
+    RootPathName[3] = ANSI_NULL;
+
+    DriveType = GetDriveTypeA(RootPathName);
+    return (DriveType == DRIVE_CDROM);
+}
+
 /* PUBLIC FUNCTIONS ***********************************************************/
 
 BOOLEAN DosControlBreak(VOID)
@@ -950,8 +965,19 @@ VOID WINAPI DosInt21h(LPWORD Stack)
         case 0x3D:
         {
             WORD FileHandle;
+            BYTE AccessShareModes = getAL();
             LPCSTR FileName = (LPCSTR)SEG_OFF_TO_PTR(getDS(), getDX());
-            WORD ErrorCode = DosOpenFile(&FileHandle, FileName, getAL());
+            WORD ErrorCode = DosOpenFile(&FileHandle, FileName, AccessShareModes);
+
+            /*
+             * Check if we failed because we attempted to open a file for write
+             * on a CDROM drive. In that situation, attempt to reopen for read
+             */
+            if (ErrorCode == ERROR_ACCESS_DENIED &&
+                (AccessShareModes & 0x03) != 0 && DosIsFileOnCdRom())
+            {
+                ErrorCode = DosOpenFile(&FileHandle, FileName, 0);
+            }
 
             if (ErrorCode == ERROR_SUCCESS)
             {
@@ -1972,6 +1998,17 @@ VOID WINAPI DosInt21h(LPWORD Stack)
             break;
         }
 
+        /* Long FileName Support */
+        case 0x71:
+        {
+            DPRINT1("INT 21h LFN Support, AH = %02Xh, AL = %02Xh NOT IMPLEMENTED!\n",
+                    getAH(), getAL());
+
+            setAL(0); // Some functions expect AL to be 0 when it's not supported.
+            Stack[STACK_FLAGS] |= EMULATOR_FLAG_CF;
+            break;
+        }
+
         /* Unsupported */
         default: // Default:
         {
@@ -2276,7 +2313,7 @@ BOOLEAN DosKRNLInitialize(VOID)
     SysVars->BootDrive = RtlUpcaseUnicodeChar(SharedUserData->NtSystemRoot[0]) - 'A' + 1;
 
     /* Initialize the NUL device driver */
-    SysVars->NullDevice.Link = 0xFFFFFFFF;
+    SysVars->NullDevice.Link = MAXDWORD;
     SysVars->NullDevice.DeviceAttributes = DOS_DEVATTR_NUL | DOS_DEVATTR_CHARACTER;
     // Offset from within the DOS data segment
     SysVars->NullDevice.StrategyRoutine  = DOS_DATA_OFFSET(NullDriverRoutine);
@@ -2354,7 +2391,7 @@ BOOLEAN DosKRNLInitialize(VOID)
 
     /* Initialize the SFT */
     Sft = (PDOS_SFT)FAR_POINTER(SysVars->FirstSft);
-    Sft->Link = 0xFFFFFFFF;
+    Sft->Link = MAXDWORD;
     Sft->NumDescriptors = DOS_SFT_SIZE;
 
     for (i = 0; i < Sft->NumDescriptors; i++)

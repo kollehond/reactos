@@ -839,7 +839,7 @@ DWORD WINAPI RetreiveFileSecurity(LPCWSTR lpFileName,
 
 
 /*
- * See: https://msdn.microsoft.com/en-us/library/bb432397(v=vs.85).aspx
+ * See: https://learn.microsoft.com/en-us/windows/win32/devnotes/psetupsetglobalflags
  * for more information.
  */
 DWORD GlobalSetupFlags = 0;
@@ -869,6 +869,27 @@ void WINAPI pSetupSetGlobalFlags( DWORD flags )
     pSetupModifyGlobalFlags(0xFFFFFFFF, flags);
 }
 
+/***********************************************************************
+ *		SetupGetNonInteractiveMode  (SETUPAPI.@)
+ */
+BOOL WINAPI SetupGetNonInteractiveMode(VOID)
+{
+    return (GlobalSetupFlags & PSPGF_NONINTERACTIVE);
+}
+
+/***********************************************************************
+ *		SetupSetNonInteractiveMode  (SETUPAPI.@)
+ */
+BOOL WINAPI SetupSetNonInteractiveMode(BOOL NonInteractiveFlag)
+{
+    BOOL OldValue;
+
+    OldValue = (GlobalSetupFlags & PSPGF_NONINTERACTIVE);
+    pSetupModifyGlobalFlags(PSPGF_NONINTERACTIVE,
+                            NonInteractiveFlag ? PSPGF_NONINTERACTIVE : 0);
+
+    return OldValue;
+}
 
 /***********************************************************************
  *              AssertFail  (SETUPAPI.@)

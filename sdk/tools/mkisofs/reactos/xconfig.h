@@ -180,14 +180,16 @@
 #define HAVE_LONGLONG 1
 
 #ifndef _WIN32
+#if !defined(__arm__) && !defined(__aarch64__)
     #define VA_LIST_IS_ARRAY 1
+#endif
 #endif
 
 #ifdef _WIN32
     #define uid_t int
     #define gid_t int
     #define nlink_t unsigned long
-    
+
     #ifdef _MSC_VER
         #define mode_t int
     #endif
@@ -195,12 +197,19 @@
 
 #define HAVE_TYPE_INTMAX_T 1
 #define HAVE_TYPE_UINTMAX_T 1
+#define HAVE_ENVIRON_DEF 1
+#define HAVE_RENAME 1
+#define HAVE_STRNLEN 1
+#ifdef _WIN32
+    #define _CRT_NONSTDC_NO_DEPRECATE 1
+#endif
 
 /*
  * ReactOS additions
  */
 #ifdef _MSC_VER
-    #define ssize_t int
+    #define ssize_t intptr_t
+    #include <io.h>
 #endif
 
 /* Would need additional fprformat.c, less portable */

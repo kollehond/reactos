@@ -47,7 +47,7 @@ const MATRIX gmxWorldToPageDefault =
 
 /** Internal functions ********************************************************/
 
-INIT_FUNCTION
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
 InitDcImpl(VOID)
@@ -112,6 +112,11 @@ DC_InitHack(PDC pdc)
         DC_vCopyState(pdc, defaultDCstate, TRUE);
     }
 
+    if (prgnDefault == NULL)
+    {
+        prgnDefault = IntSysCreateRectpRgn(0, 0, 0, 0);
+    }
+
     TextIntRealizeFont(pdc->pdcattr->hlfntNew,NULL);
     pdc->pdcattr->iCS_CP = ftGdiGetTextCharsetInfo(pdc,NULL,0);
 
@@ -139,7 +144,7 @@ DC_vInitDc(
     pdc->pdcattr = &pdc->dcattr;
     pdc->dcattr.pvLDC = NULL;
     pdc->dcattr.ulDirty_ = DIRTY_DEFAULT;
-    if (ppdev == gppdevPrimary)
+    if (ppdev == gpmdev->ppdevGlobal)
         pdc->dcattr.ulDirty_ |= DC_PRIMARY_DISPLAY;
 
     /* Setup the DC size */
@@ -246,6 +251,9 @@ DC_vInitDc(
     /* Allocate a Vis region */
     pdc->prgnVis = IntSysCreateRectpRgn(0, 0, pdc->dclevel.sizl.cx, pdc->dclevel.sizl.cy);
 	ASSERT(pdc->prgnVis);
+
+    /* Setup Vis Region Attribute information */
+    UpdateVisRgn(pdc);
 
 	/* Initialize Clip object */
 	IntEngInitClipObj(&pdc->co);
@@ -538,7 +546,7 @@ DC_vPrepareDCsForBlit(
         prcSecond = NULL;
     }
 
-    if (pdcDest->fs & DC_FLAG_DIRTY_RAO)
+    if (pdcDest->fs & DC_DIRTY_RAO)
         CLIPPING_UpdateGCRegion(pdcDest);
 
     /* Lock and update first DC */
@@ -637,7 +645,7 @@ GreOpenDCW(
     BOOL bDisplay,
     HANDLE hspool,
     VOID *pDriverInfo2,
-    VOID *pUMdhpdev)
+    PVOID *pUMdhpdev)
 {
     PPDEVOBJ ppdev;
     PDC pdc;
@@ -667,6 +675,7 @@ GreOpenDCW(
 
     /* Lock ppdev and initialize the new DC */
     DC_vInitDc(pdc, iType, ppdev);
+    if (pUMdhpdev) *pUMdhpdev = ppdev->dhpdev;
     /* FIXME: HACK! */
     DC_InitHack(pdc);
 
@@ -689,6 +698,7 @@ NtGdiOpenDCW(
     _In_ ULONG iType,
     _In_ BOOL bDisplay,
     _In_opt_ HANDLE hspool,
+    /*_In_opt_ DRIVER_INFO2W *pdDriverInfo2, Need this soon!!!! */
     _At_((PUMDHPDEV*)pUMdhpdev, _Out_) PVOID pUMdhpdev)
 {
     UNICODE_STRING ustrDevice;
@@ -752,6 +762,7 @@ NtGdiOpenDCW(
     {
         pdmInit = NULL;
         pUMdhpdev = NULL;
+        // return UserGetDesktopDC(iType, FALSE, TRUE);
     }
 
     /* FIXME: HACK! */
@@ -777,7 +788,7 @@ NtGdiOpenDCW(
     /* If we got a HDC and a UM dhpdev is requested,... */
     if (hdc && pUMdhpdev)
     {
-        /* Copy dhpdev to caller (FIXME: use dhpdev?) */
+        /* Copy dhpdev to caller */
         _SEH2_TRY
         {
             /* Pointer was already probed */
@@ -825,7 +836,7 @@ GreCreateCompatibleDC(HDC hdc, BOOL bAltDc)
 
         /* Get the pdev from the DC */
         ppdev = pdc->ppdev;
-        InterlockedIncrement(&ppdev->cPdevRefs);
+        PDEVOBJ_vReference(ppdev);
 
         /* Unlock the source DC */
         DC_UnlockDc(pdc);
@@ -894,7 +905,7 @@ IntGdiDeleteDC(HDC hDC, BOOL Force)
          * For some reason, it's still a valid handle, pointing to some kernel data.
          * Not sure if this is a bug, a feature, some cache stuff... Who knows?
          * See NtGdiDeleteObjectApp test for details */
-        if (DCToDelete->fs & DC_FLAG_PERMANENT)
+        if (DCToDelete->fs & DC_PERMANANT)
         {
             DC_UnlockDc(DCToDelete);
             if(UserReleaseDC(NULL, hDC, FALSE))
@@ -938,9 +949,6 @@ BOOL
 APIENTRY
 NtGdiDeleteObjectApp(HANDLE hobj)
 {
-    /* Complete all pending operations */
-    NtGdiFlushUserBatch(); // FIXME: We shouldn't need this
-
     if (GDI_HANDLE_IS_STOCKOBJ(hobj)) return TRUE;
 
     if (GreGetObjectOwner(hobj) != GDI_OBJ_HMGR_POWNED)
@@ -964,16 +972,16 @@ MakeInfoDC(PDC pdc, BOOL bSet)
     SIZEL sizl;
 
     /* Can not be a display DC. */
-    if (pdc->fs & DC_FLAG_DISPLAY) return FALSE;
+    if (pdc->fs & DC_DISPLAY) return FALSE;
     if (bSet)
     {
-        if (pdc->fs & DC_FLAG_TEMPINFODC || pdc->dctype == DC_TYPE_DIRECT)
+        if (pdc->fs & DC_TEMPINFODC || pdc->dctype == DCTYPE_DIRECT)
             return FALSE;
 
         pSurface = pdc->dclevel.pSurface;
-        pdc->fs |= DC_FLAG_TEMPINFODC;
+        pdc->fs |= DC_TEMPINFODC;
         pdc->pSurfInfo = pSurface;
-        pdc->dctype = DC_TYPE_INFO;
+        pdc->dctype = DCTYPE_INFO;
         pdc->dclevel.pSurface = NULL;
 
         PDEVOBJ_sizl(pdc->ppdev, &sizl);
@@ -987,13 +995,13 @@ MakeInfoDC(PDC pdc, BOOL bSet)
     }
     else
     {
-        if (!(pdc->fs & DC_FLAG_TEMPINFODC) || pdc->dctype != DC_TYPE_INFO)
+        if (!(pdc->fs & DC_TEMPINFODC) || pdc->dctype != DCTYPE_INFO)
             return FALSE;
 
         pSurface = pdc->pSurfInfo;
-        pdc->fs &= ~DC_FLAG_TEMPINFODC;
+        pdc->fs &= ~DC_TEMPINFODC;
         pdc->dclevel.pSurface = pSurface;
-        pdc->dctype = DC_TYPE_DIRECT;
+        pdc->dctype = DCTYPE_DIRECT;
         pdc->pSurfInfo = NULL;
 
         if ( !pSurface ||
@@ -1042,7 +1050,7 @@ IntGdiCreateDC(
                      pdmInit,
                      NULL,
                      CreateAsIC ? DCTYPE_INFO :
-                          (Driver ? DC_TYPE_DIRECT : DC_TYPE_DIRECT),
+                          (Driver ? DCTYPE_DIRECT : DCTYPE_DIRECT),
                      TRUE,
                      NULL,
                      NULL,
@@ -1056,12 +1064,11 @@ IntGdiCreateDisplayDC(HDEV hDev, ULONG DcType, BOOL EmptyDC)
 {
     HDC hDC;
     UNIMPLEMENTED;
-    ASSERT(FALSE);
 
-    if (DcType == DC_TYPE_MEMORY)
+    if (DcType == DCTYPE_MEMORY)
         hDC = NtGdiCreateCompatibleDC(NULL); // OH~ Yuck! I think I taste vomit in my mouth!
     else
-        hDC = IntGdiCreateDC(NULL, NULL, NULL, NULL, (DcType == DC_TYPE_INFO));
+        hDC = IntGdiCreateDC(NULL, NULL, NULL, NULL, (DcType == DCTYPE_INFO));
 
     return hDC;
 }

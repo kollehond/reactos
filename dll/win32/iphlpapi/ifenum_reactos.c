@@ -97,13 +97,14 @@ NTSTATUS tdiGetMibForIfEntity
            entry->ent.if_speed,
            entry->ent.if_physaddrlen);
     TRACE("  if_physaddr .................... %02x:%02x:%02x:%02x:%02x:%02x\n"
-           "  if_descr ....................... %s\n",
+           "  if_descr ....................... %*s\n",
            entry->ent.if_physaddr[0] & 0xff,
            entry->ent.if_physaddr[1] & 0xff,
            entry->ent.if_physaddr[2] & 0xff,
            entry->ent.if_physaddr[3] & 0xff,
            entry->ent.if_physaddr[4] & 0xff,
            entry->ent.if_physaddr[5] & 0xff,
+           entry->ent.if_descrlen,
            entry->ent.if_descr);
     TRACE("} status %08x\n",status);
 
@@ -148,7 +149,8 @@ BOOL hasArp( HANDLE tcpFile, TDIEntityID *arp_maybe ) {
                               NULL );
     if( !NT_SUCCESS(status) ) return FALSE;
 
-    return (type & AT_ARP);
+    /* AT_ARP corresponds to an individual TDI entity type */
+    return (type == AT_ARP);
 }
 
 static NTSTATUS getInterfaceInfoSet( HANDLE tcpFile,
@@ -245,8 +247,7 @@ static DWORD getNumInterfacesInt(BOOL onlyNonLoopback)
 
     for( i = 0; i < numEntities; i++ ) {
         if( isInterface( &entitySet[i] ) &&
-            (!onlyNonLoopback ||
-             (onlyNonLoopback && !isLoopback( tcpFile, &entitySet[i] ))) )
+            (!onlyNonLoopback || !isLoopback( tcpFile, &entitySet[i] )) )
             numInterfaces++;
     }
 
@@ -332,7 +333,7 @@ NTSTATUS getInterfaceInfoByName( HANDLE tcpFile, char *name, IFInfo *info ) {
     if( NT_SUCCESS(status) )
     {
         for( i = 0; i < numInterfaces; i++ ) {
-            if( !strcmp((PCHAR)ifInfo[i].if_info.ent.if_descr, name) ) {
+            if( !strncmp((PCHAR)ifInfo[i].if_info.ent.if_descr, name, ifInfo[i].if_info.ent.if_descrlen) ) {
                 memcpy( info, &ifInfo[i], sizeof(*info) );
                 break;
             }
@@ -352,20 +353,19 @@ const char *getInterfaceNameByIndex(DWORD index)
 {
     IFInfo ifInfo;
     HANDLE tcpFile;
-    char *interfaceName = 0, *adapter_name = 0;
+    char *interfaceName = NULL;
     NTSTATUS status = openTcpFile( &tcpFile, FILE_READ_DATA );
 
     if( NT_SUCCESS(status) ) {
         status = getInterfaceInfoByIndex( tcpFile, index, &ifInfo );
 
         if( NT_SUCCESS(status) ) {
-            adapter_name = (char *)ifInfo.if_info.ent.if_descr;
-
             interfaceName = HeapAlloc( GetProcessHeap(), 0,
-                                       strlen(adapter_name) + 1 );
-            if (!interfaceName) return NULL;
-
-            strcpy( interfaceName, adapter_name );
+                                       ifInfo.if_info.ent.if_descrlen + 1 );
+            if( interfaceName ) {
+              memcpy(interfaceName, ifInfo.if_info.ent.if_descr, ifInfo.if_info.ent.if_descrlen);
+              interfaceName[ifInfo.if_info.ent.if_descrlen] = '\0';
+            }
         }
 
         closeTcpFile( tcpFile );

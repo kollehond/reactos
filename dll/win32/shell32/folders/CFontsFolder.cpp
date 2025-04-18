@@ -68,9 +68,9 @@ HRESULT WINAPI CFontsFolder::CreateViewObject(HWND hwndOwner, REFIID riid, LPVOI
 HRESULT WINAPI CFontsFolder::GetAttributesOf(UINT cidl, PCUITEMID_CHILD_ARRAY apidl, DWORD *rgfInOut)
 {
     static const DWORD dwFontsAttributes =
-        SFGAO_STORAGE | SFGAO_STORAGEANCESTOR | SFGAO_FILESYSANCESTOR | 
+        SFGAO_STORAGE | SFGAO_STORAGEANCESTOR | SFGAO_FILESYSANCESTOR |
         SFGAO_FOLDER | SFGAO_FILESYSTEM | SFGAO_HASSUBFOLDER;
-    
+
     if(cidl)
         return m_pisfInner->GetAttributesOf(cidl, apidl, rgfInOut);
 
@@ -169,7 +169,7 @@ HRESULT WINAPI CFontsFolder::GetClassID(CLSID *lpClassId)
     return S_OK;
 }
 
-HRESULT WINAPI CFontsFolder::Initialize(LPCITEMIDLIST pidl)
+HRESULT WINAPI CFontsFolder::Initialize(PCIDLIST_ABSOLUTE pidl)
 {
     m_pidlInner = ILClone(pidl);
     if (!m_pidlInner)
@@ -181,7 +181,7 @@ HRESULT WINAPI CFontsFolder::Initialize(LPCITEMIDLIST pidl)
                                   IID_PPV_ARG(IShellFolder2, &m_pisfInner));
 }
 
-HRESULT WINAPI CFontsFolder::GetCurFolder(LPITEMIDLIST *pidl)
+HRESULT WINAPI CFontsFolder::GetCurFolder(PIDLIST_ABSOLUTE *pidl)
 {
     if (!pidl)
         return E_POINTER;

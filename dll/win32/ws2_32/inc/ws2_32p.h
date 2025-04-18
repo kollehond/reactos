@@ -1,7 +1,7 @@
 /*
  * COPYRIGHT:   See COPYING in the top level directory
  * PROJECT:     ReactOS WinSock 2.2 Library
- * FILE:        dll/win32/ws2_32_new/inc/ws2_32p.h
+ * FILE:        dll/win32/ws2_32/inc/ws2_32p.h
  * PURPOSE:     WinSock 2.2 Main Header
  */
 
@@ -231,6 +231,16 @@ typedef struct _PROTOCOL_ENUM_CONTEXT
     DWORD Count;
     INT ErrorCode;
 } PROTOCOL_ENUM_CONTEXT, *PPROTOCOL_ENUM_CONTEXT;
+
+typedef struct _PROVIDER_ENUM_CONTEXT
+{
+    GUID ProviderId;
+    LPWSTR ProviderDllPath;
+    INT ProviderDllPathLen;
+    DWORD FoundPathLen;
+    DWORD Found;
+    INT ErrorCode;
+} PROVIDER_ENUM_CONTEXT, *PPROVIDER_ENUM_CONTEXT;
 
 typedef struct _WS_BUFFER
 {

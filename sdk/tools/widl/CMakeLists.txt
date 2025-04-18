@@ -8,9 +8,11 @@ if(MSVC)
             add_definitions(-Dvsnprintf=_vsnprintf)
         endif()
     endif()
-
-    list(APPEND SOURCE getopt.c)
 endif()
+
+FLEX_TARGET(p_scanner parser.l ${CMAKE_CURRENT_BINARY_DIR}/parser.yy.c)
+BISON_TARGET(p_parser parser.y ${CMAKE_CURRENT_BINARY_DIR}/parser.tab.c COMPILE_FLAGS "-p parser_")
+ADD_FLEX_BISON_DEPENDENCY(p_scanner p_parser)
 
 list(APPEND SOURCE
     client.c
@@ -27,11 +29,25 @@ list(APPEND SOURCE
     widl.c
     write_msft.c
     write_sltg.c
-    parser.yy.c
-    parser.tab.c
-    port/mkstemps.c)
+    ${FLEX_p_scanner_OUTPUTS}
+    ${BISON_p_parser_OUTPUTS}
+    ../port/getopt.c
+    ../port/getopt1.c
+    ../port/mkstemps.c)
 
-# Taken from widl.rbuild
-add_definitions(-DINT16=SHORT)
+add_definitions(-DINT16=SHORT -DLANG_SCOTTISH_GAELIC=0x91)
 add_host_tool(widl ${SOURCE})
-target_link_libraries(widl wpphost)
+target_link_libraries(widl PRIVATE host_includes wpphost)
+
+if(MSVC)
+    # Disable warning "'>': signed/unsigned mismatch"
+    target_compile_options(widl PRIVATE "/wd4018")
+
+    # Disable warning "unary minus operator applied to unsigned type, result still unsigned"
+    target_compile_options(widl PRIVATE "/wd4146")
+
+    # Disable warning "'=': conversion from 'a' to 'b', possible loss of data"
+    target_compile_options(widl PRIVATE "/wd4244")
+
+    target_compile_options(widl PRIVATE "-WX")
+endif()

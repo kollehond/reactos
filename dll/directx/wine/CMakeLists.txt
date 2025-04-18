@@ -1,4 +1,10 @@
 
+if (MSVC)
+    # Disable warning C4090: 'function': different 'const' qualifiers
+    # Disable warning C4146: unary minus operator applied to unsigned type, result still unsigned
+    add_compile_options(/wd4090 /wd4146)
+endif()
+
 add_subdirectory(amstream)
 add_subdirectory(d3d8)
 add_subdirectory(d3d9)
@@ -32,9 +38,11 @@ add_subdirectory(dinput8)
 add_subdirectory(dmusic)
 add_subdirectory(dplay)
 add_subdirectory(dplayx)
+add_subdirectory(dpnhpast)
 add_subdirectory(dsound)
 add_subdirectory(dxdiagn)
 add_subdirectory(msdmo)
+add_subdirectory(qcap)
 add_subdirectory(qedit)
 add_subdirectory(quartz)
 add_subdirectory(wined3d)

@@ -22,11 +22,63 @@
 #include "videoprt.h"
 
 #include <ndk/kefuncs.h>
+#include <ndk/halfuncs.h>
+#include <ndk/mmfuncs.h>
 
 #define NDEBUG
 #include <debug.h>
 
 /* PRIVATE FUNCTIONS **********************************************************/
+
+#define IsLowV86Mem(_Seg, _Off) ((((_Seg) << 4) + (_Off)) < (0xa0000))
+
+/* Those two functions below are there so that CSRSS can't access low mem.
+ * Expecially, MAKE IT CRASH ON NULL ACCESS */
+static
+VOID
+ProtectLowV86Mem(VOID)
+{
+    /* We pass a non-NULL address so that ZwAllocateVirtualMemory really does it
+     * And we truncate one page to get the right range spanned. */
+    PVOID BaseAddress = (PVOID)1;
+    NTSTATUS Status;
+    SIZE_T ViewSize = 0xa0000 - PAGE_SIZE;
+
+    /* We should only do that for CSRSS. */
+    ASSERT(PsGetCurrentProcess() == (PEPROCESS)CsrProcess);
+
+    /* Commit (again) the pages, but with PAGE_NOACCESS protection */
+    Status = ZwAllocateVirtualMemory(NtCurrentProcess(),
+                                     &BaseAddress,
+                                     0,
+                                     &ViewSize,
+                                     MEM_COMMIT,
+                                     PAGE_NOACCESS);
+    ASSERT(NT_SUCCESS(Status));
+}
+
+static
+VOID
+UnprotectLowV86Mem(VOID)
+{
+    /* We pass a non-NULL address so that ZwAllocateVirtualMemory really does it
+     * And we truncate one page to get the right range spanned. */
+    PVOID BaseAddress = (PVOID)1;
+    NTSTATUS Status;
+    SIZE_T ViewSize = 0xa0000 - PAGE_SIZE;
+
+    /* We should only do that for CSRSS, for the v86 address space */
+    ASSERT(PsGetCurrentProcess() == (PEPROCESS)CsrProcess);
+
+    /* Commit (again) the pages, but with PAGE_READWRITE protection */
+    Status = ZwAllocateVirtualMemory(NtCurrentProcess(),
+                                     &BaseAddress,
+                                     0,
+                                     &ViewSize,
+                                     MEM_COMMIT,
+                                     PAGE_READWRITE);
+    ASSERT(NT_SUCCESS(Status));
+}
 
 #if defined(_M_IX86) || defined(_M_AMD64)
 NTSTATUS
@@ -40,7 +92,9 @@ IntInitializeVideoAddressSpace(VOID)
     PVOID BaseAddress;
     LARGE_INTEGER Offset;
     SIZE_T ViewSize;
-    CHAR IVTAndBda[1024+256];
+#ifdef _M_IX86
+    CHAR IVTAndBda[1024 + 256];
+#endif // _M_IX86
 
     /* Free the 1MB pre-reserved region. In reality, ReactOS should simply support us mapping the view into the reserved area, but it doesn't. */
     BaseAddress = 0;
@@ -124,6 +178,7 @@ IntInitializeVideoAddressSpace(VOID)
         return 0;
     }
 
+#ifdef _M_IX86
     /* Get the real mode IVT and BDA from the kernel */
     Status = NtVdmControl(VdmInitialize, IVTAndBda);
     if (!NT_SUCCESS(Status))
@@ -131,6 +186,10 @@ IntInitializeVideoAddressSpace(VOID)
         DPRINT1("NtVdmControl failed (status %x)\n", Status);
         return Status;
     }
+#endif // _M_IX86
+
+    /* Protect the V86 address space after this */
+    ProtectLowV86Mem();
 
     /* Return success */
     return STATUS_SUCCESS;
@@ -146,125 +205,174 @@ IntInitializeVideoAddressSpace(VOID)
 }
 #endif
 
-#if defined(_M_IX86)
-VP_STATUS NTAPI
+VP_STATUS
+NTAPI
 IntInt10AllocateBuffer(
-   IN PVOID Context,
-   OUT PUSHORT Seg,
-   OUT PUSHORT Off,
-   IN OUT PULONG Length)
+    IN PVOID Context,
+    OUT PUSHORT Seg,
+    OUT PUSHORT Off,
+    IN OUT PULONG Length)
 {
-   PVOID MemoryAddress;
-   NTSTATUS Status;
-   PKPROCESS CallingProcess = (PKPROCESS)PsGetCurrentProcess();
-   KAPC_STATE ApcState;
+    NTSTATUS Status;
+#ifdef _M_IX86
+    PVOID MemoryAddress;
+    PKPROCESS CallingProcess = (PKPROCESS)PsGetCurrentProcess();
+    KAPC_STATE ApcState;
+    SIZE_T Size;
 
-   TRACE_(VIDEOPRT, "IntInt10AllocateBuffer\n");
+    TRACE_(VIDEOPRT, "IntInt10AllocateBuffer\n");
 
-   IntAttachToCSRSS(&CallingProcess, &ApcState);
+    IntAttachToCSRSS(&CallingProcess, &ApcState);
 
-   MemoryAddress = (PVOID)0x20000;
-   Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &MemoryAddress, 0,
-      Length, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+    Size = *Length;
+    MemoryAddress = (PVOID)0x20000;
 
-   if (!NT_SUCCESS(Status))
-   {
-      WARN_(VIDEOPRT, "- ZwAllocateVirtualMemory failed\n");
-      IntDetachFromCSRSS(&CallingProcess, &ApcState);
-      return ERROR_NOT_ENOUGH_MEMORY;
-   }
+    Status = ZwAllocateVirtualMemory(NtCurrentProcess(),
+                                     &MemoryAddress,
+                                     0,
+                                     &Size,
+                                     MEM_COMMIT,
+                                     PAGE_EXECUTE_READWRITE);
+    if (!NT_SUCCESS(Status))
+    {
+        WARN_(VIDEOPRT, "- ZwAllocateVirtualMemory failed\n");
+        IntDetachFromCSRSS(&CallingProcess, &ApcState);
+        return ERROR_NOT_ENOUGH_MEMORY;
+    }
 
-   if (MemoryAddress > (PVOID)(0x100000 - *Length))
-   {
-      ZwFreeVirtualMemory(NtCurrentProcess(), &MemoryAddress, Length,
-         MEM_RELEASE);
-      WARN_(VIDEOPRT, "- Unacceptable memory allocated\n");
-      IntDetachFromCSRSS(&CallingProcess, &ApcState);
-      return ERROR_NOT_ENOUGH_MEMORY;
-   }
+    if (MemoryAddress > (PVOID)(0x100000 - Size))
+    {
+        ZwFreeVirtualMemory(NtCurrentProcess(),
+                            &MemoryAddress,
+                            &Size,
+                            MEM_RELEASE);
+        WARN_(VIDEOPRT, "- Unacceptable memory allocated\n");
+        IntDetachFromCSRSS(&CallingProcess, &ApcState);
+        return ERROR_NOT_ENOUGH_MEMORY;
+    }
 
-   *Seg = (USHORT)((ULONG)MemoryAddress >> 4);
-   *Off = (USHORT)((ULONG)MemoryAddress & 0xF);
+    *Length = (ULONG)Size;
+    *Seg = (USHORT)((ULONG_PTR)MemoryAddress >> 4);
+    *Off = (USHORT)((ULONG_PTR)MemoryAddress & 0xF);
 
-   INFO_(VIDEOPRT, "- Segment: %x\n", (ULONG)MemoryAddress >> 4);
-   INFO_(VIDEOPRT, "- Offset: %x\n", (ULONG)MemoryAddress & 0xF);
-   INFO_(VIDEOPRT, "- Length: %x\n", *Length);
+    INFO_(VIDEOPRT, "- Segment: %x\n", (ULONG_PTR)MemoryAddress >> 4);
+    INFO_(VIDEOPRT, "- Offset: %x\n", (ULONG_PTR)MemoryAddress & 0xF);
+    INFO_(VIDEOPRT, "- Length: %x\n", *Length);
 
-   IntDetachFromCSRSS(&CallingProcess, &ApcState);
+    IntDetachFromCSRSS(&CallingProcess, &ApcState);
 
-   return NO_ERROR;
+    return NO_ERROR;
+#else
+    Status = x86BiosAllocateBuffer(Length, Seg, Off);
+    return NT_SUCCESS(Status) ? NO_ERROR : ERROR_NOT_ENOUGH_MEMORY;
+#endif
 }
 
-VP_STATUS NTAPI
+VP_STATUS
+NTAPI
 IntInt10FreeBuffer(
-   IN PVOID Context,
-   IN USHORT Seg,
-   IN USHORT Off)
+    IN PVOID Context,
+    IN USHORT Seg,
+    IN USHORT Off)
 {
-   PVOID MemoryAddress = (PVOID)((Seg << 4) | Off);
-   NTSTATUS Status;
-   PKPROCESS CallingProcess = (PKPROCESS)PsGetCurrentProcess();
-   KAPC_STATE ApcState;
-   SIZE_T Size = 0;
+    NTSTATUS Status;
+#ifdef _M_IX86
+    PVOID MemoryAddress = (PVOID)((ULONG_PTR)(Seg << 4) | Off);
+    PKPROCESS CallingProcess = (PKPROCESS)PsGetCurrentProcess();
+    KAPC_STATE ApcState;
+    SIZE_T Size = 0;
 
-   TRACE_(VIDEOPRT, "IntInt10FreeBuffer\n");
-   INFO_(VIDEOPRT, "- Segment: %x\n", Seg);
-   INFO_(VIDEOPRT, "- Offset: %x\n", Off);
+    TRACE_(VIDEOPRT, "IntInt10FreeBuffer\n");
+    INFO_(VIDEOPRT, "- Segment: %x\n", Seg);
+    INFO_(VIDEOPRT, "- Offset: %x\n", Off);
 
-   IntAttachToCSRSS(&CallingProcess, &ApcState);
-   Status = ZwFreeVirtualMemory(NtCurrentProcess(), &MemoryAddress, &Size,
-      MEM_RELEASE);
-   IntDetachFromCSRSS(&CallingProcess, &ApcState);
+    IntAttachToCSRSS(&CallingProcess, &ApcState);
+    Status = ZwFreeVirtualMemory(NtCurrentProcess(),
+                                 &MemoryAddress,
+                                 &Size,
+                                 MEM_RELEASE);
 
-   return Status;
+    IntDetachFromCSRSS(&CallingProcess, &ApcState);
+
+    return Status;
+#else
+    Status = x86BiosFreeBuffer(Seg, Off);
+    return NT_SUCCESS(Status) ? NO_ERROR : ERROR_INVALID_PARAMETER;
+#endif
 }
 
-VP_STATUS NTAPI
+VP_STATUS
+NTAPI
 IntInt10ReadMemory(
-   IN PVOID Context,
-   IN USHORT Seg,
-   IN USHORT Off,
-   OUT PVOID Buffer,
-   IN ULONG Length)
+    IN PVOID Context,
+    IN USHORT Seg,
+    IN USHORT Off,
+    OUT PVOID Buffer,
+    IN ULONG Length)
 {
-   PKPROCESS CallingProcess = (PKPROCESS)PsGetCurrentProcess();
-   KAPC_STATE ApcState;
+#ifdef _M_IX86
+    PKPROCESS CallingProcess = (PKPROCESS)PsGetCurrentProcess();
+    KAPC_STATE ApcState;
 
-   TRACE_(VIDEOPRT, "IntInt10ReadMemory\n");
-   INFO_(VIDEOPRT, "- Segment: %x\n", Seg);
-   INFO_(VIDEOPRT, "- Offset: %x\n", Off);
-   INFO_(VIDEOPRT, "- Buffer: %x\n", Buffer);
-   INFO_(VIDEOPRT, "- Length: %x\n", Length);
+    TRACE_(VIDEOPRT, "IntInt10ReadMemory\n");
+    INFO_(VIDEOPRT, "- Segment: %x\n", Seg);
+    INFO_(VIDEOPRT, "- Offset: %x\n", Off);
+    INFO_(VIDEOPRT, "- Buffer: %x\n", Buffer);
+    INFO_(VIDEOPRT, "- Length: %x\n", Length);
 
-   IntAttachToCSRSS(&CallingProcess, &ApcState);
-   RtlCopyMemory(Buffer, (PVOID)((Seg << 4) | Off), Length);
-   IntDetachFromCSRSS(&CallingProcess, &ApcState);
+    IntAttachToCSRSS(&CallingProcess, &ApcState);
 
-   return NO_ERROR;
+    if (IsLowV86Mem(Seg, Off))
+        UnprotectLowV86Mem();
+    RtlCopyMemory(Buffer, (PVOID)((ULONG_PTR)(Seg << 4) | Off), Length);
+    if (IsLowV86Mem(Seg, Off))
+        ProtectLowV86Mem();
+
+    IntDetachFromCSRSS(&CallingProcess, &ApcState);
+
+    return NO_ERROR;
+#else
+    NTSTATUS Status;
+
+    Status = x86BiosReadMemory(Seg, Off, Buffer, Length);
+    return NT_SUCCESS(Status) ? NO_ERROR : ERROR_INVALID_PARAMETER;
+#endif
 }
 
-VP_STATUS NTAPI
+VP_STATUS
+NTAPI
 IntInt10WriteMemory(
-   IN PVOID Context,
-   IN USHORT Seg,
-   IN USHORT Off,
-   IN PVOID Buffer,
-   IN ULONG Length)
+    IN PVOID Context,
+    IN USHORT Seg,
+    IN USHORT Off,
+    IN PVOID Buffer,
+    IN ULONG Length)
 {
-   PKPROCESS CallingProcess = (PKPROCESS)PsGetCurrentProcess();
-   KAPC_STATE ApcState;
+#ifdef _M_IX86
+    PKPROCESS CallingProcess = (PKPROCESS)PsGetCurrentProcess();
+    KAPC_STATE ApcState;
 
-   TRACE_(VIDEOPRT, "IntInt10WriteMemory\n");
-   INFO_(VIDEOPRT, "- Segment: %x\n", Seg);
-   INFO_(VIDEOPRT, "- Offset: %x\n", Off);
-   INFO_(VIDEOPRT, "- Buffer: %x\n", Buffer);
-   INFO_(VIDEOPRT, "- Length: %x\n", Length);
+    TRACE_(VIDEOPRT, "IntInt10WriteMemory\n");
+    INFO_(VIDEOPRT, "- Segment: %x\n", Seg);
+    INFO_(VIDEOPRT, "- Offset: %x\n", Off);
+    INFO_(VIDEOPRT, "- Buffer: %x\n", Buffer);
+    INFO_(VIDEOPRT, "- Length: %x\n", Length);
 
-   IntAttachToCSRSS(&CallingProcess, &ApcState);
-   RtlCopyMemory((PVOID)((Seg << 4) | Off), Buffer, Length);
-   IntDetachFromCSRSS(&CallingProcess, &ApcState);
+    IntAttachToCSRSS(&CallingProcess, &ApcState);
+    if (IsLowV86Mem(Seg, Off))
+        UnprotectLowV86Mem();
+    RtlCopyMemory((PVOID)((ULONG_PTR)(Seg << 4) | Off), Buffer, Length);
+    if (IsLowV86Mem(Seg, Off))
+        ProtectLowV86Mem();
+    IntDetachFromCSRSS(&CallingProcess, &ApcState);
 
-   return NO_ERROR;
+    return NO_ERROR;
+#else
+    NTSTATUS Status;
+
+    Status = x86BiosWriteMemory(Seg, Off, Buffer, Length);
+    return NT_SUCCESS(Status) ? NO_ERROR : ERROR_INVALID_PARAMETER;
+#endif
 }
 
 VP_STATUS
@@ -273,7 +381,11 @@ IntInt10CallBios(
     IN PVOID Context,
     IN OUT PINT10_BIOS_ARGUMENTS BiosArguments)
 {
+#ifdef _M_AMD64
+    X86_BIOS_REGISTERS BiosContext;
+#else
     CONTEXT BiosContext;
+#endif
     NTSTATUS Status;
     PKPROCESS CallingProcess = (PKPROCESS)PsGetCurrentProcess();
     KAPC_STATE ApcState;
@@ -282,7 +394,7 @@ IntInt10CallBios(
     IntAttachToCSRSS(&CallingProcess, &ApcState);
 
     /* Clear the context */
-    RtlZeroMemory(&BiosContext, sizeof(CONTEXT));
+    RtlZeroMemory(&BiosContext, sizeof(BiosContext));
 
     /* Fill out the bios arguments */
     BiosContext.Eax = BiosArguments->Eax;
@@ -296,8 +408,21 @@ IntInt10CallBios(
     BiosContext.SegEs = BiosArguments->SegEs;
 
     /* Do the ROM BIOS call */
-    (void)KeWaitForMutexObject(&VideoPortInt10Mutex, Executive, KernelMode, FALSE, NULL);
+    (void)KeWaitForMutexObject(&VideoPortInt10Mutex,
+                               Executive,
+                               KernelMode,
+                               FALSE,
+                               NULL);
+
+    /* The kernel needs access here */
+    UnprotectLowV86Mem();
+#ifdef _M_AMD64
+    Status = x86BiosCall(0x10, &BiosContext) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
+#else
     Status = Ke386CallBios(0x10, &BiosContext);
+#endif
+    ProtectLowV86Mem();
+
     KeReleaseMutex(&VideoPortInt10Mutex, FALSE);
 
     /* Return the arguments */
@@ -313,69 +438,44 @@ IntInt10CallBios(
 
     /* Detach and return status */
     IntDetachFromCSRSS(&CallingProcess, &ApcState);
-    if (NT_SUCCESS(Status)) return NO_ERROR;
+
+    if (NT_SUCCESS(Status))
+    {
+        return NO_ERROR;
+    }
+
     return ERROR_INVALID_PARAMETER;
 }
-#endif
 
 /* PUBLIC FUNCTIONS ***********************************************************/
 
 /*
  * @implemented
  */
-
-VP_STATUS NTAPI
+VP_STATUS
+NTAPI
 VideoPortInt10(
     IN PVOID HwDeviceExtension,
     IN PVIDEO_X86_BIOS_ARGUMENTS BiosArguments)
 {
-#if defined(_M_IX86)
-    CONTEXT BiosContext;
-    NTSTATUS Status;
-    PKPROCESS CallingProcess = (PKPROCESS)PsGetCurrentProcess();
-    KAPC_STATE ApcState;
+    INT10_BIOS_ARGUMENTS Int10BiosArguments;
+    VP_STATUS Status;
 
-    if (!CsrssInitialized)
+    if (!CsrProcess)
     {
-       return ERROR_INVALID_PARAMETER;
+        return ERROR_INVALID_PARAMETER;
     }
 
-    /* Attach to CSRSS */
-    IntAttachToCSRSS(&CallingProcess, &ApcState);
+    /* Copy arguments to other format */
+    RtlCopyMemory(&Int10BiosArguments, BiosArguments, sizeof(*BiosArguments));
+    Int10BiosArguments.SegDs = 0;
+    Int10BiosArguments.SegEs = 0;
 
-    /* Clear the context */
-    RtlZeroMemory(&BiosContext, sizeof(CONTEXT));
+    /* Do the BIOS call */
+    Status = IntInt10CallBios(NULL, &Int10BiosArguments);
 
-    /* Fill out the bios arguments */
-    BiosContext.Eax = BiosArguments->Eax;
-    BiosContext.Ebx = BiosArguments->Ebx;
-    BiosContext.Ecx = BiosArguments->Ecx;
-    BiosContext.Edx = BiosArguments->Edx;
-    BiosContext.Esi = BiosArguments->Esi;
-    BiosContext.Edi = BiosArguments->Edi;
-    BiosContext.Ebp = BiosArguments->Ebp;
+    /* Copy results back */
+    RtlCopyMemory(BiosArguments, &Int10BiosArguments, sizeof(*BiosArguments));
 
-    /* Do the ROM BIOS call */
-    (void)KeWaitForMutexObject(&VideoPortInt10Mutex, Executive, KernelMode, FALSE, NULL);
-    Status = Ke386CallBios(0x10, &BiosContext);
-    KeReleaseMutex(&VideoPortInt10Mutex, FALSE);
-
-    /* Return the arguments */
-    BiosArguments->Eax = BiosContext.Eax;
-    BiosArguments->Ebx = BiosContext.Ebx;
-    BiosArguments->Ecx = BiosContext.Ecx;
-    BiosArguments->Edx = BiosContext.Edx;
-    BiosArguments->Esi = BiosContext.Esi;
-    BiosArguments->Edi = BiosContext.Edi;
-    BiosArguments->Ebp = BiosContext.Ebp;
-
-    /* Detach from CSRSS */
-    IntDetachFromCSRSS(&CallingProcess, &ApcState);
-    if (NT_SUCCESS(Status)) return NO_ERROR;
-    return ERROR_INVALID_PARAMETER;
-#else
-    /* Not implemented for anything else than X86*/
-    DPRINT1("Int10 not available on non-x86!\n");
-    return ERROR_INVALID_FUNCTION;
-#endif
+    return Status;
 }

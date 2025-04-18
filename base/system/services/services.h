@@ -18,9 +18,12 @@
 #include <winreg.h>
 #include <winuser.h>
 #include <netevent.h>
+
 #define NTOS_MODE_USER
+#include <ndk/setypes.h>
 #include <ndk/obfuncs.h>
 #include <ndk/rtlfuncs.h>
+
 #include <services/services.h>
 #include <svcctl_s.h>
 
@@ -64,7 +67,7 @@ typedef struct _SERVICE
     PSERVICE_IMAGE lpImage;
     BOOL bDeleted;
     DWORD dwResumeCount;
-    DWORD dwRefCount;
+    LONG RefCount;
 
     SERVICE_STATUS Status;
     DWORD dwStartType;
@@ -72,6 +75,7 @@ typedef struct _SERVICE
     DWORD dwTag;
 
     DWORD dwServiceBits;
+    DWORD dwServiceTag;
 
     ULONG Flags;
 
@@ -100,6 +104,9 @@ extern LIST_ENTRY GroupListHead;
 extern LIST_ENTRY ImageListHead;
 extern BOOL ScmInitialize;
 extern BOOL ScmShutdown;
+extern BOOL ScmLiveSetup;
+extern BOOL ScmSetupInProgress;
+extern PSECURITY_DESCRIPTOR pPipeSD;
 
 
 /* FUNCTIONS ***************************************************************/
@@ -150,9 +157,24 @@ ScmDeleteRegKey(
     _In_ HKEY hKey,
     _In_ PCWSTR pszSubKey);
 
+DWORD
+ScmDecryptPassword(
+    _In_ PVOID ContextHandle,
+    _In_ PBYTE pPassword,
+    _In_ DWORD dwPasswordSize,
+    _Out_ PWSTR *pDecryptedPassword);
+
+
 /* controlset.c */
 
-BOOL ScmGetControlSetValues(VOID);
+DWORD
+ScmCreateLastKnownGoodControlSet(VOID);
+
+DWORD
+ScmAcceptBoot(VOID);
+
+DWORD
+ScmRunLastKnownGood(VOID);
 
 
 /* database.c */
@@ -164,7 +186,10 @@ VOID ScmAutoStartServices(VOID);
 VOID ScmAutoShutdownServices(VOID);
 DWORD ScmStartService(PSERVICE Service,
                       DWORD argc,
-                      LPWSTR *argv);
+                      const PCWSTR* argv);
+
+DWORD ScmReferenceService(PSERVICE lpService);
+DWORD ScmDereferenceService(PSERVICE lpService);
 
 VOID ScmRemoveServiceImage(PSERVICE_IMAGE pServiceImage);
 PSERVICE ScmGetServiceEntryByName(LPCWSTR lpServiceName);
@@ -177,10 +202,12 @@ DWORD ScmCreateNewServiceRecord(LPCWSTR lpServiceName,
 VOID ScmDeleteServiceRecord(PSERVICE lpService);
 DWORD ScmMarkServiceForDelete(PSERVICE pService);
 
-DWORD ScmControlService(HANDLE hControlPipe,
-                        PWSTR pServiceName,
-                        SERVICE_STATUS_HANDLE hServiceStatus,
-                        DWORD dwControl);
+DWORD
+ScmControlService(
+    _In_ HANDLE hControlPipe,
+    _In_ PCWSTR pServiceName,
+    _In_ DWORD dwControl,
+    _In_ SERVICE_STATUS_HANDLE hServiceStatus);
 
 BOOL ScmLockDatabaseExclusive(VOID);
 BOOL ScmLockDatabaseShared(VOID);
@@ -189,6 +216,10 @@ VOID ScmUnlockDatabase(VOID);
 VOID ScmInitNamedPipeCriticalSection(VOID);
 VOID ScmDeleteNamedPipeCriticalSection(VOID);
 
+DWORD ScmGetServiceNameFromTag(PTAG_INFO_NAME_FROM_TAG_IN_PARAMS InParams,
+                               PTAG_INFO_NAME_FROM_TAG_OUT_PARAMS *OutParams);
+
+DWORD ScmGenerateServiceTag(PSERVICE lpServiceRecord);
 
 /* driver.c */
 
@@ -236,6 +267,7 @@ ScmCreateDefaultServiceSD(
 /* services.c */
 
 VOID PrintString(LPCSTR fmt, ...);
+DWORD SetSecurityServicesEvent(VOID);
 VOID ScmLogEvent(DWORD dwEventId,
                  WORD wType,
                  WORD wStrings,

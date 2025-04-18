@@ -29,7 +29,13 @@ extern "C" {
 //
 
 
-#define SYNCH_LEVEL DISPATCH_LEVEL
+//
+// CPU Vendors
+//
+typedef enum
+{
+    CPU_UNKNOWN = 0,
+} CPU_VENDORS;
 
 //
 // Co-Processor register definitions
@@ -272,6 +278,7 @@ extern "C" {
 //
 // PRCB Flags
 //
+#define PRCB_MINOR_VERSION      1
 #define PRCB_MAJOR_VERSION      1
 #define PRCB_BUILD_DEBUG        1
 #define PRCB_BUILD_UNIPROCESSOR 2
@@ -294,9 +301,28 @@ extern "C" {
 #define KSEG0_BASE              0x80000000
 
 //
+// Synchronization-level IRQL
+//
+#define SYNCH_LEVEL             DISPATCH_LEVEL
+
+//
+// Double fault stack size
+//
+#define DOUBLE_FAULT_STACK_SIZE 0x3000
+
+//
 // Number of pool lookaside lists per pool in the PRCB
 //
 #define NUMBER_POOL_LOOKASIDE_LISTS 32
+
+//
+// Structure for CPUID info
+//
+typedef union _CPU_INFO
+{
+    ULONG Dummy;
+} CPU_INFO, *PCPU_INFO;
+
 
 //
 // ARM VFP State
@@ -577,6 +603,14 @@ typedef enum _ARM_DOMAINS
 ///
 /// "Custom" definition end
 ///
+
+typedef struct _DESCRIPTOR
+{
+    USHORT Pad;
+    USHORT Dummy1;
+    ULONG Dummy2;
+} KDESCRIPTOR, *PKDESCRIPTOR;
+
 
 //
 // Special Registers Structure (outside of CONTEXT)

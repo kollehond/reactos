@@ -212,7 +212,7 @@ list(APPEND SOURCE_CRTDLL
 #    _mbsnbset.c
 #    _mbsncat.c
 #    _mbsnccnt.c
-#    _mbsncmp.c
+    _mbsncmp.c
 #    _mbsncpy.c
 #    _mbsnextc.c
 #    _mbsnicmp.c
@@ -224,7 +224,7 @@ list(APPEND SOURCE_CRTDLL
 #    _mbsset.c
 #    _mbsspn.c
 #    _mbsspnp.c
-#    _mbsstr.c
+    _mbsstr.c
 #    _mbstok.c
 #    _mbstrlen.c
 #    _mbsupr.c
@@ -425,7 +425,7 @@ list(APPEND SOURCE_CRTDLL
 #    malloc.c
 #    mblen.c
     mbstowcs.c
-#    mbtowc.c
+    mbtowc.c
 #    memchr.c
 #    memcmp.c
 #    memcpy.c
@@ -480,7 +480,7 @@ list(APPEND SOURCE_CRTDLL
 #    strxfrm.c
 #    swprintf.c
 #    swscanf.c
-#    system.c
+    system.c
 #    tan.c
 #    tanh.c
 #    time.c
@@ -519,7 +519,7 @@ list(APPEND SOURCE_CRTDLL
     wcstombs.c
     wcstoul.c
 #    wcsxfrm.c
-#    wctomb.c
+    wctomb.c
 #    wprintf.c
 #    wscanf.c
 )
@@ -553,7 +553,7 @@ endif()
 
 
 add_executable(crtdll_crt_apitest testlist.c ${SOURCE_CRTDLL})
-add_target_compile_definitions(crtdll_crt_apitest TEST_CRTDLL)
+target_compile_definitions(crtdll_crt_apitest PRIVATE TEST_CRTDLL)
 target_link_libraries(crtdll_crt_apitest wine ${PSEH_LIB})
 set_module_type(crtdll_crt_apitest win32cui)
 add_importlibs(crtdll_crt_apitest crtdll msvcrt kernel32 ntdll)

@@ -5,7 +5,7 @@
  ******************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2017, Intel Corp.
+ * Copyright (C) 2000 - 2022, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
  * NO WARRANTY
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
  * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
@@ -76,6 +76,7 @@ AcpiNsRootInitialize (
     ACPI_STATUS                 Status;
     const ACPI_PREDEFINED_NAMES *InitVal = NULL;
     ACPI_NAMESPACE_NODE         *NewNode;
+    ACPI_NAMESPACE_NODE         *PrevNode = NULL;
     ACPI_OPERAND_OBJECT         *ObjDesc;
     ACPI_STRING                 Val = NULL;
 
@@ -105,13 +106,30 @@ AcpiNsRootInitialize (
      */
     AcpiGbl_RootNode = &AcpiGbl_RootNodeStruct;
 
-    /* Enter the pre-defined names in the name table */
+    /* Enter the predefined names in the name table */
 
     ACPI_DEBUG_PRINT ((ACPI_DB_INFO,
         "Entering predefined entries into namespace\n"));
 
+    /*
+     * Create the initial (default) namespace.
+     * This namespace looks like something similar to this:
+     *
+     *   ACPI Namespace (from Namespace Root):
+     *    0  _GPE Scope        00203160 00
+     *    0  _PR_ Scope        002031D0 00
+     *    0  _SB_ Device       00203240 00 Notify Object: 0020ADD8
+     *    0  _SI_ Scope        002032B0 00
+     *    0  _TZ_ Device       00203320 00
+     *    0  _REV Integer      00203390 00 = 0000000000000002
+     *    0  _OS_ String       00203488 00 Len 14 "Microsoft Windows NT"
+     *    0  _GL_ Mutex        00203580 00 Object 002035F0
+     *    0  _OSI Method       00203678 00 Args 1 Len 0000 Aml 00000000
+     */
     for (InitVal = AcpiGbl_PreDefinedNames; InitVal->Name; InitVal++)
     {
+        Status = AE_OK;
+
         /* _OSI is optional for now, will be permanent later */
 
         if (!strcmp (InitVal->Name, "_OSI") && !AcpiGbl_CreateOsiMethod)
@@ -119,16 +137,33 @@ AcpiNsRootInitialize (
             continue;
         }
 
-        Status = AcpiNsLookup (NULL, ACPI_CAST_PTR (char, InitVal->Name),
-            InitVal->Type, ACPI_IMODE_LOAD_PASS2, ACPI_NS_NO_UPSEARCH,
-            NULL, &NewNode);
-        if (ACPI_FAILURE (Status))
+        /*
+         * Create, init, and link the new predefined name
+         * Note: No need to use AcpiNsLookup here because all the
+         * predefined names are at the root level. It is much easier to
+         * just create and link the new node(s) here.
+         */
+        NewNode = AcpiNsCreateNode (*ACPI_CAST_PTR (UINT32, InitVal->Name));
+        if (!NewNode)
         {
-            ACPI_EXCEPTION ((AE_INFO, Status,
-                "Could not create predefined name %s",
-                InitVal->Name));
-            continue;
+            Status = AE_NO_MEMORY;
+            goto UnlockAndExit;
         }
+
+        NewNode->DescriptorType = ACPI_DESC_TYPE_NAMED;
+        NewNode->Type = InitVal->Type;
+
+        if (!PrevNode)
+        {
+            AcpiGbl_RootNodeStruct.Child = NewNode;
+        }
+        else
+        {
+            PrevNode->Peer = NewNode;
+        }
+
+        NewNode->Parent = &AcpiGbl_RootNodeStruct;
+        PrevNode = NewNode;
 
         /*
          * Name entered successfully. If entry in PreDefinedNames[] specifies
@@ -178,7 +213,7 @@ AcpiNsRootInitialize (
 
                 NewNode->Value = ObjDesc->Method.ParamCount;
 #else
-                /* Mark this as a very SPECIAL method */
+                /* Mark this as a very SPECIAL method (_OSI) */
 
                 ObjDesc->Method.InfoFlags = ACPI_METHOD_INTERNAL_ONLY;
                 ObjDesc->Method.Dispatch.Implementation = AcpiUtOsiImplementation;
@@ -251,7 +286,6 @@ AcpiNsRootInitialize (
         }
     }
 
-
 UnlockAndExit:
     (void) AcpiUtReleaseMutex (ACPI_MTX_NAMESPACE);
 
@@ -313,6 +347,7 @@ AcpiNsLookup (
     ACPI_OBJECT_TYPE        ThisSearchType;
     UINT32                  SearchParentFlag = ACPI_NS_SEARCH_PARENT;
     UINT32                  LocalFlags;
+    ACPI_INTERPRETER_MODE   LocalInterpreterMode;
 
 
     ACPI_FUNCTION_TRACE (NsLookup);
@@ -562,6 +597,7 @@ AcpiNsLookup (
      */
     ThisSearchType = ACPI_TYPE_ANY;
     CurrentNode = ThisNode;
+
     while (NumSegments && CurrentNode)
     {
         NumSegments--;
@@ -596,6 +632,16 @@ AcpiNsLookup (
             }
         }
 
+        /* Handle opcodes that create a new NameSeg via a full NamePath */
+
+        LocalInterpreterMode = InterpreterMode;
+        if ((Flags & ACPI_NS_PREFIX_MUST_EXIST) && (NumSegments > 0))
+        {
+            /* Every element of the path must exist (except for the final NameSeg) */
+
+            LocalInterpreterMode = ACPI_IMODE_EXECUTE;
+        }
+
         /* Extract one ACPI name from the front of the pathname */
 
         ACPI_MOVE_32_TO_32 (&SimpleName, Path);
@@ -603,11 +649,18 @@ AcpiNsLookup (
         /* Try to find the single (4 character) ACPI name */
 
         Status = AcpiNsSearchAndEnter (SimpleName, WalkState, CurrentNode,
-            InterpreterMode, ThisSearchType, LocalFlags, &ThisNode);
+            LocalInterpreterMode, ThisSearchType, LocalFlags, &ThisNode);
         if (ACPI_FAILURE (Status))
         {
             if (Status == AE_NOT_FOUND)
             {
+#if !defined ACPI_ASL_COMPILER /* Note: iASL reports this error by itself, not needed here */
+                if (Flags & ACPI_NS_PREFIX_MUST_EXIST)
+                {
+                    AcpiOsPrintf (ACPI_MSG_BIOS_ERROR
+                        "Object does not exist: %4.4s\n", (char *) &SimpleName);
+                }
+#endif
                 /* Name not found in ACPI namespace */
 
                 ACPI_DEBUG_PRINT ((ACPI_DB_NAMES,
@@ -615,6 +668,15 @@ AcpiNsLookup (
                     (char *) &SimpleName, (char *) &CurrentNode->Name,
                     CurrentNode));
             }
+
+#ifdef ACPI_EXEC_APP
+            if ((Status == AE_ALREADY_EXISTS) &&
+                (ThisNode->Flags & ANOBJ_NODE_EARLY_INIT))
+            {
+                ThisNode->Flags &= ~ANOBJ_NODE_EARLY_INIT;
+                Status = AE_OK;
+            }
+#endif
 
 #ifdef ACPI_ASL_COMPILER
             /*
@@ -667,13 +729,6 @@ AcpiNsLookup (
                     ThisNode = (ACPI_NAMESPACE_NODE *) ThisNode->Object;
                 }
             }
-#ifdef ACPI_ASL_COMPILER
-            if (!AcpiGbl_DisasmFlag &&
-                (ThisNode->Flags & ANOBJ_IS_EXTERNAL))
-            {
-                ThisNode->Flags |= IMPLICIT_EXTERNAL;
-            }
-#endif
         }
 
         /* Special handling for the last segment (NumSegments == 0) */
@@ -722,7 +777,7 @@ AcpiNsLookup (
 
         /* Point to next name segment and make this node current */
 
-        Path += ACPI_NAME_SIZE;
+        Path += ACPI_NAMESEG_SIZE;
         CurrentNode = ThisNode;
     }
 
@@ -743,6 +798,13 @@ AcpiNsLookup (
             }
         }
     }
+
+#ifdef ACPI_EXEC_APP
+    if (Flags & ACPI_NS_EARLY_INIT)
+    {
+        ThisNode->Flags |= ANOBJ_NODE_EARLY_INIT;
+    }
+#endif
 
     *ReturnNode = ThisNode;
     return_ACPI_STATUS (AE_OK);

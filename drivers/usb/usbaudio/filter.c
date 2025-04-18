@@ -68,7 +68,7 @@ USBAudioFilterCreate(
     PKSFILTER Filter,
     PIRP Irp);
 
-static KSFILTER_DISPATCH USBAudioFilterDispatch = 
+static KSFILTER_DISPATCH USBAudioFilterDispatch =
 {
     USBAudioFilterCreate,
     NULL,
@@ -326,7 +326,6 @@ CountTopologyComponents(
     PUSB_AUDIO_CONTROL_INPUT_TERMINAL_DESCRIPTOR InputTerminalDescriptor;
     PUSB_AUDIO_CONTROL_FEATURE_UNIT_DESCRIPTOR FeatureUnitDescriptor;
     PUSB_AUDIO_CONTROL_MIXER_UNIT_DESCRIPTOR MixerUnitDescriptor;
-    PUSB_AUDIO_CONTROL_SELECTOR_UNIT_DESCRIPTOR SelectorUnitDescriptor;
     ULONG NodeCount = 0, Length, Index;
     ULONG DescriptorCount = 0;
     UCHAR Value;
@@ -387,7 +386,6 @@ CountTopologyComponents(
                     }
                     else if (InputTerminalDescriptor->bDescriptorSubtype == 0x05 /* SELECTOR_UNIT */)
                     {
-                        SelectorUnitDescriptor = (PUSB_AUDIO_CONTROL_SELECTOR_UNIT_DESCRIPTOR)InputTerminalDescriptor;
                         DescriptorCount++;
                         NodeCount++;
                     }
@@ -581,7 +579,7 @@ BuildUSBAudioFilterTopology(
                             Value |= FeatureUnitDescriptor->bmaControls[Index];
                         }
 
-                        
+
                         if (Value & 0x01) /* MUTE*/
                         {
                             NodeDescriptors[FilterDescriptor->NodeDescriptorsCount].Type = &KSNODETYPE_MUTE;
@@ -1442,7 +1440,7 @@ USBAudioGetStringDescriptor(
 
 NTSTATUS
 USBAudioRegCreateMediaCategoriesKey(
-    IN PUNICODE_STRING Name, 
+    IN PUNICODE_STRING Name,
     OUT PHANDLE OutHandle)
 {
     NTSTATUS Status;

@@ -283,6 +283,7 @@ PdoGetRangeLength(PPDO_DEVICE_EXTENSION DeviceExtension,
         ULONGLONG Bar;
     } NewValue;
     ULONG Offset;
+    ULONGLONG Size;
 
     /* Compute the offset of this BAR in PCI config space */
     Offset = 0x10 + Bar * 4;
@@ -359,9 +360,10 @@ PdoGetRangeLength(PPDO_DEVICE_EXTENSION DeviceExtension,
              ? (OriginalValue.Bar & PCI_ADDRESS_IO_ADDRESS_MASK_64)
              : (OriginalValue.Bar & PCI_ADDRESS_MEMORY_ADDRESS_MASK_64));
 
-    *Length = ~((NewValue.Bar & PCI_ADDRESS_IO_SPACE)
-                ? (NewValue.Bar & PCI_ADDRESS_IO_ADDRESS_MASK_64)
-                : (NewValue.Bar & PCI_ADDRESS_MEMORY_ADDRESS_MASK_64)) + 1;
+    Size = (NewValue.Bar & PCI_ADDRESS_IO_SPACE)
+           ? (NewValue.Bar & PCI_ADDRESS_IO_ADDRESS_MASK_64)
+           : (NewValue.Bar & PCI_ADDRESS_MEMORY_ADDRESS_MASK_64);
+    *Length = Size & ~(Size - 1);
 
     *Flags = (NewValue.Bar & PCI_ADDRESS_IO_SPACE)
              ? (NewValue.Bar & ~PCI_ADDRESS_IO_ADDRESS_MASK_64)
@@ -1335,12 +1337,13 @@ PdoStartDevice(
 
     /* TODO: Assign the other resources we get to the card */
 
-    for (i = 0; i < RawResList->Count; i++)
+    RawFullDesc = &RawResList->List[0];
+    for (i = 0; i < RawResList->Count; i++, RawFullDesc = CmiGetNextResourceDescriptor(RawFullDesc))
     {
-        RawFullDesc = &RawResList->List[i];
-
         for (ii = 0; ii < RawFullDesc->PartialResourceList.Count; ii++)
         {
+            /* Partial resource descriptors can be of variable size (CmResourceTypeDeviceSpecific),
+               but only one is allowed and it must be the last one in the list! */
             RawPartialDesc = &RawFullDesc->PartialResourceList.PartialDescriptors[ii];
 
             if (RawPartialDesc->Type == CmResourceTypeInterrupt)
@@ -1576,33 +1579,10 @@ PdoPnpControl(
         case IRP_MN_STOP_DEVICE:
         case IRP_MN_QUERY_REMOVE_DEVICE:
         case IRP_MN_CANCEL_REMOVE_DEVICE:
+        case IRP_MN_REMOVE_DEVICE:
         case IRP_MN_SURPRISE_REMOVAL:
             Status = STATUS_SUCCESS;
             break;
-
-        case IRP_MN_REMOVE_DEVICE:
-            {
-                PPDO_DEVICE_EXTENSION DeviceExtension = DeviceObject->DeviceExtension;
-                PFDO_DEVICE_EXTENSION FdoDeviceExtension = DeviceExtension->Fdo->DeviceExtension;
-                KIRQL OldIrql;
-
-                /* Remove it from the device list */
-                KeAcquireSpinLock(&FdoDeviceExtension->DeviceListLock, &OldIrql);
-                RemoveEntryList(&DeviceExtension->PciDevice->ListEntry);
-                FdoDeviceExtension->DeviceListCount--;
-                KeReleaseSpinLock(&FdoDeviceExtension->DeviceListLock, OldIrql);
-
-                /* Free the device */
-                ExFreePoolWithTag(DeviceExtension->PciDevice, TAG_PCI);
-
-                /* Complete the IRP */
-                Irp->IoStatus.Status = STATUS_SUCCESS;
-                IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-                /* Delete the DO */
-                IoDeleteDevice(DeviceObject);
-                return STATUS_SUCCESS;
-            }
 
         case IRP_MN_QUERY_INTERFACE:
             DPRINT("IRP_MN_QUERY_INTERFACE received\n");

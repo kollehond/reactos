@@ -21,6 +21,9 @@ $if (_WDMDDK_)
 #define RTL_QUERY_REGISTRY_NOEXPAND       0x00000010
 #define RTL_QUERY_REGISTRY_DIRECT         0x00000020
 #define RTL_QUERY_REGISTRY_DELETE         0x00000040
+#define RTL_QUERY_REGISTRY_TYPECHECK      0x00000100
+
+#define RTL_QUERY_REGISTRY_TYPECHECK_SHIFT 24
 
 #define HASH_STRING_ALGORITHM_DEFAULT     0
 #define HASH_STRING_ALGORITHM_X65599      1
@@ -40,13 +43,14 @@ _Function_class_(RTL_QUERY_REGISTRY_ROUTINE)
 _IRQL_requires_max_(PASSIVE_LEVEL)
 _IRQL_requires_same_
 typedef NTSTATUS
-(NTAPI *PRTL_QUERY_REGISTRY_ROUTINE)(
+(NTAPI RTL_QUERY_REGISTRY_ROUTINE)(
   _In_z_ PWSTR ValueName,
   _In_ ULONG ValueType,
   _In_reads_bytes_opt_(ValueLength) PVOID ValueData,
   _In_ ULONG ValueLength,
   _In_opt_ PVOID Context,
   _In_opt_ PVOID EntryContext);
+typedef RTL_QUERY_REGISTRY_ROUTINE *PRTL_QUERY_REGISTRY_ROUTINE;
 
 typedef struct _RTL_QUERY_REGISTRY_TABLE {
   PRTL_QUERY_REGISTRY_ROUTINE QueryRoutine;
@@ -275,6 +279,19 @@ typedef struct _OSVERSIONINFOEXW {
   UCHAR wReserved;
 } OSVERSIONINFOEXW, *POSVERSIONINFOEXW, *LPOSVERSIONINFOEXW, RTL_OSVERSIONINFOEXW, *PRTL_OSVERSIONINFOEXW;
 
+#define RTL_CONDITION_VARIABLE_INIT {0}
+#define RTL_CONDITION_VARIABLE_LOCKMODE_SHARED 0x1
+
+typedef struct _RTL_CONDITION_VARIABLE {
+  PVOID Ptr;
+} RTL_CONDITION_VARIABLE, *PRTL_CONDITION_VARIABLE;
+
+#define RTL_SRWLOCK_INIT {0}
+
+typedef struct _RTL_SRWLOCK {
+  PVOID Ptr;
+} RTL_SRWLOCK, *PRTL_SRWLOCK;
+
 #ifdef UNICODE
 typedef OSVERSIONINFOEXW OSVERSIONINFOEX;
 typedef POSVERSIONINFOEXW POSVERSIONINFOEX;
@@ -292,7 +309,7 @@ typedef LPOSVERSIONINFOA LPOSVERSIONINFO;
 #endif /* UNICODE */
 
 $endif (_WDMDDK_)
-$if (_NTDDK_)
+$if (_NTDDK_ || _WINNT_)
 
 #ifndef _RTL_RUN_ONCE_DEF
 #define _RTL_RUN_ONCE_DEF
@@ -304,6 +321,26 @@ $if (_NTDDK_)
 #define RTL_RUN_ONCE_INIT_FAILED    0x00000004UL
 
 #define RTL_RUN_ONCE_CTX_RESERVED_BITS 2
+
+typedef union _RTL_RUN_ONCE {
+  PVOID Ptr;
+} RTL_RUN_ONCE, *PRTL_RUN_ONCE;
+
+typedef
+_Function_class_(RTL_RUN_ONCE_INIT_FN)
+_IRQL_requires_same_
+ULONG
+NTAPI
+RTL_RUN_ONCE_INIT_FN(
+    _Inout_ PRTL_RUN_ONCE RunOnce,
+    _Inout_opt_ PVOID Parameter,
+    _Inout_opt_ PVOID* Context);
+typedef RTL_RUN_ONCE_INIT_FN* PRTL_RUN_ONCE_INIT_FN;
+
+#endif /* _RTL_RUN_ONCE_DEF */
+
+$endif(_NTDDK_ || _WINNT_)
+$if(_NTDDK_)
 
 #define RTL_HASH_ALLOCATED_HEADER            0x00000001
 
@@ -340,20 +377,6 @@ $if (_NTDDK_)
 #define VER_PLATFORM_WIN32s             0
 #define VER_PLATFORM_WIN32_WINDOWS      1
 #define VER_PLATFORM_WIN32_NT           2
-
-typedef union _RTL_RUN_ONCE {
-  PVOID Ptr;
-} RTL_RUN_ONCE, *PRTL_RUN_ONCE;
-
-_Function_class_(RTL_RUN_ONCE_INIT_FN)
-_IRQL_requires_same_
-typedef ULONG /* LOGICAL */
-(NTAPI *PRTL_RUN_ONCE_INIT_FN) (
-  _Inout_ PRTL_RUN_ONCE RunOnce,
-  _Inout_opt_ PVOID Parameter,
-  _Inout_opt_ PVOID *Context);
-
-#endif /* _RTL_RUN_ONCE_DEF */
 
 typedef enum _TABLE_SEARCH_RESULT {
   TableEmptyTree,

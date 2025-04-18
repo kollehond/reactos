@@ -68,7 +68,7 @@ ULONG         maxPciBus = 16;
 
 PDRIVER_OBJECT SavedDriverObject = NULL;
 
-// local routines 
+// local routines
 
 ULONG
 NTAPI
@@ -148,11 +148,7 @@ UniataEnableIoPCI(
 /*
     Get PCI address by ConfigInfo and RID
 */
-#ifdef __REACTOS__
-ULONG_PTR
-#else
-ULONG
-#endif
+ULONGIO_PTR
 NTAPI
 AtapiGetIoRange(
     IN PVOID HwDeviceExtension,
@@ -834,7 +830,7 @@ AtapiFindListedDev(
 
         busDataRead = HalGetBusData(
             //ScsiPortGetBusData(HwDeviceExtension,
-                                    PCIConfiguration, busNumber, slotData.u.AsULONG, 
+                                    PCIConfiguration, busNumber, slotData.u.AsULONG,
                                     &pciData, PCI_COMMON_HDR_LENGTH);
         // no more buses (this should not happen)
         if(!busDataRead) {
@@ -936,7 +932,7 @@ UniataFindCompatBusMasterController1(
 {
     return UniataFindBusMasterController(
         HwDeviceExtension,
-        (PVOID)0x00000000,
+        UlongToPtr(0x00000000),
         BusInformation,
         ArgumentString,
         ConfigInfo,
@@ -957,11 +953,7 @@ UniataFindCompatBusMasterController2(
 {
     return UniataFindBusMasterController(
         HwDeviceExtension,
-#ifdef __REACTOS__
         UlongToPtr(0x80000000),
-#else
-        (PVOID)0x80000000,
-#endif
         BusInformation,
         ArgumentString,
         ConfigInfo,
@@ -1079,11 +1071,7 @@ UniataFindBusMasterController(
         KdPrint2((PRINT_PREFIX "AdapterInterfaceType: Isa\n"));
     }
     if(InDriverEntry) {
-#ifdef __REACTOS__
         i = PtrToUlong(Context);
-#else
-        i = (ULONG)Context;
-#endif
         if(i & 0x80000000) {
             AltInit = TRUE;
         }
@@ -1099,11 +1087,7 @@ UniataFindBusMasterController(
         }
         if(i >= BMListLen) {
             KdPrint2((PRINT_PREFIX "unexpected device arrival\n"));
-#ifdef __REACTOS__
             i = PtrToUlong(Context);
-#else
-            i = (ULONG)Context;
-#endif
             if(FirstMasterOk) {
                 channel = 1;
             }
@@ -1562,7 +1546,7 @@ UniataFindBusMasterController(
 
         if(AltInit) {
             // I'm sorry, I have to do this
-            // when Win doesn't 
+            // when Win doesn't
 
             if(ConfigInfo->AdapterInterfaceType == Isa /*&&
 //               InDriverEntry*/) {
@@ -1938,7 +1922,7 @@ exit_findbm:
 exit_error:
     UniataFreeLunExt(deviceExtension);
     return SP_RETURN_ERROR;
-    
+
 exit_notfound:
     UniataFreeLunExt(deviceExtension);
     return SP_RETURN_NOT_FOUND;
@@ -1959,6 +1943,9 @@ UniataClaimLegacyPCIIDE(
     NTSTATUS status;
     PCM_RESOURCE_LIST resourceList = NULL;
     UNICODE_STRING devname;
+#ifdef __REACTOS__
+    PCM_RESOURCE_LIST oldResList = NULL;
+#endif
 
     KdPrint2((PRINT_PREFIX "UniataClaimLegacyPCIIDE:\n"));
 
@@ -1986,12 +1973,20 @@ UniataClaimLegacyPCIIDE(
 del_do:
         IoDeleteDevice(BMList[i].PciIdeDevObj);
         BMList[i].PciIdeDevObj          = NULL;
+#ifdef __REACTOS__
+        if (oldResList)
+            ExFreePool(oldResList);
+#endif
         return status;
     }
 
     RtlZeroMemory(
         resourceList,
         sizeof(CM_RESOURCE_LIST));
+
+#ifdef __REACTOS__
+    oldResList = resourceList;
+#endif
 
     // IoReportDetectedDevice() should be used for WDM OSes
 
@@ -2018,9 +2013,14 @@ del_do:
     if (!NT_SUCCESS(status)) {
         KdPrint2((PRINT_PREFIX "HalAssignSlotResources failed %#x\n", status));
         // this is always deallocated inside HalAssignSlotResources() implementation
-        //ExFreePool(resourceList); 
+        //ExFreePool(resourceList);
         goto del_do;
     }
+
+#ifdef __REACTOS__
+    ExFreePool(resourceList);
+    ExFreePool(oldResList);
+#endif
 
     KdPrint2((PRINT_PREFIX "ok %#x\n", status));
     BMList[i].ChanInitOk |= 0x80;
@@ -2062,11 +2062,11 @@ UniataConnectIntr2(
 
     /*
       We MUST register 2nd ISR for multichannel controllers even for UP systems.
-      This is needed for cases when 
-      multichannel controller generate interrupt while we are still in its ISR for 
-      other channle's interrupt. New interrupt must be detected and queued for 
-      further processing. If we do not do this, system will not route this 
-      interrupt to main ISR (since it is busy) and we shall get to infinite loop 
+      This is needed for cases when
+      multichannel controller generate interrupt while we are still in its ISR for
+      other channle's interrupt. New interrupt must be detected and queued for
+      further processing. If we do not do this, system will not route this
+      interrupt to main ISR (since it is busy) and we shall get to infinite loop
       looking for interrupt handler.
     */
 
@@ -2097,7 +2097,7 @@ UniataConnectIntr2(
 
     KdPrint2((PRINT_PREFIX "Create DO\n"));
 
-    devname.Length = 
+    devname.Length =
         _snwprintf(devname_str, sizeof(devname_str)/sizeof(WCHAR)-1,
               L"\\Device\\uniata%d_2ch", i);
     devname_str[devname.Length] = 0;
@@ -2363,7 +2363,7 @@ AtapiFindIsaController(
         retryCount = 4;
         deviceExtension->DevIndex = (*adapterCount); // this is used inside AtapiRegCheckDevValue()
         KdPrint2((PRINT_PREFIX "AtapiFindIsaController: adapterCount=%d\n", *adapterCount));
-        
+
         for (i = 0; i < deviceExtension->NumberLuns; i++) {
             // Zero device fields to ensure that if earlier devices were found,
             // but not claimed, the fields are cleared.
@@ -2426,7 +2426,7 @@ next_adapter:
 
         // Get the system physical address for the second IO range.
         if (BaseIoAddress1) {
-            if(preConfig && 
+            if(preConfig &&
                !ScsiPortConvertPhysicalAddressToUlong((*ConfigInfo->AccessRanges)[1].RangeStart)) {
                 KdPrint2((PRINT_PREFIX "AtapiFindIsaController: PCMCIA ?\n"));
                 ioSpace = (PUCHAR)ScsiPortGetDeviceBase(HwDeviceExtension,
@@ -2565,22 +2565,14 @@ retryIdentifier:
 
             if(BaseIoAddress2) {
                 if(hasPCI) {
-#ifdef __REACTOS__
                     (*ConfigInfo->AccessRanges)[1].RangeStart = ScsiPortConvertUlongToPhysicalAddress((ULONG_PTR)BaseIoAddress2);
-#else
-                    (*ConfigInfo->AccessRanges)[1].RangeStart = ScsiPortConvertUlongToPhysicalAddress((ULONG)BaseIoAddress2);
-#endif
                     (*ConfigInfo->AccessRanges)[1].RangeLength = ATA_ALTIOSIZE;
                     (*ConfigInfo->AccessRanges)[1].RangeInMemory = FALSE;
                 } else {
                     // NT4 and NT3.51 on ISA-only hardware definitly fail floppy.sys load
                     // when this range is claimed by other driver.
                     // However, floppy should use only 0x3f0-3f5,3f7
-#ifdef __REACTOS__
-                    if((ULONG_PTR)BaseIoAddress2 >= 0x3f0 && (ULONG_PTR)BaseIoAddress2 <= 0x3f7) {
-#else
-                    if((ULONG)BaseIoAddress2 >= 0x3f0 && (ULONG)BaseIoAddress2 <= 0x3f7) {
-#endif
+                    if((ULONGIO_PTR)BaseIoAddress2 >= 0x3f0 && (ULONGIO_PTR)BaseIoAddress2 <= 0x3f7) {
                         KdPrint2((PRINT_PREFIX "!!! Possible AltStatus vs Floppy IO range interference !!!\n"));
                     }
                     KdPrint2((PRINT_PREFIX "Do not expose to OS on old ISA\n"));
@@ -2704,7 +2696,7 @@ retryIdentifier:
             }
 
             ConfigInfo->NumberOfBuses++; // add virtual channel for communication port
-            KdPrint2((PRINT_PREFIX 
+            KdPrint2((PRINT_PREFIX
                        "AtapiFindIsaController: return SP_RETURN_FOUND\n"));
             return(SP_RETURN_FOUND);
         } else {
@@ -2721,7 +2713,7 @@ not_found:
                 BaseIoAddress2 = NULL;
             }
             for(i=0; i<2; i++) {
-                KdPrint2((PRINT_PREFIX 
+                KdPrint2((PRINT_PREFIX
                            "AtapiFindIsaController: cleanup AccessRanges %d\n", i));
                 (*ConfigInfo->AccessRanges)[i].RangeStart = ScsiPortConvertUlongToPhysicalAddress(0);
                 (*ConfigInfo->AccessRanges)[i].RangeLength = 0;
@@ -2750,7 +2742,7 @@ not_found:
 exit_error:
     UniataFreeLunExt(deviceExtension);
     return SP_RETURN_ERROR;
-    
+
 } // end AtapiFindIsaController()
 
 /*
@@ -2797,7 +2789,7 @@ UniataAnybodyHome(
     SATA_SSTATUS_REG     SStatus;
     UCHAR                signatureLow;
     UCHAR                signatureHigh;
-    
+
     if(LunExt->DeviceFlags & DFLAGS_HIDDEN) {
         KdPrint2((PRINT_PREFIX "  hidden\n"));
         UniataForgetDevice(LunExt);
@@ -3003,7 +2995,7 @@ CheckDevice(
         }
 
         if((statusByte | IDE_STATUS_BUSY) == IDE_STATUS_WRONG) {
-            KdPrint2((PRINT_PREFIX 
+            KdPrint2((PRINT_PREFIX
                         "CheckDevice: no dev ?\n"));
             UniataForgetDevice(LunExt);
             return 0;
@@ -3226,7 +3218,7 @@ FindDevices(
         if(Flags & UNIATA_FIND_DEV_UNHIDE) {
             chan->lun[i]->DeviceFlags &= ~DFLAGS_HIDDEN;
         }
-        deviceResponded |= 
+        deviceResponded |=
             (CheckDevice(HwDeviceExtension, Channel, i, TRUE) != 0);
         //AtapiEnableInterrupts(deviceExtension, Channel);
     }
@@ -3365,11 +3357,11 @@ FindDevices(
         for (i = 0; i < max_ldev; i++) {
             LunExt = chan->lun[i];
 
-            KdPrint2((PRINT_PREFIX 
+            KdPrint2((PRINT_PREFIX
                        "FindDevices: select %d dev to clear INTR\n", i));
             SelectDrive(chan, i);
             GetBaseStatus(chan, statusByte);
-            KdPrint2((PRINT_PREFIX 
+            KdPrint2((PRINT_PREFIX
                        "FindDevices: statusByte=%#x\n", statusByte));
         }
         for (i = 0; i < max_ldev; i++) {
@@ -3377,7 +3369,7 @@ FindDevices(
 
             if(LunExt->DeviceFlags & DFLAGS_DEVICE_PRESENT) {
                 // Make sure some device (master is preferred) is selected on exit.
-                KdPrint2((PRINT_PREFIX 
+                KdPrint2((PRINT_PREFIX
                            "FindDevices: select %d dev on exit\n", i));
                 SelectDrive(chan, i);
                 break;

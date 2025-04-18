@@ -39,7 +39,7 @@ TestKs()
     PKSPROPERTY Property;
     KSSTATE State;
     DWORD Length;
-    HANDLE FilterHandle; 
+    HANDLE FilterHandle;
     HANDLE PinHandle;
     PSHORT SoundBuffer;
     UINT i = 0;
@@ -110,7 +110,7 @@ TestKs()
     // Allocate a KS Pin Connection Request Structure
     //
     Length = sizeof(KSPIN_CONNECT) + sizeof(KSDATAFORMAT_WAVEFORMATEX);
-	printf("Length %ld KSPIN %u DATAFORMAT %u\n", Length, sizeof(KSPIN_CONNECT), sizeof(KSDATAFORMAT_WAVEFORMATEX));
+	printf("Length %ld KSPIN %Iu DATAFORMAT %Iu\n", Length, sizeof(KSPIN_CONNECT), sizeof(KSDATAFORMAT_WAVEFORMATEX));
     PinConnect = (PKSPIN_CONNECT)HeapAlloc(GetProcessHeap(), 0, Length);
     DataFormat = (PKSDATAFORMAT_WAVEFORMATEX)(PinConnect + 1);
 
@@ -364,7 +364,7 @@ main(int argc, char* argv[])
              return -1;
          }
     }
-    
+
     //
     // Play our 1-second buffer
     //

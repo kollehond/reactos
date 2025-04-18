@@ -11,6 +11,8 @@
 
 #include <ntoskrnl.h>
 #include <reactos/buildno.h>
+#include "inbv/logo.h"
+
 #define NDEBUG
 #include <debug.h>
 
@@ -19,6 +21,7 @@
     RTL_SIZEOF_THROUGH_FIELD(LOADER_PARAMETER_EXTENSION, AcpiTableSize)
 
 /* Temporary hack */
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
 MmArmInitSystem(
@@ -67,6 +70,7 @@ BOOLEAN ExpInTextModeSetup;
 BOOLEAN IoRemoteBootClient;
 ULONG InitSafeBootMode;
 BOOLEAN InitIsWinPEMode, InitWinPEModeType;
+BOOLEAN SosEnabled; // Used by driver.c!IopDisplayLoadingMessage()
 
 /* NT Boot Path */
 UNICODE_STRING NtSystemRoot;
@@ -91,9 +95,9 @@ BOOLEAN ExpRealTimeIsUniversal;
 
 /* FUNCTIONS ****************************************************************/
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 ExpCreateSystemRootLink(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
     UNICODE_STRING LinkName;
@@ -203,9 +207,9 @@ ExpCreateSystemRootLink(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     return STATUS_SUCCESS;
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 ExpInitNls(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
     LARGE_INTEGER SectionSize;
@@ -379,9 +383,9 @@ ExpInitNls(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     ExpNlsTableBase = SectionBase;
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 ExpLoadInitialProcess(IN PINIT_BUFFER InitBuffer,
                       OUT PRTL_USER_PROCESS_PARAMETERS *ProcessParameters,
                       OUT PCHAR *ProcessEnvironment)
@@ -401,7 +405,7 @@ ExpLoadInitialProcess(IN PINIT_BUFFER InitBuffer,
     ProcessInformation = &InitBuffer->ProcessInfo;
 
     /* Allocate memory for the process parameters */
-    Size = sizeof(*ProcessParams) + ((MAX_PATH * 6) * sizeof(WCHAR));
+    Size = sizeof(*ProcessParams) + ((MAX_WIN32_PATH * 6) * sizeof(WCHAR));
     Status = ZwAllocateVirtualMemory(NtCurrentProcess(),
                                      (PVOID*)&ProcessParams,
                                      0,
@@ -456,7 +460,7 @@ ExpLoadInitialProcess(IN PINIT_BUFFER InitBuffer,
     /* Make a buffer for the DOS path */
     p = (PWSTR)(ProcessParams + 1);
     ProcessParams->CurrentDirectory.DosPath.Buffer = p;
-    ProcessParams->CurrentDirectory.DosPath.MaximumLength = MAX_PATH *
+    ProcessParams->CurrentDirectory.DosPath.MaximumLength = MAX_WIN32_PATH *
                                                             sizeof(WCHAR);
 
     /* Copy the DOS path */
@@ -467,7 +471,7 @@ ExpLoadInitialProcess(IN PINIT_BUFFER InitBuffer,
     p = (PWSTR)((PCHAR)ProcessParams->CurrentDirectory.DosPath.Buffer +
                 ProcessParams->CurrentDirectory.DosPath.MaximumLength);
     ProcessParams->DllPath.Buffer = p;
-    ProcessParams->DllPath.MaximumLength = MAX_PATH * sizeof(WCHAR);
+    ProcessParams->DllPath.MaximumLength = MAX_WIN32_PATH * sizeof(WCHAR);
 
     /* Copy the DLL path and append the system32 directory */
     RtlCopyUnicodeString(&ProcessParams->DllPath,
@@ -478,7 +482,7 @@ ExpLoadInitialProcess(IN PINIT_BUFFER InitBuffer,
     p = (PWSTR)((PCHAR)ProcessParams->DllPath.Buffer +
                 ProcessParams->DllPath.MaximumLength);
     ProcessParams->ImagePathName.Buffer = p;
-    ProcessParams->ImagePathName.MaximumLength = MAX_PATH * sizeof(WCHAR);
+    ProcessParams->ImagePathName.MaximumLength = MAX_WIN32_PATH * sizeof(WCHAR);
 
     /* Make sure the buffer is a valid string which within the given length */
     if ((NtInitialUserProcessBufferType != REG_SZ) ||
@@ -516,7 +520,7 @@ ExpLoadInitialProcess(IN PINIT_BUFFER InitBuffer,
     p = (PWSTR)((PCHAR)ProcessParams->ImagePathName.Buffer +
                 ProcessParams->ImagePathName.MaximumLength);
     ProcessParams->CommandLine.Buffer = p;
-    ProcessParams->CommandLine.MaximumLength = MAX_PATH * sizeof(WCHAR);
+    ProcessParams->CommandLine.MaximumLength = MAX_WIN32_PATH * sizeof(WCHAR);
 
     /* Add the image name to the command line */
     RtlAppendUnicodeToString(&ProcessParams->CommandLine,
@@ -596,9 +600,9 @@ ExpLoadInitialProcess(IN PINIT_BUFFER InitBuffer,
     *ProcessEnvironment = EnvironmentPtr;
 }
 
+CODE_SEG("INIT")
 ULONG
 NTAPI
-INIT_FUNCTION
 ExComputeTickCountMultiplier(IN ULONG ClockIncrement)
 {
     ULONG MsRemainder = 0, MsIncrement;
@@ -629,9 +633,9 @@ ExComputeTickCountMultiplier(IN ULONG ClockIncrement)
     return (MsIncrement << 24) | MsRemainder;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 ExpInitSystemPhase0(VOID)
 {
     /* Initialize EXRESOURCE Support */
@@ -646,15 +650,16 @@ ExpInitSystemPhase0(VOID)
     /* Initialize the Firmware Table resource and listhead */
     InitializeListHead(&ExpFirmwareTableProviderListHead);
     ExInitializeResourceLite(&ExpFirmwareTableResource);
+    ExInitializeResourceLite(&ExpTimeRefreshLock);
 
     /* Set the suite mask to maximum and return */
     ExSuiteMask = 0xFFFFFFFF;
     return TRUE;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 ExpInitSystemPhase1(VOID)
 {
     /* Initialize worker threads */
@@ -711,7 +716,11 @@ ExpInitSystemPhase1(VOID)
     }
 
     /* Initialize UUIDs */
-    ExpInitUuids();
+    if (ExpUuidInitialization() == FALSE)
+    {
+        DPRINT1("Executive: Uuid initialization failed\n");
+        return FALSE;
+    }
 
     /* Initialize keyed events */
     if (ExpInitializeKeyedEventImplementation() == FALSE)
@@ -729,9 +738,9 @@ ExpInitSystemPhase1(VOID)
     return TRUE;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 ExInitSystem(VOID)
 {
     /* Check the initialization phase */
@@ -755,9 +764,9 @@ ExInitSystem(VOID)
     }
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 ExpIsLoaderValid(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
     PLOADER_PARAMETER_EXTENSION Extension;
@@ -781,90 +790,95 @@ ExpIsLoaderValid(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     return TRUE;
 }
 
+static CODE_SEG("INIT")
 VOID
-NTAPI
-INIT_FUNCTION
-ExpLoadBootSymbols(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
+ExpLoadBootSymbols(
+    _In_ PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
-    ULONG i = 0;
     PLIST_ENTRY NextEntry;
+    PLDR_DATA_TABLE_ENTRY LdrEntry;
+    NTSTATUS Status;
+    ULONG i;
     ULONG Count, Length;
     PWCHAR Name;
-    PLDR_DATA_TABLE_ENTRY LdrEntry;
+    STRING ImageName;
     CHAR NameBuffer[256];
-    STRING SymbolString;
-    NTSTATUS Status;
 
-    /* Loop the driver list */
-    NextEntry = LoaderBlock->LoadOrderListHead.Flink;
-    while (NextEntry != &LoaderBlock->LoadOrderListHead)
+    /* Loop over the boot modules list */
+    for (NextEntry = LoaderBlock->LoadOrderListHead.Flink, i = 0;
+         NextEntry != &LoaderBlock->LoadOrderListHead;
+         NextEntry = NextEntry->Flink, ++i)
     {
-        /* Skip the first two images */
-        if (i >= 2)
+        /* Skip the first two images: HAL and kernel */
+        if (i < 2)
+            continue;
+
+        /* Get the entry */
+        LdrEntry = CONTAINING_RECORD(NextEntry,
+                                     LDR_DATA_TABLE_ENTRY,
+                                     InLoadOrderLinks);
+        if (LdrEntry->FullDllName.Buffer[0] == L'\\')
         {
-            /* Get the entry */
-            LdrEntry = CONTAINING_RECORD(NextEntry,
-                                         LDR_DATA_TABLE_ENTRY,
-                                         InLoadOrderLinks);
-            if (LdrEntry->FullDllName.Buffer[0] == L'\\')
+            /* We have a name, read its data */
+            Name = LdrEntry->FullDllName.Buffer;
+            Length = LdrEntry->FullDllName.Length / sizeof(WCHAR);
+
+            /* Check if our buffer can hold it */
+            if (sizeof(NameBuffer) < Length + sizeof(ANSI_NULL))
             {
-                /* We have a name, read its data */
-                Name = LdrEntry->FullDllName.Buffer;
-                Length = LdrEntry->FullDllName.Length / sizeof(WCHAR);
-
-                /* Check if our buffer can hold it */
-                if (sizeof(NameBuffer) < Length + sizeof(ANSI_NULL))
-                {
-                    /* It's too long */
-                    Status = STATUS_BUFFER_OVERFLOW;
-                }
-                else
-                {
-                    /* Copy the name */
-                    Count = 0;
-                    do
-                    {
-                        /* Copy the character */
-                        NameBuffer[Count++] = (CHAR)*Name++;
-                    } while (Count < Length);
-
-                    /* Null-terminate */
-                    NameBuffer[Count] = ANSI_NULL;
-                    Status = STATUS_SUCCESS;
-                }
+                /* It's too long */
+                Status = STATUS_BUFFER_OVERFLOW;
             }
             else
             {
-                /* Safely print the string into our buffer */
-                Status = RtlStringCbPrintfA(NameBuffer,
-                                            sizeof(NameBuffer),
-                                            "%S\\System32\\Drivers\\%wZ",
-                                            &SharedUserData->NtSystemRoot[2],
-                                            &LdrEntry->BaseDllName);
-            }
+                /* Copy the name */
+                Count = 0;
+                do
+                {
+                    /* Do cheap Unicode to ANSI conversion */
+                    NameBuffer[Count++] = (CHAR)*Name++;
+                } while (Count < Length);
 
-            /* Check if the buffer was ok */
-            if (NT_SUCCESS(Status))
-            {
-                /* Initialize the STRING for the debugger */
-                RtlInitString(&SymbolString, NameBuffer);
-
-                /* Load the symbols */
-                DbgLoadImageSymbols(&SymbolString,
-                                    LdrEntry->DllBase,
-                                    (ULONG_PTR)PsGetCurrentProcessId());
+                /* Null-terminate */
+                NameBuffer[Count] = ANSI_NULL;
+                Status = STATUS_SUCCESS;
             }
         }
+        else
+        {
+            /* Safely print the string into our buffer */
+            Status = RtlStringCbPrintfA(NameBuffer,
+                                        sizeof(NameBuffer),
+                                        "%S\\System32\\Drivers\\%wZ",
+                                        &SharedUserData->NtSystemRoot[2],
+                                        &LdrEntry->BaseDllName);
+        }
 
-        /* Go to the next entry */
-        i++;
-        NextEntry = NextEntry->Flink;
+        /* Check if the buffer is OK */
+        if (NT_SUCCESS(Status))
+        {
+            /* Load the symbols */
+            RtlInitString(&ImageName, NameBuffer);
+            DbgLoadImageSymbols(&ImageName,
+                                LdrEntry->DllBase,
+                                (ULONG_PTR)PsGetCurrentProcessId());
+        }
+
+#ifdef CONFIG_SMP
+        /* Check that the image is safe to use if we have more than one CPU */
+        if (!MmVerifyImageIsOkForMpUse(LdrEntry->DllBase))
+        {
+            KeBugCheckEx(UP_DRIVER_ON_MP_SYSTEM,
+                         (ULONG_PTR)LdrEntry->DllBase,
+                         0, 0, 0);
+        }
+#endif // CONFIG_SMP
     }
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 ExBurnMemory(IN PLOADER_PARAMETER_BLOCK LoaderBlock,
              IN ULONG_PTR PagesToDestroy,
              IN TYPE_OF_MEMORY MemoryType)
@@ -908,9 +922,9 @@ ExBurnMemory(IN PLOADER_PARAMETER_BLOCK LoaderBlock,
     }
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 ExpInitializeExecutive(IN ULONG Cpu,
                        IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
@@ -963,7 +977,8 @@ ExpInitializeExecutive(IN ULONG Cpu,
     if (LoaderBlock->SetupLdrBlock)
     {
         /* Check if this is text-mode setup */
-        if (LoaderBlock->SetupLdrBlock->Flags & SETUPLDR_TEXT_MODE) ExpInTextModeSetup = TRUE;
+        if (LoaderBlock->SetupLdrBlock->Flags & SETUPLDR_TEXT_MODE)
+            ExpInTextModeSetup = TRUE;
 
         /* Check if this is network boot */
         if (LoaderBlock->SetupLdrBlock->Flags & SETUPLDR_REMOTE_BOOT)
@@ -994,7 +1009,7 @@ ExpInitializeExecutive(IN ULONG Cpu,
             {
                 /* Read the number of pages we'll use */
                 PerfMemUsed = atol(PerfMem + 1) * (1024 * 1024 / PAGE_SIZE);
-                if (PerfMem)
+                if (PerfMemUsed)
                 {
                     /* FIXME: TODO */
                     DPRINT1("BBT performance mode not yet supported."
@@ -1098,7 +1113,8 @@ ExpInitializeExecutive(IN ULONG Cpu,
     ExpLoadBootSymbols(LoaderBlock);
 
     /* Check if we should break after symbol load */
-    if (KdBreakAfterSymbolLoad) DbgBreakPointWithStatus(DBG_STATUS_CONTROL_C);
+    if (KdBreakAfterSymbolLoad)
+        DbgBreakPointWithStatus(DBG_STATUS_CONTROL_C);
 
     /* Check if this loader is compatible with NT 5.2 */
     if (LoaderBlock->Extension->Size >= sizeof(LOADER_PARAMETER_EXTENSION))
@@ -1129,8 +1145,8 @@ ExpInitializeExecutive(IN ULONG Cpu,
     {
         /* Get the service pack string */
         Status = RtlFindMessage(NtosEntry->DllBase,
-                                11,
-                                0,
+                                RT_MESSAGETABLE,
+                                MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
                                 WINDOWS_NT_CSD_STRING,
                                 &MsgEntry);
         if (NT_SUCCESS(Status))
@@ -1320,22 +1336,25 @@ ExpInitializeExecutive(IN ULONG Cpu,
     /* Set the machine type */
     SharedUserData->ImageNumberLow = IMAGE_FILE_MACHINE_NATIVE;
     SharedUserData->ImageNumberHigh = IMAGE_FILE_MACHINE_NATIVE;
+
+    /* ReactOS magic */
+    *(PULONG)(KI_USER_SHARED_DATA + PAGE_SIZE - sizeof(ULONG)) = 0x8eac705;
 }
 
 VOID
 NTAPI
 MmFreeLoaderBlock(IN PLOADER_PARAMETER_BLOCK LoaderBlock);
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 Phase1InitializationDiscard(IN PVOID Context)
 {
     PLOADER_PARAMETER_BLOCK LoaderBlock = Context;
     NTSTATUS Status, MsgStatus;
     TIME_FIELDS TimeFields;
     LARGE_INTEGER SystemBootTime, UniversalBootTime, OldTime, Timeout;
-    BOOLEAN SosEnabled, NoGuiBoot, ResetBias = FALSE, AlternateShell = FALSE;
+    BOOLEAN NoGuiBoot, ResetBias = FALSE, AlternateShell = FALSE;
     PLDR_DATA_TABLE_ENTRY NtosEntry;
     PMESSAGE_RESOURCE_ENTRY MsgEntry;
     PCHAR CommandLine, Y2KHackRequired, SafeBoot, Environment;
@@ -1380,9 +1399,9 @@ Phase1InitializationDiscard(IN PVOID Context)
     /* Get the SOS setting */
     SosEnabled = (CommandLine && strstr(CommandLine, "SOS") != NULL);
 
-    /* Setup the boot driver */
+    /* Setup the boot video driver */
     InbvEnableBootDriver(!NoGuiBoot);
-    InbvDriverInitialize(LoaderBlock, IDB_MAX_RESOURCE);
+    InbvDriverInitialize(LoaderBlock, IDB_MAX_RESOURCES);
 
     /* Check if GUI boot is enabled */
     if (!NoGuiBoot)
@@ -1415,8 +1434,8 @@ Phase1InitializationDiscard(IN PVOID Context)
 
     /* Find the banner message */
     MsgStatus = RtlFindMessage(NtosEntry->DllBase,
-                               11,
-                               0,
+                               RT_MESSAGETABLE,
+                               MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
                                WINDOWS_NT_BANNER,
                                &MsgEntry);
 
@@ -1540,16 +1559,47 @@ Phase1InitializationDiscard(IN PVOID Context)
                                          ExpTimeZoneBias.QuadPart;
         }
 
-        /* Update the system time */
+        /* Update the system time and notify the system */
         KeSetSystemTime(&UniversalBootTime, &OldTime, FALSE, NULL);
-
-        /* Do system callback */
         PoNotifySystemTimeSet();
 
         /* Remember this as the boot time */
         KeBootTime = UniversalBootTime;
         KeBootTimeBias = 0;
     }
+
+#ifdef CONFIG_SMP
+    /*
+     * IMPORTANT NOTE:
+     * Because ReactOS is a "nice" OS, we do not care _at all_
+     * about any number of registered/licensed processors:
+     * no usage of KeRegisteredProcessors nor KeLicensedProcessors.
+     */
+    if (CommandLine)
+    {
+        PSTR Option;
+
+        /* Check for NUMPROC: maximum number of logical processors
+         * that can be started (including dynamically) at run-time */
+        Option = strstr(CommandLine, "NUMPROC");
+        if (Option) Option = strstr(Option, "=");
+        if (Option) KeNumprocSpecified = atol(Option + 1);
+
+        /* Check for BOOTPROC (NT6+ and ReactOS): maximum number
+         * of logical processors that can be started at boot-time */
+        Option = strstr(CommandLine, "BOOTPROC");
+        if (Option) Option = strstr(Option, "=");
+        if (Option) KeBootprocSpecified = atol(Option + 1);
+
+        /* Check for MAXPROC (NT6+ and ReactOS): forces the kernel to report
+         * as existing the maximum number of processors that can be handled */
+        if (strstr(CommandLine, "MAXPROC"))
+            KeMaximumProcessors = MAXIMUM_PROCESSORS;
+    }
+
+    /* Start Application Processors */
+    KeStartAllProcessors();
+#endif
 
     /* Initialize all processors */
     if (!HalAllProcessorsStarted()) KeBugCheck(HAL1_INITIALIZATION_FAILED);
@@ -1573,8 +1623,8 @@ Phase1InitializationDiscard(IN PVOID Context)
 
     /* Get the information string from our resource file */
     MsgStatus = RtlFindMessage(NtosEntry->DllBase,
-                               11,
-                               0,
+                               RT_MESSAGETABLE,
+                               MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
                                KeNumberProcessors > 1 ?
                                WINDOWS_NT_INFO_STRING_PLURAL :
                                WINDOWS_NT_INFO_STRING,
@@ -1672,7 +1722,8 @@ Phase1InitializationDiscard(IN PVOID Context)
     else
     {
         /* Check if the timezone switched and update the time */
-        if (LastTzBias != ExpLastTimeZoneBias) ZwSetSystemTime(NULL, NULL);
+        if (LastTzBias != ExpLastTimeZoneBias)
+            ZwSetSystemTime(NULL, NULL);
     }
 
     /* Initialize the File System Runtime Library */
@@ -1746,8 +1797,8 @@ Phase1InitializationDiscard(IN PVOID Context)
 
             /* Find the message to print out */
             Status = RtlFindMessage(NtosEntry->DllBase,
-                                    11,
-                                    0,
+                                    RT_MESSAGETABLE,
+                                    MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
                                     MessageCode,
                                     &MsgEntry);
             if (NT_SUCCESS(Status))
@@ -1766,8 +1817,8 @@ Phase1InitializationDiscard(IN PVOID Context)
         {
             /* Find the message to print out */
             Status = RtlFindMessage(NtosEntry->DllBase,
-                                    11,
-                                    0,
+                                    RT_MESSAGETABLE,
+                                    MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
                                     BOOTLOG_ENABLED,
                                     &MsgEntry);
             if (NT_SUCCESS(Status))
@@ -1787,10 +1838,8 @@ Phase1InitializationDiscard(IN PVOID Context)
     /* Update progress bar */
     InbvUpdateProgressBar(25);
 
-#ifdef _WINKD_
     /* No KD Time Slip is pending */
     KdpTimeSlipPending = 0;
-#endif
 
     /* Initialize in-place execution support */
     XIPInit(LoaderBlock);
@@ -1966,7 +2015,6 @@ Phase1InitializationDiscard(IN PVOID Context)
     InbvEnableDisplayString(TRUE);
 
     /* Launch initial process */
-    DPRINT("Free non-cache pages: %lx\n", MmAvailablePages + MiMemoryConsumers[MC_CACHE].PagesUsed);
     ProcessInfo = &InitBuffer->ProcessInfo;
     ExpLoadInitialProcess(InitBuffer, &ProcessParameters, &Environment);
 
@@ -2005,7 +2053,6 @@ Phase1InitializationDiscard(IN PVOID Context)
 
     /* Free the boot buffer */
     ExFreePoolWithTag(InitBuffer, TAG_INIT);
-    DPRINT("Free non-cache pages: %lx\n", MmAvailablePages + MiMemoryConsumers[MC_CACHE].PagesUsed);
 }
 
 VOID

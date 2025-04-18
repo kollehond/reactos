@@ -21,13 +21,31 @@ USBCCGP_PdoHandleQueryDeviceText(
     IN PDEVICE_OBJECT DeviceObject,
     IN OUT PIRP Irp)
 {
+    PIO_STACK_LOCATION IoStack;
     LPWSTR Buffer;
     PPDO_DEVICE_EXTENSION PDODeviceExtension;
     LPWSTR GenericString = L"Composite USB Device";
+
+    //
+    // get current irp stack location
+    //
+    IoStack = IoGetCurrentIrpStackLocation(Irp);
+
     //
     // get device extension
     //
     PDODeviceExtension = (PPDO_DEVICE_EXTENSION)DeviceObject->DeviceExtension;
+
+    //
+    // check if type is description
+    //
+    if (IoStack->Parameters.QueryDeviceText.DeviceTextType != DeviceTextDescription)
+    {
+        //
+        // we only handle description
+        //
+        return Irp->IoStatus.Status;
+    }
 
     //
     // is there a device description
@@ -213,7 +231,15 @@ USBCCGP_PdoHandleQueryId(
         //
         // handle query device id
         //
-        Status = USBCCGP_SyncForwardIrp(PDODeviceExtension->NextDeviceObject, Irp);
+        if (IoForwardIrpSynchronously(PDODeviceExtension->NextDeviceObject, Irp))
+        {
+            Status = Irp->IoStatus.Status;
+        }
+        else
+        {
+            Status = STATUS_UNSUCCESSFUL;
+        }
+
         if (NT_SUCCESS(Status))
         {
             //
@@ -718,6 +744,14 @@ USBCCGP_PDOSelectConfiguration(
         return STATUS_SUCCESS;
     }
 
+    //
+    // if there is no configuration descriptor, unconfigure the device
+    //
+    if (Urb->UrbSelectConfiguration.ConfigurationDescriptor == NULL)
+    {
+        return STATUS_SUCCESS;
+    }
+
     // sanity checks
     //C_ASSERT(sizeof(struct _URB_HEADER) == 16);
     //C_ASSERT(FIELD_OFFSET(struct _URB_SELECT_CONFIGURATION, Interface.Length) == 24);
@@ -735,7 +769,8 @@ USBCCGP_PDOSelectConfiguration(
     Entry = NULL;
     do
     {
-        DPRINT1("[USBCCGP] SelectConfiguration Function %x InterfaceNumber %x Alternative %x Length %lu InterfaceInformation->Length %lu\n", PDODeviceExtension->FunctionDescriptor->FunctionNumber, InterfaceInformation->InterfaceNumber, InterfaceInformation->AlternateSetting, Length, InterfaceInformation->Length);
+        DPRINT1("[USBCCGP] SelectConfiguration Function %x InterfaceNumber %x Alternative %x Length %lu InterfaceInformation->Length %lu\n", 
+               PDODeviceExtension->FunctionDescriptor->FunctionNumber, InterfaceInformation->InterfaceNumber, InterfaceInformation->AlternateSetting, Length, InterfaceInformation->Length);
         ASSERT(InterfaceInformation->Length);
         //
         // search for the interface in the local interface list
@@ -1062,6 +1097,30 @@ PDO_HandleInternalDeviceControl(
     return STATUS_NOT_IMPLEMENTED;
 }
 
+NTSTATUS
+PDO_HandlePower(
+    PDEVICE_OBJECT DeviceObject,
+    PIRP Irp)
+{
+    NTSTATUS Status;
+    PIO_STACK_LOCATION IoStack;
+
+    IoStack = IoGetCurrentIrpStackLocation(Irp);
+
+    switch (IoStack->MinorFunction)
+    {
+        case IRP_MN_SET_POWER:
+        case IRP_MN_QUERY_POWER:
+            Irp->IoStatus.Status = STATUS_SUCCESS;
+            break;
+    }
+
+    Status = Irp->IoStatus.Status;
+    PoStartNextPowerIrp(Irp);
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return Status;
+}
+
 
 NTSTATUS
 PDO_Dispatch(
@@ -1081,10 +1140,7 @@ PDO_Dispatch(
         case IRP_MJ_INTERNAL_DEVICE_CONTROL:
             return PDO_HandleInternalDeviceControl(DeviceObject, Irp);
         case IRP_MJ_POWER:
-            PoStartNextPowerIrp(Irp);
-            Irp->IoStatus.Status = STATUS_SUCCESS;
-            IoCompleteRequest(Irp, IO_NO_INCREMENT);
-            return STATUS_SUCCESS;
+            return PDO_HandlePower(DeviceObject, Irp);
         default:
             DPRINT1("PDO_Dispatch Function %x not implemented\n", IoStack->MajorFunction);
             Status = Irp->IoStatus.Status;

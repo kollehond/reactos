@@ -346,22 +346,25 @@ BaseFormatObjectAttributes(OUT POBJECT_ATTRIBUTES ObjectAttributes,
 }
 
 /*
- * Creates a stack for a thread or fiber
+ * Creates a stack for a thread or fiber.
+ * NOTE: Adapted from sdk/lib/rtl/thread.c:RtlpCreateUserStack().
  */
 NTSTATUS
 WINAPI
-BaseCreateStack(HANDLE hProcess,
-                 SIZE_T StackCommit,
-                 SIZE_T StackReserve,
-                 PINITIAL_TEB InitialTeb)
+BaseCreateStack(
+    _In_ HANDLE hProcess,
+    _In_opt_ SIZE_T StackCommit,
+    _In_opt_ SIZE_T StackReserve,
+    _Out_ PINITIAL_TEB InitialTeb)
 {
     NTSTATUS Status;
     PIMAGE_NT_HEADERS Headers;
     ULONG_PTR Stack;
     BOOLEAN UseGuard;
-    ULONG PageSize, Dummy, AllocationGranularity;
-    SIZE_T StackReserveHeader, StackCommitHeader, GuardPageSize, GuaranteedStackCommit;
-    DPRINT("BaseCreateStack (hProcess: %p, Max: %lx, Current: %lx)\n",
+    ULONG PageSize, AllocationGranularity, Dummy;
+    SIZE_T MinimumStackCommit, GuardPageSize;
+
+    DPRINT("BaseCreateStack(hProcess: 0x%p, Max: 0x%lx, Current: 0x%lx)\n",
             hProcess, StackReserve, StackCommit);
 
     /* Read page size */
@@ -372,34 +375,38 @@ BaseCreateStack(HANDLE hProcess,
     Headers = RtlImageNtHeader(NtCurrentPeb()->ImageBaseAddress);
     if (!Headers) return STATUS_INVALID_IMAGE_FORMAT;
 
-    StackCommitHeader = Headers->OptionalHeader.SizeOfStackCommit;
-    StackReserveHeader = Headers->OptionalHeader.SizeOfStackReserve;
+    if (StackReserve == 0)
+        StackReserve = Headers->OptionalHeader.SizeOfStackReserve;
 
-    if (!StackReserve) StackReserve = StackReserveHeader;
-
-    if (!StackCommit)
+    if (StackCommit == 0)
     {
-        StackCommit = StackCommitHeader;
+        StackCommit = Headers->OptionalHeader.SizeOfStackCommit;
     }
+    /* Check if the commit is higher than the reserve */
     else if (StackCommit >= StackReserve)
     {
+        /* Grow the reserve beyond the commit, up to 1MB alignment */
         StackReserve = ROUND_UP(StackCommit, 1024 * 1024);
     }
 
+    /* Align everything to Page Size */
     StackCommit = ROUND_UP(StackCommit, PageSize);
     StackReserve = ROUND_UP(StackReserve, AllocationGranularity);
 
-    GuaranteedStackCommit = NtCurrentTeb()->GuaranteedStackBytes;
-    if ((GuaranteedStackCommit) && (StackCommit < GuaranteedStackCommit))
+    MinimumStackCommit = NtCurrentPeb()->MinimumStackCommit;
+    if ((MinimumStackCommit != 0) && (StackCommit < MinimumStackCommit))
     {
-        StackCommit = GuaranteedStackCommit;
+        StackCommit = MinimumStackCommit;
     }
 
+    /* Check if the commit is higher than the reserve */
     if (StackCommit >= StackReserve)
     {
+        /* Grow the reserve beyond the commit, up to 1MB alignment */
         StackReserve = ROUND_UP(StackCommit, 1024 * 1024);
     }
 
+    /* Align everything to Page Size */
     StackCommit = ROUND_UP(StackCommit, PageSize);
     StackReserve = ROUND_UP(StackReserve, AllocationGranularity);
 
@@ -423,11 +430,11 @@ BaseCreateStack(HANDLE hProcess,
     InitialTeb->PreviousStackBase = NULL;
     InitialTeb->PreviousStackLimit = NULL;
 
-    /* Update the Stack Position */
+    /* Update the stack position */
     Stack += StackReserve - StackCommit;
 
-    /* Check if we will need a guard page */
-    if (StackReserve > StackCommit)
+    /* Check if we can add a guard page */
+    if (StackReserve >= StackCommit + PageSize)
     {
         Stack -= PageSize;
         StackCommit += PageSize;
@@ -456,11 +463,10 @@ BaseCreateStack(HANDLE hProcess,
     /* Now set the current Stack Limit */
     InitialTeb->StackLimit = (PVOID)Stack;
 
-    /* Create a guard page */
+    /* Create a guard page if needed */
     if (UseGuard)
     {
-        /* Set the guard page */
-        GuardPageSize = PAGE_SIZE;
+        GuardPageSize = PageSize;
         Status = NtProtectVirtualMemory(hProcess,
                                         (PVOID*)&Stack,
                                         &GuardPageSize,
@@ -481,10 +487,14 @@ BaseCreateStack(HANDLE hProcess,
     return STATUS_SUCCESS;
 }
 
+/*
+ * NOTE: Adapted from sdk/lib/rtl/thread.c:RtlpFreeUserStack().
+ */
 VOID
 WINAPI
-BaseFreeThreadStack(IN HANDLE hProcess,
-                    IN PINITIAL_TEB InitialTeb)
+BaseFreeThreadStack(
+    _In_ HANDLE hProcess,
+    _In_ PINITIAL_TEB InitialTeb)
 {
     SIZE_T Dummy = 0;
 
@@ -501,10 +511,10 @@ BaseFreeThreadStack(IN HANDLE hProcess,
 VOID
 WINAPI
 BaseInitializeContext(IN PCONTEXT Context,
-                       IN PVOID Parameter,
-                       IN PVOID StartAddress,
-                       IN PVOID StackAddress,
-                       IN ULONG ContextType)
+                      IN PVOID Parameter,
+                      IN PVOID StartAddress,
+                      IN PVOID StackAddress,
+                      IN ULONG ContextType)
 {
 #ifdef _M_IX86
     ULONG ContextFlags;
@@ -570,12 +580,14 @@ BaseInitializeContext(IN PCONTEXT Context,
 
 #elif defined(_M_AMD64)
     DPRINT("BaseInitializeContext: %p\n", Context);
+    ASSERT(((ULONG_PTR)StackAddress & 15) == 0);
+
+    RtlZeroMemory(Context, sizeof(*Context));
 
     /* Setup the Initial Win32 Thread Context */
-    Context->Rax = (ULONG_PTR)StartAddress;
-    Context->Rbx = (ULONG_PTR)Parameter;
-    Context->Rsp = (ULONG_PTR)StackAddress;
-    /* The other registers are undefined */
+    Context->Rcx = (ULONG_PTR)StartAddress;
+    Context->Rdx = (ULONG_PTR)Parameter;
+    Context->Rsp = (ULONG_PTR)StackAddress - 5 * sizeof(PVOID);
 
     /* Setup the Segments */
     Context->SegGs = KGDT64_R3_DATA | RPL_MASK;
@@ -586,11 +598,14 @@ BaseInitializeContext(IN PCONTEXT Context,
     Context->SegFs = KGDT64_R3_CMTEB | RPL_MASK;
 
     /* Set the EFLAGS */
-    Context->EFlags = 0x3000; /* IOPL 3 */
+    Context->EFlags = 0x3000 | EFLAGS_INTERRUPT_MASK; /* IOPL 3 */
+
+    /* Set MXCSR */
+    Context->MxCsr = INITIAL_MXCSR;
 
     if (ContextType == 1)      /* For Threads */
     {
-        Context->Rip = (ULONG_PTR)BaseThreadStartupThunk;
+        Context->Rip = (ULONG_PTR)BaseThreadStartup;
     }
     else if (ContextType == 2) /* For Fibers */
     {
@@ -598,14 +613,11 @@ BaseInitializeContext(IN PCONTEXT Context,
     }
     else                       /* For first thread in a Process */
     {
-        Context->Rip = (ULONG_PTR)BaseProcessStartThunk;
+        Context->Rip = (ULONG_PTR)BaseProcessStartup;
     }
 
     /* Set the Context Flags */
     Context->ContextFlags = CONTEXT_FULL;
-
-    /* Give it some room for the Parameter */
-    Context->Rsp -= sizeof(PVOID);
 #elif defined(_M_ARM)
     DPRINT("BaseInitializeContext: %p\n", Context);
 

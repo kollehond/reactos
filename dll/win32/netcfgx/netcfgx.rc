@@ -17,6 +17,9 @@ LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 
 #include <reactos/manifest_dll.rc>
 
+IDI_NETWORK ICON "res/network.ico"
+IDI_INTERNET ICON "res/internet.ico"
+
 /* UTF-8 */
 #pragma code_page(65001)
 
@@ -68,6 +71,9 @@ LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 #ifdef LANGUAGE_PL_PL
     #include "lang/pl-PL.rc"
 #endif
+#ifdef LANGUAGE_PT_PT
+    #include "lang/pt-PT.rc"
+#endif
 #ifdef LANGUAGE_RO_RO
     #include "lang/ro-RO.rc"
 #endif
@@ -91,6 +97,9 @@ LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 #endif
 #ifdef LANGUAGE_ZH_CN
     #include "lang/zh-CN.rc"
+#endif
+#ifdef LANGUAGE_ZH_HK
+    #include "lang/zh-HK.rc"
 #endif
 #ifdef LANGUAGE_ZH_TW
     #include "lang/zh-TW.rc"

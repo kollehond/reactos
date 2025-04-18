@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2017, Intel Corp.
+ * Copyright (C) 2000 - 2022, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@
  * NO WARRANTY
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
  * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
@@ -149,7 +149,7 @@
 #endif
 
 #ifdef __REACTOS__
-
+#ifdef _M_IX86
 /* Flush CPU cache - used when going to sleep. Wbinvd or similar. */
 
 #ifdef ACPI_APPLICATION
@@ -208,8 +208,12 @@
         __asm exit_rel:                             \
         __asm mov           Pnd, al                 \
 }
-
+#endif /* _M_IX86 */
 #endif /* __REACTOS__ */
+
+/* warn C4001: use of slash-slash comments */
+/* NOTE: MSVC 2015 headers use these extensively */
+#pragma warning(disable:4001)
 
 /* warn C4100: unreferenced formal parameter */
 #pragma warning(disable:4100)
@@ -223,9 +227,22 @@
 /* warn C4131: uses old-style declarator (iASL compiler only) */
 #pragma warning(disable:4131)
 
+/* warn C4131: uses old-style declarator (iASL compiler only) */
+#pragma warning(disable:4459)
+
+/* warn c4200: allow flexible arrays (of zero length) */
+#pragma warning(disable:4200)
+
 #if _MSC_VER > 1200 /* Versions above VC++ 6 */
 #pragma warning( disable : 4295 ) /* needed for acpredef.h array */
 #endif
+
+/*
+ * MSVC 2015+
+ */
+
+ /* warn C4459: xxxx (identifier) hides global declaration */
+#pragma warning(disable:4459)
 
 
 /* Debug support. */

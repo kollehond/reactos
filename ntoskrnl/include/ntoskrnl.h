@@ -33,6 +33,7 @@
 #include <ntdef.h>
 #include <ntifs.h>
 #include <wdmguid.h>
+#include <diskguid.h>
 #include <arc/arc.h>
 #include <mountmgr.h>
 #undef NTHALAPI
@@ -57,11 +58,18 @@
 #include <ndk/rtlfuncs.h>
 #include <ndk/sefuncs.h>
 #include <ndk/vftypes.h>
+
 #undef TEXT
 #define TEXT(s) L##s
+
+#define _IN_KERNEL_
 #include <regstr.h>
+
 #include <ntstrsafe.h>
 #include <ntpoapi.h>
+#define ENABLE_INTSAFE_SIGNED_FUNCTIONS
+#include <ntintsafe.h>
+#undef ENABLE_INTSAFE_SIGNED_FUNCTIONS
 
 /* C Headers */
 #include <stdlib.h>
@@ -81,7 +89,19 @@
 #include <windbgkd.h>
 #include <wdbgexts.h>
 #include <kddll.h>
-#ifndef _WINKD_
+#ifdef KDBG
+    /* Define new names for these exports also present in KDBG */
+    #define KdD0Transition          KdbgD0Transition
+    #define KdD3Transition          KdbgD3Transition
+    #define KdSave                  KdbgSave
+    #define KdRestore               KdbgRestore
+    #define KdSendPacket            KdbgSendPacket
+    #define KdReceivePacket         KdbgReceivePacket
+    /* And reload the definitions with these new names */
+    #undef _KDDLL_
+    #include <kddll.h>
+#endif
+#ifdef __ROS_ROSSYM__
 #include <reactos/rossym.h>
 #endif
 
@@ -93,19 +113,32 @@
 
 #define ExRaiseStatus RtlRaiseStatus
 
-//
-// Switch for enabling global page support
-//
+/* Also defined in fltkernel.h, but we don't want the entire header */
+#ifndef Add2Ptr
+#define Add2Ptr(P,I) ((PVOID)((PUCHAR)(P) + (I)))
+#endif
+#ifndef PtrOffset
+#define PtrOffset(B,O) ((ULONG)((ULONG_PTR)(O) - (ULONG_PTR)(B)))
+#endif
 
-//#define _GLOBAL_PAGES_ARE_AWESOME_
-
+/* MAX_PATH is a Win32 concept, it doesn't belong in the kernel */
+#define MAX_WIN32_PATH 260
+C_ASSERT(MAX_WIN32_PATH == MAX_PATH);
+#undef MAX_PATH
 
 /* Internal Headers */
-#include "internal/ntoskrnl.h"
 #include "config.h"
+#include "internal/ntoskrnl.h"
 
 #include <reactos/probe.h>
 #include "internal/probe.h"
 #include "resource.h"
+
+/* Internal Ps alignment probing header */
+#include "internal/ps_i.h"
+
+#ifdef _MSC_VER
+# pragma section("INITDATA", read,write,discard)
+#endif
 
 #endif /* _NTOSKRNL_PCH */

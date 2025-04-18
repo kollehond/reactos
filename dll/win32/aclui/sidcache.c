@@ -176,11 +176,18 @@ OpenLSAPolicyHandle(IN LPWSTR SystemName,
     LSA_OBJECT_ATTRIBUTES LsaObjectAttributes = {0};
     LSA_UNICODE_STRING LsaSystemName, *psn;
     NTSTATUS Status;
+    SIZE_T NameLength;
 
     if (SystemName != NULL && SystemName[0] != L'\0')
     {
+        NameLength = wcslen(SystemName);
+        if (NameLength > UNICODE_STRING_MAX_CHARS)
+        {
+            return FALSE;
+        }
+
         LsaSystemName.Buffer = SystemName;
-        LsaSystemName.Length = wcslen(SystemName) * sizeof(WCHAR);
+        LsaSystemName.Length = NameLength * sizeof(WCHAR);
         LsaSystemName.MaximumLength = LsaSystemName.Length + sizeof(WCHAR);
         psn = &LsaSystemName;
     }
@@ -337,8 +344,9 @@ FindSidInCache(IN PSIDCACHEMGR scm,
 
     /* NOTE: assumes the lists are locked! */
 
-    CurrentEntry = &scm->CacheListHead;
-    while (CurrentEntry != &scm->CacheListHead)
+    for (CurrentEntry = scm->CacheListHead.Flink;
+         CurrentEntry != &scm->CacheListHead;
+         CurrentEntry = CurrentEntry->Flink)
     {
         CacheEntry = CONTAINING_RECORD(CurrentEntry,
                                        SIDCACHEENTRY,
@@ -383,8 +391,6 @@ FindSidInCache(IN PSIDCACHEMGR scm,
             *ReqResult = ReqRes;
             break;
         }
-
-        CurrentEntry = CurrentEntry->Flink;
     }
 
     return Ret;
@@ -699,8 +705,9 @@ QueueSidLookup(IN PSIDCACHEMGR scm,
     }
     else
     {
-        CurrentEntry = &scm->QueueListHead;
-        while (CurrentEntry != &scm->QueueListHead)
+        for (CurrentEntry = scm->QueueListHead.Flink;
+             CurrentEntry != &scm->QueueListHead;
+             CurrentEntry = CurrentEntry->Flink)
         {
             QueueEntry = CONTAINING_RECORD(CurrentEntry,
                                            SIDQUEUEENTRY,
@@ -712,8 +719,6 @@ QueueSidLookup(IN PSIDCACHEMGR scm,
                 FoundEntry = QueueEntry;
                 break;
             }
-
-            CurrentEntry = CurrentEntry->Flink;
         }
     }
 
@@ -805,8 +810,9 @@ DequeueSidLookup(IN HANDLE SidCacheMgr,
         }
         else
         {
-            CurrentEntry = &scm->QueueListHead;
-            while (CurrentEntry != &scm->QueueListHead)
+            for (CurrentEntry = scm->QueueListHead.Flink;
+                 CurrentEntry != &scm->QueueListHead;
+                 CurrentEntry = CurrentEntry->Flink)
             {
                 QueueEntry = CONTAINING_RECORD(CurrentEntry,
                                                SIDQUEUEENTRY,
@@ -819,8 +825,6 @@ DequeueSidLookup(IN HANDLE SidCacheMgr,
                                    QueueEntry);
                     break;
                 }
-
-                CurrentEntry = CurrentEntry->Flink;
             }
         }
 

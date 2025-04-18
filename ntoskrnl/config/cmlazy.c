@@ -1,9 +1,8 @@
 /*
- * PROJECT:         ReactOS Kernel
- * LICENSE:         GPL - See COPYING in the top level directory
- * FILE:            ntoskrnl/config/cmlazy.c
- * PURPOSE:         Configuration Manager - Internal Registry APIs
- * PROGRAMMERS:     Alex Ionescu (alex.ionescu@reactos.org)
+ * PROJECT:     ReactOS Kernel
+ * LICENSE:     GPL - See COPYING in the top level directory
+ * PURPOSE:     Configuration Manager - Internal Registry APIs
+ * PROGRAMMERS: Alex Ionescu <alex.ionescu@reactos.org>
  */
 
 /* INCLUDES *******************************************************************/
@@ -23,7 +22,7 @@ BOOLEAN CmpLazyFlushPending;
 BOOLEAN CmpForceForceFlush;
 BOOLEAN CmpHoldLazyFlush = TRUE;
 ULONG CmpLazyFlushIntervalInSeconds = 5;
-static ULONG CmpLazyFlushHiveCount = 7;
+ULONG CmpLazyFlushHiveCount = 7;
 ULONG CmpLazyFlushCount = 1;
 LONG CmpFlushStarveWriters;
 
@@ -61,7 +60,7 @@ CmpDoFlushNextHive(_In_  BOOLEAN ForceFlush,
         if (!(CmHive->Hive.HiveFlags & HIVE_NOLAZYFLUSH) &&
             (CmHive->FlushCount != CmpLazyFlushCount))
         {
-            /* Great sucess! */
+            /* Great success! */
             Result = TRUE;
 
             /* One less to flush */
@@ -81,7 +80,7 @@ CmpDoFlushNextHive(_In_  BOOLEAN ForceFlush,
                 DPRINT("Flushing: %wZ\n", &CmHive->FileFullPath);
                 DPRINT("Handle: %p\n", CmHive->FileHandles[HFILE_TYPE_PRIMARY]);
                 Status = HvSyncHive(&CmHive->Hive);
-                if(!NT_SUCCESS(Status))
+                if (!NT_SUCCESS(Status))
                 {
                     /* Let them know we failed */
                     DPRINT1("Failed to flush %wZ on handle %p (status 0x%08lx)\n",
@@ -93,9 +92,9 @@ CmpDoFlushNextHive(_In_  BOOLEAN ForceFlush,
                 CmHive->FlushCount = CmpLazyFlushCount;
             }
         }
-        else if ((CmHive->Hive.DirtyCount) &&
-                 (!(CmHive->Hive.HiveFlags & HIVE_VOLATILE)) &&
-                 (!(CmHive->Hive.HiveFlags & HIVE_NOLAZYFLUSH)))
+        else if (CmHive->Hive.DirtyCount &&
+                 !(CmHive->Hive.HiveFlags & HIVE_VOLATILE) &&
+                 !(CmHive->Hive.HiveFlags & HIVE_NOLAZYFLUSH))
         {
             /* Use another lazy flusher for this hive */
             ASSERT(CmHive->FlushCount == CmpLazyFlushCount);
@@ -146,7 +145,7 @@ CmpLazyFlushDpcRoutine(IN PKDPC Dpc,
 {
     /* Check if we should queue the lazy flush worker */
     DPRINT("Flush pending: %s, Holding lazy flush: %s.\n", CmpLazyFlushPending ? "yes" : "no", CmpHoldLazyFlush ? "yes" : "no");
-    if ((!CmpLazyFlushPending) && (!CmpHoldLazyFlush))
+    if (!CmpLazyFlushPending && !CmpHoldLazyFlush)
     {
         CmpLazyFlushPending = TRUE;
         ExQueueWorkItem(&CmpLazyWorkItem, DelayedWorkQueue);
@@ -161,7 +160,7 @@ CmpLazyFlush(VOID)
     PAGED_CODE();
 
     /* Check if we should set the lazy flush timer */
-    if ((!CmpNoWrite) && (!CmpHoldLazyFlush))
+    if (!CmpNoWrite && !CmpHoldLazyFlush)
     {
         /* Do it */
         DueTime.QuadPart = Int32x32To64(CmpLazyFlushIntervalInSeconds,
@@ -262,8 +261,14 @@ CmpCmdInit(IN BOOLEAN SetupBoot)
     /* Testing: Force Lazy Flushing */
     CmpHoldLazyFlush = FALSE;
 
-    /* Setup the hive list */
-    CmpInitializeHiveList(SetupBoot);
+    /* Setup the system hives list if this is not a Setup boot */
+    if (!SetupBoot)
+        CmpInitializeHiveList();
+
+    /* Now that the system hives are loaded, if we are in PE mode,
+     * all other hives will be loaded with full access */
+    if (CmpMiniNTBoot)
+        CmpShareSystemHives = FALSE;
 }
 
 NTSTATUS
@@ -274,13 +279,122 @@ CmpCmdHiveOpen(IN POBJECT_ATTRIBUTES FileAttributes,
                OUT PCMHIVE *NewHive,
                IN ULONG CheckFlags)
 {
-    PUNICODE_STRING FileName;
     NTSTATUS Status;
+    UNICODE_STRING FileName;
+    PWCHAR FilePath;
+    ULONG Length;
+    OBJECT_NAME_INFORMATION DummyNameInfo;
+    POBJECT_NAME_INFORMATION FileNameInfo;
+
     PAGED_CODE();
 
+    if (FileAttributes->RootDirectory)
+    {
+        /*
+         * Validity check: The ObjectName is relative to RootDirectory,
+         * therefore it must not start with a path separator.
+         */
+        if (FileAttributes->ObjectName && FileAttributes->ObjectName->Buffer &&
+            FileAttributes->ObjectName->Length >= sizeof(WCHAR) &&
+            *FileAttributes->ObjectName->Buffer == OBJ_NAME_PATH_SEPARATOR)
+        {
+            return STATUS_OBJECT_PATH_SYNTAX_BAD;
+        }
+
+        /* Determine the right buffer size and allocate */
+        Status = ZwQueryObject(FileAttributes->RootDirectory,
+                               ObjectNameInformation,
+                               &DummyNameInfo,
+                               sizeof(DummyNameInfo),
+                               &Length);
+        if (Status != STATUS_BUFFER_OVERFLOW)
+        {
+            DPRINT1("CmpCmdHiveOpen(): Root directory handle object name size query failed, Status = 0x%08lx\n", Status);
+            return Status;
+        }
+
+        FileNameInfo = ExAllocatePoolWithTag(PagedPool,
+                                             Length + sizeof(UNICODE_NULL),
+                                             TAG_CM);
+        if (FileNameInfo == NULL)
+        {
+            DPRINT1("CmpCmdHiveOpen(): Unable to allocate memory\n");
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+
+        /* Try to get the value */
+        Status = ZwQueryObject(FileAttributes->RootDirectory,
+                               ObjectNameInformation,
+                               FileNameInfo,
+                               Length,
+                               &Length);
+        if (!NT_SUCCESS(Status))
+        {
+            /* Fail */
+            DPRINT1("CmpCmdHiveOpen(): Root directory handle object name query failed, Status = 0x%08lx\n", Status);
+            ExFreePoolWithTag(FileNameInfo, TAG_CM);
+            return Status;
+        }
+
+        /* Null-terminate and add the length of the terminator */
+        Length -= sizeof(OBJECT_NAME_INFORMATION);
+        FilePath = FileNameInfo->Name.Buffer;
+        FilePath[Length / sizeof(WCHAR)] = UNICODE_NULL;
+        Length += sizeof(UNICODE_NULL);
+
+        /* Compute the size of the full path; Length already counts the terminating NULL */
+        Length = Length + sizeof(WCHAR) + FileAttributes->ObjectName->Length;
+        if (Length > MAXUSHORT)
+        {
+            /* Name size too long, bail out */
+            ExFreePoolWithTag(FileNameInfo, TAG_CM);
+            return STATUS_OBJECT_PATH_INVALID;
+        }
+
+        /* Build the full path */
+        RtlInitEmptyUnicodeString(&FileName, NULL, 0);
+        FileName.Buffer = ExAllocatePoolWithTag(PagedPool, Length, TAG_CM);
+        if (!FileName.Buffer)
+        {
+            /* Fail */
+            DPRINT1("CmpCmdHiveOpen(): Unable to allocate memory\n");
+            ExFreePoolWithTag(FileNameInfo, TAG_CM);
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+        FileName.MaximumLength = Length;
+        RtlCopyUnicodeString(&FileName, &FileNameInfo->Name);
+        ExFreePoolWithTag(FileNameInfo, TAG_CM);
+
+        /*
+         * Append a path terminator if needed (we have already accounted
+         * for a possible extra one when allocating the buffer).
+         */
+        if (/* FileAttributes->ObjectName->Buffer[0] != OBJ_NAME_PATH_SEPARATOR && */ // We excluded ObjectName starting with a path separator above.
+            FileName.Length > 0 && FileName.Buffer[FileName.Length / sizeof(WCHAR) - 1] != OBJ_NAME_PATH_SEPARATOR)
+        {
+            /* ObjectName does not start with '\' and PathBuffer does not end with '\' */
+            FileName.Buffer[FileName.Length / sizeof(WCHAR)] = OBJ_NAME_PATH_SEPARATOR;
+            FileName.Length += sizeof(WCHAR);
+            FileName.Buffer[FileName.Length / sizeof(WCHAR)] = UNICODE_NULL;
+        }
+
+        /* Append the object name */
+        Status = RtlAppendUnicodeStringToString(&FileName, FileAttributes->ObjectName);
+        if (!NT_SUCCESS(Status))
+        {
+            /* Fail */
+            DPRINT1("CmpCmdHiveOpen(): RtlAppendUnicodeStringToString() failed, Status = 0x%08lx\n", Status);
+            ExFreePoolWithTag(FileName.Buffer, TAG_CM);
+            return Status;
+        }
+    }
+    else
+    {
+        FileName = *FileAttributes->ObjectName;
+    }
+
     /* Open the file in the current security context */
-    FileName = FileAttributes->ObjectName;
-    Status = CmpInitHiveFromFile(FileName,
+    Status = CmpInitHiveFromFile(&FileName,
                                  0,
                                  NewHive,
                                  Allocate,
@@ -291,14 +405,14 @@ CmpCmdHiveOpen(IN POBJECT_ATTRIBUTES FileAttributes,
          (Status == STATUS_ACCOUNT_EXPIRED) ||
          (Status == STATUS_ACCOUNT_DISABLED) ||
          (Status == STATUS_ACCOUNT_RESTRICTION)) &&
-        (ImpersonationContext))
+        ImpersonationContext)
     {
         /* We failed due to an account/security error, impersonate SYSTEM */
         Status = SeImpersonateClientEx(ImpersonationContext, NULL);
         if (NT_SUCCESS(Status))
         {
             /* Now try again */
-            Status = CmpInitHiveFromFile(FileName,
+            Status = CmpInitHiveFromFile(&FileName,
                                          0,
                                          NewHive,
                                          Allocate,
@@ -307,6 +421,11 @@ CmpCmdHiveOpen(IN POBJECT_ATTRIBUTES FileAttributes,
             /* Restore impersonation token */
             PsRevertToSelf();
         }
+    }
+
+    if (FileAttributes->RootDirectory)
+    {
+        ExFreePoolWithTag(FileName.Buffer, TAG_CM);
     }
 
     /* Return status of open attempt */

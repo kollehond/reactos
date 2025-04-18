@@ -22,14 +22,18 @@
 
 #include <malloc.h>
 
-#define WIN32_NO_STATUS
-#define _INC_WINDOWS
-#define COM_NO_WINDOWS_H
-#include <stdarg.h>
-#include <windef.h>
-#include <winbase.h>
-#include <winreg.h>
-#include <winnls.h>
+#ifdef __REACTOS__
+    #define WIN32_NO_STATUS
+    #define _INC_WINDOWS
+    #define COM_NO_WINDOWS_H
+    #include <stdarg.h>
+    #include <windef.h>
+    #include <winbase.h>
+    #include <winreg.h>
+    #include <winnls.h>
+#else
+    #include <windows.h>
+#endif
 #include <ole2.h>
 #include <olectl.h>
 #include <crtdbg.h>
@@ -51,7 +55,7 @@ public:
         memset(&m_sec, 0, sizeof(CRITICAL_SECTION));
     }
 
-    virtual ~CComCriticalSection()
+    ~CComCriticalSection()
     {
     }
 
@@ -213,7 +217,8 @@ public:
     HINSTANCE GetHInstanceAt(int i);
 };
 
-extern CAtlBaseModule _AtlBaseModule;
+__declspec(selectany) CAtlBaseModule _AtlBaseModule;
+__declspec(selectany) bool CAtlBaseModule::m_bInitFailed = false;
 
 
 ///
@@ -267,7 +272,7 @@ inline const ATLSTRINGRESOURCEIMAGE* _AtlGetStringResourceImage(
 
 inline const ATLSTRINGRESOURCEIMAGE* AtlGetStringResourceImage(
     _In_ HINSTANCE hInstance,
-    _In_ UINT id) throw()
+    _In_ UINT id) noexcept
 {
     HRSRC hResource;
     hResource = ::FindResourceW(hInstance, MAKEINTRESOURCEW((((id >> 4) + 1) & static_cast<WORD>(~0))), (LPWSTR)RT_STRING);

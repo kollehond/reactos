@@ -36,6 +36,9 @@ CExeDropHandler::~CExeDropHandler()
 HRESULT WINAPI CExeDropHandler::DragEnter(IDataObject *pDataObject, DWORD dwKeyState, POINTL pt, DWORD *pdwEffect)
 {
     TRACE ("(%p)\n", this);
+    if (*pdwEffect == DROPEFFECT_NONE)
+        return S_OK;
+
     *pdwEffect = DROPEFFECT_COPY;
     return S_OK;
 }
@@ -55,7 +58,7 @@ HRESULT WINAPI CExeDropHandler::DragLeave()
 
 HRESULT WINAPI CExeDropHandler::Drop(IDataObject *pDataObject, DWORD dwKeyState, POINTL pt, DWORD *pdwEffect)
 {
-    TRACE ("(%p)\n", this);    
+    TRACE ("(%p)\n", this);
     FORMATETC fmt;
     STGMEDIUM medium;
     LPWSTR pszSrcList;
@@ -69,6 +72,7 @@ HRESULT WINAPI CExeDropHandler::Drop(IDataObject *pDataObject, DWORD dwKeyState,
         if (!lpdf)
         {
             ERR("Error locking global\n");
+            ReleaseStgMedium(&medium);
             return E_FAIL;
         }
         pszSrcList = (LPWSTR) (((byte*) lpdf) + lpdf->pFiles);
@@ -78,9 +82,12 @@ HRESULT WINAPI CExeDropHandler::Drop(IDataObject *pDataObject, DWORD dwKeyState,
                 StringCchPrintfExW(pszEnd, cchRemaining, &pszEnd, &cchRemaining, 0, L"\"%ls\" ", pszSrcList);
             else
                 StringCchPrintfExW(pszEnd, cchRemaining, &pszEnd, &cchRemaining, 0, L"%ls ", pszSrcList);
-            
+
             pszSrcList += wcslen(pszSrcList) + 1;
         }
+
+        GlobalUnlock(medium.hGlobal);
+        ReleaseStgMedium(&medium);
     }
 
     ShellExecuteW(NULL, L"open", sPathTarget, wszBuf, NULL,SW_SHOWNORMAL);

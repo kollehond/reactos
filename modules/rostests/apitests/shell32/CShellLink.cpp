@@ -9,6 +9,7 @@
 
 #define NDEBUG
 #include <debug.h>
+#include <stdio.h>
 #include <shellutils.h>
 
 /* Test IShellLink::SetPath with environment-variables, existing, non-existing, ...*/
@@ -120,14 +121,14 @@ static WCHAR evVar[MAX_PATH];
     expectedPathOut = NULL;
     for (i1 = 0; i1 <= 1; i1++)
     {
-        if (i1 == 1) /* Usually SLGP_RAWPATH */
+        if (i1 == 0) /* Usually SLGP_SHORTPATH */
         {
             flags = testDef->flags1;
             expandPathOut = testDef->expandPathOut1;
             expectedPathOut = testDef->pathOut1;
             expectedHr = testDef->hrGetPath1;
         }
-        else /* Usually SLGP_SHORTPATH */
+        else // if (i1 == 1) /* Usually SLGP_RAWPATH */
         {
             flags = testDef->flags2;
             expandPathOut = testDef->expandPathOut2;
@@ -147,7 +148,7 @@ static WCHAR evVar[MAX_PATH];
         ok(hr == expectedHr,
            "IShellLink::GetPath(%d), flags 0x%lx, got hr = 0x%lx, expected 0x%lx\n",
             i, flags, hr, expectedHr);
-        ok(wcsicmp(wPathOut, expectedPathOut) == 0,
+        ok(_wcsicmp(wPathOut, expectedPathOut) == 0,
            "IShellLink::GetPath(%d), flags 0x%lx, in %S, got %S, expected %S\n",
            i, flags, testDef->pathIn, wPathOut, expectedPathOut);
     }
@@ -295,7 +296,7 @@ test_iconlocation(UINT i, TEST_SHELL_ICON* testDef)
     ok(iIcon == 0, "IShellLink::GetIconLocation(%d) returned %d, expected %d\n", i, iIcon, 0);
 
     /* Try to grab the IExtractIconW interface */
-    hr = psl->QueryInterface(IID_PPV_ARG(IExtractIconW, &pei)); 
+    hr = psl->QueryInterface(IID_PPV_ARG(IExtractIconW, &pei));
     ok(hr == S_OK, "IShellLink::QueryInterface(IExtractIconW)(%d) failed, hr = 0x%lx\n", i, hr);
     if (!pei)
     {

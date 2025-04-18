@@ -112,7 +112,7 @@ ApplyConsoleInfo(HWND hwndDlg)
         SetConsoleInfo  = (res != IDCANCEL);
         SaveConsoleInfo = (res == IDC_RADIO_APPLY_ALL);
 
-        if (SetConsoleInfo == FALSE)
+        if (!SetConsoleInfo)
         {
             /* Don't destroy when the user presses cancel */
             SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, PSNRET_INVALID_NOCHANGEPAGE);
@@ -131,6 +131,23 @@ Done:
     /* Options have been applied */
     SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, PSNRET_NOERROR);
     return;
+}
+
+static int CALLBACK
+PropSheetProc(HWND hwndDlg, UINT uMsg, LPARAM lParam)
+{
+    // NOTE: This callback is needed to set large icon correctly.
+    HICON hIcon;
+    switch (uMsg)
+    {
+        case PSCB_INITIALIZED:
+        {
+            hIcon = LoadIconW(hApplet, MAKEINTRESOURCEW(IDC_CPLICON));
+            SendMessageW(hwndDlg, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+            break;
+        }
+    }
+    return 0;
 }
 
 /* First Applet */
@@ -210,27 +227,24 @@ InitApplet(HANDLE hSectionOrWnd)
         InitDefaultConsoleInfo(ConInfo);
     }
 
-    /* Initialize the font support */
-    hCurrentFont = CreateConsoleFont(ConInfo);
-    if (hCurrentFont == NULL)
-        DPRINT1("InitApplet: CreateConsoleFont failed\n");
+    /* Initialize the font support -- additional TrueType font cache and current preview font */
+    InitTTFontCache();
+    RefreshFontPreview(&FontPreview, ConInfo);
 
     /* Initialize the property sheet structure */
     ZeroMemory(&psh, sizeof(psh));
     psh.dwSize = sizeof(psh);
-    psh.dwFlags = PSH_PROPSHEETPAGE | PSH_PROPTITLE | /* PSH_USEHICON */ PSH_USEICONID | PSH_NOAPPLYNOW;
+    psh.dwFlags = PSH_PROPSHEETPAGE | PSH_PROPTITLE | /* PSH_USEHICON | */ PSH_USEICONID | PSH_NOAPPLYNOW | PSH_USECALLBACK;
 
     if (ConInfo->ConsoleTitle[0] != UNICODE_NULL)
     {
-        wcsncpy(szTitle, L"\"", MAX_PATH);
-        wcsncat(szTitle, ConInfo->ConsoleTitle, MAX_PATH - wcslen(szTitle));
-        wcsncat(szTitle, L"\"", MAX_PATH - wcslen(szTitle));
+        StringCchPrintfW(szTitle, ARRAYSIZE(szTitle), L"\"%s\"", ConInfo->ConsoleTitle);
+        psh.pszCaption = szTitle;
     }
     else
     {
-        wcscpy(szTitle, L"ReactOS Console");
+        psh.pszCaption = MAKEINTRESOURCEW(IDS_CPLNAME);
     }
-    psh.pszCaption = szTitle;
 
     if (pSharedInfo != NULL)
     {
@@ -249,6 +263,7 @@ InitApplet(HANDLE hSectionOrWnd)
     psh.nPages = ARRAYSIZE(psp);
     psh.nStartPage = 0;
     psh.ppsp = psp;
+    psh.pfnCallback = PropSheetProc;
 
     InitPropSheetPage(&psp[i++], IDD_PROPPAGEOPTIONS, OptionsProc);
     InitPropSheetPage(&psp[i++], IDD_PROPPAGEFONT   , FontProc   );
@@ -260,11 +275,11 @@ InitApplet(HANDLE hSectionOrWnd)
     Result = PropertySheetW(&psh);
     UnRegisterWinPrevClass(hApplet);
 
-    /* First cleanup */
-    if (hCurrentFont) DeleteObject(hCurrentFont);
-    hCurrentFont = NULL;
+    /* Clear the font support */
+    ResetFontPreview(&FontPreview);
+    ClearTTFontCache();
 
-    /* Save the console settings */
+    /* Apply the console settings if necessary */
     if (SetConsoleInfo)
     {
         HANDLE hSection;
@@ -292,19 +307,25 @@ InitApplet(HANDLE hSectionOrWnd)
             goto Quit;
         }
 
-        /* Copy the console information into the section */
+        /* Copy the console information into the section and unmap it */
         RtlCopyMemory(pSharedInfo, ConInfo, ConInfo->cbSize);
-
-        /* Unmap it */
         UnmapViewOfFile(pSharedInfo);
 
-        /* Signal to CONSRV that it can apply the new configuration */
+        /*
+         * Signal to CONSRV that it can apply the new settings.
+         *
+         * NOTE: SetConsoleInfo set to TRUE by ApplyConsoleInfo()
+         * *only* when ConInfo->hWnd != NULL and the user did not
+         * press IDCANCEL in the confirmation dialog.
+         */
+        ASSERT(ConInfo->hWnd);
         SendMessageW(ConInfo->hWnd, WM_SETCONSOLEINFO, (WPARAM)hSection, 0);
 
         /* Close the section and return */
         CloseHandle(hSection);
     }
 
+    /* Save the console settings */
     if (SaveConsoleInfo)
     {
         /* Default settings saved when ConInfo->hWnd == NULL */

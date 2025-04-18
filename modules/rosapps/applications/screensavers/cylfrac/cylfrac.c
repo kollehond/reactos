@@ -106,13 +106,13 @@ void DrawScene(HWND hwnd, HDC dc, int ticks)
     angle += ticks * 0.01;
     colorh += ticks * 0.003;
     if (colorh > 360.0) colorh -= 360.0;
-    HLStoRGB(colorh, 1.0, 0.7, &rval, &gval, &bval);
-    DrawCylinder(lvls, angle, 0.2);
+    HLStoRGB(colorh, 1.0f, 0.7f, &rval, &gval, &bval);
+    DrawCylinder(lvls, angle, 0.2f);
     SwapBuffers(dc);
     EndPaint(hwnd, &ps);
 }
 
-void CALLBACK TimeProc(UINT uID, UINT uMsg, DWORD dwUser, DWORD dw1, DWORD dw2)
+void CALLBACK TimeProc(UINT uID, UINT uMsg, DWORD_PTR dwUser, DWORD_PTR dw1, DWORD_PTR dw2)
 {
     InvalidateRect((HWND)dwUser, NULL, 0);
 }
@@ -134,7 +134,7 @@ void MyPixelFormat(HDC dc)
 
 void InitGL(HWND hwnd)
 {
-    GLfloat lightpos[4] = {2.0, 2.0, -2.0, 0.7};
+    GLfloat lightpos[4] = {2.0f, 2.0f, -2.0f, 0.7f};
     GLfloat ca = 1.0;
     dc = GetDC(hwnd);
     MyPixelFormat(dc);
@@ -157,7 +157,7 @@ LRESULT WINAPI ScreenSaverProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
             GetCursorPos(&initpoint);
             InitGL(hwnd);
             oldticks = GetTickCount();
-            TimerID = timeSetEvent (timerdelay, 0, TimeProc, (DWORD)hwnd, TIME_PERIODIC);
+            TimerID = timeSetEvent(timerdelay, 0, TimeProc, (DWORD_PTR)hwnd, TIME_PERIODIC);
         }
         break;
         case WM_PAINT:

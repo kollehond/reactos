@@ -413,7 +413,7 @@ DriverDetailsDlgProc(IN HWND hwndDlg,
                                                  pnmv->iItem,
                                                  pnmv->iSubItem,
                                                  szDriverPath,
-                                                 MAX_PATH);
+                                                 _countof(szDriverPath));
 
                             UpdateDriverVersionInfoDetails(hwndDlg,
                                                            szDriverPath);
@@ -426,6 +426,104 @@ DriverDetailsDlgProc(IN HWND hwndDlg,
     }
 
     return Ret;
+}
+
+
+static
+INT_PTR
+CALLBACK
+UninstallDriverDlgProc(IN HWND hwndDlg,
+                       IN UINT uMsg,
+                       IN WPARAM wParam,
+                       IN LPARAM lParam)
+{
+    PDEVADVPROP_INFO dap;
+    INT_PTR Ret = FALSE;
+
+    dap = (PDEVADVPROP_INFO)GetWindowLongPtr(hwndDlg, DWLP_USER);
+
+    if (dap != NULL || uMsg == WM_INITDIALOG)
+    {
+        switch (uMsg)
+        {
+            case WM_INITDIALOG:
+                dap = (PDEVADVPROP_INFO)lParam;
+                if (dap != NULL)
+                {
+                    SetWindowLongPtr(hwndDlg, DWLP_USER, (DWORD_PTR)dap);
+
+                    /* Set the device image */
+                    SendDlgItemMessage(hwndDlg,
+                                       IDC_DEVICON,
+                                       STM_SETICON,
+                                       (WPARAM)dap->hDevIcon,
+                                       0);
+
+                    /* Set the device name */
+                    SetDlgItemText(hwndDlg,
+                                   IDC_DEVNAME,
+                                   dap->szDevName);
+                }
+
+                Ret = TRUE;
+                break;
+
+            case WM_COMMAND:
+                switch (LOWORD(wParam))
+                {
+                    case IDOK:
+                        EndDialog(hwndDlg, IDOK);
+                        break;
+
+                    case IDCANCEL:
+                        EndDialog(hwndDlg,  IDCANCEL);
+                        break;
+                }
+                break;
+
+            case WM_CLOSE:
+                EndDialog(hwndDlg, IDCANCEL);
+                break;
+        }
+    }
+
+    return Ret;
+}
+
+
+static
+VOID
+UninstallDriver(
+    _In_ HWND hwndDlg,
+    _In_ PDEVADVPROP_INFO dap)
+{
+    SP_REMOVEDEVICE_PARAMS RemoveDevParams;
+
+    if (DialogBoxParam(hDllInstance,
+                       MAKEINTRESOURCE(IDD_UNINSTALLDRIVER),
+                       hwndDlg,
+                       UninstallDriverDlgProc,
+                       (ULONG_PTR)dap) == IDCANCEL)
+        return;
+
+    RemoveDevParams.ClassInstallHeader.cbSize = sizeof(SP_CLASSINSTALL_HEADER);
+    RemoveDevParams.ClassInstallHeader.InstallFunction = DIF_REMOVE;
+    RemoveDevParams.Scope = DI_REMOVEDEVICE_GLOBAL;
+    RemoveDevParams.HwProfile = 0;
+
+    SetupDiSetClassInstallParamsW(dap->DeviceInfoSet,
+                                  &dap->DeviceInfoData,
+                                  &RemoveDevParams.ClassInstallHeader,
+                                  sizeof(SP_REMOVEDEVICE_PARAMS));
+
+    SetupDiCallClassInstaller(DIF_REMOVE,
+                              dap->DeviceInfoSet,
+                              &dap->DeviceInfoData);
+
+    SetupDiSetClassInstallParamsW(dap->DeviceInfoSet,
+                                  &dap->DeviceInfoData,
+                                  NULL,
+                                  0);
 }
 
 
@@ -500,6 +598,9 @@ UpdateDriverDlg(IN HWND hwndDlg,
 {
     HDEVINFO DeviceInfoSet;
     PSP_DEVINFO_DATA DeviceInfoData;
+    DWORD dwStatus = 0;
+    DWORD dwProblem = 0;
+    CONFIGRET cr;
 
     if (dap->CurrentDeviceInfoSet != INVALID_HANDLE_VALUE)
     {
@@ -556,6 +657,19 @@ UpdateDriverDlg(IN HWND hwndDlg,
                        IDC_DRVVERSION,
                        dap->szTemp);
     }
+
+    /* Disable the Uninstall button if the driver cannot be removed */
+    cr = CM_Get_DevNode_Status_Ex(&dwStatus,
+                                  &dwProblem,
+                                  dap->DeviceInfoData.DevInst,
+                                  0,
+                                  dap->hMachine);
+    if (cr == CR_SUCCESS)
+    {
+        if ((dwStatus & DN_ROOT_ENUMERATED) != 0 &&
+            (dwStatus & DN_DISABLEABLE) == 0)
+            EnableWindow(GetDlgItem(hwndDlg, IDC_UNINSTALLDRIVER), FALSE);
+    }
 }
 
 
@@ -596,7 +710,7 @@ AdvProcDriverDlgProc(IN HWND hwndDlg,
                         break;
 
                     case IDC_UNINSTALLDRIVER:
-                        // FIXME
+                        UninstallDriver(hwndDlg, dap);
                         break;
                 }
                 break;
@@ -624,7 +738,6 @@ AdvProcDriverDlgProc(IN HWND hwndDlg,
                                     dap);
                 }
                 EnableWindow(GetDlgItem(hwndDlg, IDC_ROLLBACKDRIVER), FALSE);
-                EnableWindow(GetDlgItem(hwndDlg, IDC_UNINSTALLDRIVER), FALSE);
                 Ret = TRUE;
                 break;
             }
@@ -839,6 +952,8 @@ DisplayDevicePropertyText(IN PDEVADVPROP_INFO dap,
             {
                 case SPDRP_CAPABILITIES:
                     index = 0;
+                    swprintf(dap->szTemp, L"%08lx", dwValue);
+                    SetListViewText(hwndListView, index++, dap->szTemp);
                     if (dwValue & CM_DEVCAP_LOCKSUPPORTED)
                         SetListViewText(hwndListView, index++, L"CM_DEVCAP_LOCKSUPPORTED");
                     if (dwValue & CM_DEVCAP_EJECTSUPPORTED)
@@ -863,6 +978,8 @@ DisplayDevicePropertyText(IN PDEVADVPROP_INFO dap,
 
                 case SPDRP_CONFIGFLAGS:
                     index = 0;
+                    swprintf(dap->szTemp, L"%08lx", dwValue);
+                    SetListViewText(hwndListView, index++, dap->szTemp);
                     if (dwValue & CONFIGFLAG_DISABLED)
                         SetListViewText(hwndListView, index++, L"CONFIGFLAG_DISABLED");
                     if (dwValue & CONFIGFLAG_REMOVED)
@@ -922,6 +1039,8 @@ DisplayDevNodeFlags(IN PDEVADVPROP_INFO dap,
                              dap->hMachine);
 
     index = 0;
+    swprintf(dap->szTemp, L"%08lx", dwStatus);
+    SetListViewText(hwndListView, index++, dap->szTemp);
     if (dwStatus & DN_ROOT_ENUMERATED)
         SetListViewText(hwndListView, index++, L"DN_ROOT_ENUMERATED");
     if (dwStatus & DN_DRIVER_LOADED)
@@ -988,9 +1107,6 @@ DisplayDevNodeFlags(IN PDEVADVPROP_INFO dap,
         SetListViewText(hwndListView, index++, L"DN_NO_SHOW_IN_DM");
     if (dwStatus & DN_BOOT_LOG_PROB)
         SetListViewText(hwndListView, index++, L"DN_BOOT_LOG_PROB");
-
-//    swprintf(dap->szTemp, L"0x%08x", dwStatus);
-//    SetListViewText(hwndListView, 0, dap->szTemp);
 }
 
 
@@ -1039,6 +1155,9 @@ DisplayCsFlags(IN PDEVADVPROP_INFO dap,
                             dap->hMachine);
 
     index = 0;
+    swprintf(dap->szTemp, L"%08lx", dwValue);
+    SetListViewText(hwndListView, index++, dap->szTemp);
+
     if (dwValue & CSCONFIGFLAG_DISABLED)
         SetListViewText(hwndListView, index++, L"CSCONFIGFLAG_DISABLED");
 
@@ -1778,6 +1897,31 @@ AdvProcDetailsDlgProc(IN HWND hwndDlg,
     {
         switch (uMsg)
         {
+            case WM_CONTEXTMENU:
+            {
+                if ((HWND)wParam == GetDlgItem(hwndDlg, IDC_DETAILSPROPVALUE))
+                {
+                    WCHAR szColName[255];
+
+                    if (!LoadStringW(hDllInstance, IDS_COPY, szColName, _countof(szColName)))
+                        break;
+
+                    INT nSelectedItems = ListView_GetSelectedCount((HWND)wParam);
+                    POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                    HMENU hPopup = CreatePopupMenu();
+
+                    AppendMenuW(hPopup, MF_STRING, IDS_MENU_COPY, szColName);
+
+                    if (nSelectedItems <= 0)
+                        EnableMenuItem(hPopup, IDS_MENU_COPY, MF_BYCOMMAND | MF_GRAYED);
+
+                    TrackPopupMenu(hPopup, TPM_LEFTALIGN, pt.x, pt.y, 0, hwndDlg, NULL);
+                    DestroyMenu(hPopup);
+                    Ret = TRUE;
+                }
+                break;
+            }
+
             case WM_COMMAND:
             {
                 switch (LOWORD(wParam))
@@ -1790,6 +1934,52 @@ AdvProcDetailsDlgProc(IN HWND hwndDlg,
                                                     GetDlgItem(hwndDlg, IDC_DETAILSPROPVALUE));
                         }
                         break;
+
+                    case IDS_MENU_COPY:
+                    {
+                        HWND hwndListView = GetDlgItem(hwndDlg, IDC_DETAILSPROPVALUE);
+                        INT nSelectedItems = ListView_GetSelectedCount(hwndListView);
+                        INT nSelectedId = ListView_GetSelectionMark(hwndListView);
+
+                        if (nSelectedId < 0 || nSelectedItems <= 0)
+                            break;
+
+                        HGLOBAL hGlobal;
+                        LPWSTR pszBuffer;
+                        SIZE_T cchSize = MAX_PATH + 1;
+
+                        hGlobal = GlobalAlloc(GHND, cchSize * sizeof(WCHAR));
+                        if (!hGlobal)
+                            break;
+                        pszBuffer = (LPWSTR)GlobalLock(hGlobal);
+                        if (!pszBuffer)
+                        {
+                            GlobalFree(hGlobal);
+                            break;
+                        }
+
+                        ListView_GetItemText(hwndListView,
+                                             nSelectedId, 0,
+                                             pszBuffer,
+                                             cchSize);
+                        /* Ensure NULL-termination */
+                        pszBuffer[cchSize - 1] = UNICODE_NULL;
+
+                        GlobalUnlock(hGlobal);
+
+                        if (OpenClipboard(NULL))
+                        {
+                            EmptyClipboard();
+                            SetClipboardData(CF_UNICODETEXT, hGlobal);
+                            CloseClipboard();
+                            Ret = TRUE;
+                        }
+                        else
+                        {
+                            GlobalFree(hGlobal);
+                        }
+                        break;
+                    }
                 }
                 break;
             }
@@ -2105,9 +2295,9 @@ GetParentNode:
         DeviceInfoData = &dap->DeviceInfoData;
     }
 
-    dap->HasDriverPage = FALSE;
-    dap->HasResourcePage = FALSE;
-    dap->HasPowerPage = FALSE;
+    dap->HasDriverPage = TRUE;
+    dap->HasResourcePage = TRUE;
+    dap->HasPowerPage = TRUE;
     if (IsDriverInstalled(DeviceInfoData->DevInst,
                           dap->hMachine,
                           &bDrvInstalled) &&
@@ -2127,11 +2317,12 @@ GetParentNode:
             {
                 /* zero the flags */
                 InstallParams.Flags = 0;
+                InstallParams.FlagsEx = 0;
             }
 
             dap->HasDriverPage = !(InstallParams.Flags & DI_DRIVERPAGE_ADDED);
             dap->HasResourcePage = !(InstallParams.Flags & DI_RESOURCEPAGE_ADDED);
-            dap->HasPowerPage = !(InstallParams.Flags & DI_FLAGSEX_POWERPAGE_ADDED);
+            dap->HasPowerPage = !(InstallParams.FlagsEx & DI_FLAGSEX_POWERPAGE_ADDED);
         }
     }
 
@@ -2404,6 +2595,8 @@ GetParentNode:
         nDriverPages = 0;
     }
 
+    dap->pResourceList = GetResourceList(dap->szDeviceID);
+
     /* include the driver page */
     if (dap->HasDriverPage)
         dap->nDevPropSheets++;
@@ -2412,7 +2605,7 @@ GetParentNode:
     if (dap->Extended)
         dap->nDevPropSheets++;
 
-    if (dap->HasResourcePage)
+    if (dap->HasResourcePage && dap->pResourceList != NULL)
         dap->nDevPropSheets++;
 
     /* add the device property sheets */
@@ -2514,7 +2707,7 @@ GetParentNode:
                 }
             }
 
-            if (dap->HasResourcePage)
+            if (dap->HasResourcePage && dap->pResourceList)
             {
                 PROPSHEETPAGE pspDriver = {0};
                 pspDriver.dwSize = sizeof(PROPSHEETPAGE);
@@ -2920,6 +3113,37 @@ Cleanup:
         }
     }
 
+    if (Ret != 1)
+    {
+        SP_DEVINSTALL_PARAMS_W DeviceInstallParams;
+
+        DeviceInstallParams.cbSize = sizeof(DeviceInstallParams);
+        if (SetupDiGetDeviceInstallParamsW(DeviceInfoSet,
+                                           DeviceInfoData,
+                                           &DeviceInstallParams))
+        {
+            SP_PROPCHANGE_PARAMS PropChangeParams;
+            PropChangeParams.ClassInstallHeader.cbSize = sizeof(PropChangeParams.ClassInstallHeader);
+            PropChangeParams.ClassInstallHeader.InstallFunction = DIF_PROPERTYCHANGE;
+            PropChangeParams.Scope = DICS_FLAG_GLOBAL;
+            PropChangeParams.StateChange = DICS_PROPCHANGE;
+
+            SetupDiSetClassInstallParamsW(DeviceInfoSet,
+                                          DeviceInfoData,
+                                          (PSP_CLASSINSTALL_HEADER)&PropChangeParams,
+                                          sizeof(PropChangeParams));
+
+            SetupDiCallClassInstaller(DIF_PROPERTYCHANGE,
+                                      DeviceInfoSet,
+                                      DeviceInfoData);
+
+            DeviceInstallParams.FlagsEx &= ~DI_FLAGSEX_PROPCHANGE_PENDING;
+            SetupDiSetDeviceInstallParamsW(DeviceInfoSet,
+                                           DeviceInfoData,
+                                           &DeviceInstallParams);
+        }
+    }
+
     if (DevAdvPropInfo != NULL)
     {
         if (DevAdvPropInfo->FreeDevPropSheets)
@@ -2946,6 +3170,9 @@ Cleanup:
         {
             DestroyIcon(DevAdvPropInfo->hDevIcon);
         }
+
+        if (DevAdvPropInfo->pResourceList != NULL)
+            HeapFree(GetProcessHeap(), 0, DevAdvPropInfo->pResourceList);
 
         HeapFree(GetProcessHeap(),
                  0,

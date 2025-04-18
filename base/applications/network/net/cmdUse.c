@@ -47,7 +47,7 @@ EnumerateConnections(LPCWSTR Local)
             lpCur = lpRes;
             for (; dCount; dCount--)
             {
-                if (!Local || wcsicmp(lpCur->lpLocalName, Local) == 0)
+                if (!Local || _wcsicmp(lpCur->lpLocalName, Local) == 0)
                 {
                     ConPrintf(StdOut, L"%s\t\t\t%s\t\t%s\n", lpCur->lpLocalName, lpCur->lpRemoteName, lpCur->lpProvider);
                 }
@@ -67,9 +67,11 @@ static
 VOID
 PrintError(DWORD Status)
 {
+    WCHAR szStatusBuffer[16];
     LPWSTR Buffer;
 
-    ConResPrintf(StdErr, IDS_ERROR_SYSTEM_ERROR, Status);
+    swprintf(szStatusBuffer, L"%lu", Status);
+    PrintMessageStringV(3502, szStatusBuffer);
 
     if (FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, Status, 0, (LPWSTR)&Buffer, 0, NULL))
     {
@@ -109,7 +111,7 @@ cmdUse(
     {
         Status = EnumerateConnections(NULL);
         if (Status == NO_ERROR)
-            ConResPrintf(StdOut, IDS_ERROR_NO_ERROR);
+            PrintErrorMessage(ERROR_SUCCESS);
         else
             PrintError(Status);
 
@@ -119,13 +121,13 @@ cmdUse(
     {
         if (!ValidateDeviceName(argv[2]))
         {
-            ConResPrintf(StdErr, IDS_ERROR_INVALID_OPTION_VALUE, L"DeviceName");
+            PrintMessageStringV(3952, L"DeviceName");
             return 1;
         }
 
         Status = EnumerateConnections(argv[2]);
         if (Status == NO_ERROR)
-            ConResPrintf(StdOut, IDS_ERROR_NO_ERROR);
+            PrintErrorMessage(ERROR_SUCCESS);
         else
             PrintError(Status);
 
@@ -133,7 +135,7 @@ cmdUse(
     }
 
     Delete = 0;
-    if (wcsicmp(argv[2], L"/DELETE") == 0)
+    if (_wcsicmp(argv[2], L"/DELETE") == 0)
     {
         Delete = 3;
     }
@@ -142,12 +144,12 @@ cmdUse(
         if ((argv[2][0] != '*' && argv[2][1] != 0) &&
             !ValidateDeviceName(argv[2]))
         {
-            ConResPrintf(StdErr, IDS_ERROR_INVALID_OPTION_VALUE, L"DeviceName");
+            PrintMessageStringV(3952, L"DeviceName");
             return 1;
         }
     }
 
-    if (wcsicmp(argv[3], L"/DELETE") == 0)
+    if (_wcsicmp(argv[3], L"/DELETE") == 0)
     {
         Delete = 2;
     }
@@ -156,7 +158,7 @@ cmdUse(
     {
         if (!ValidateDeviceName(argv[Delete]) || argv[Delete][0] == L'*')
         {
-            ConResPrintf(StdErr, IDS_ERROR_INVALID_OPTION_VALUE, L"DeviceName");
+            PrintMessageStringV(3952, L"DeviceName");
             return 1;
         }
 
@@ -176,13 +178,13 @@ cmdUse(
         Len = wcslen(argv[3]);
         if (Len < 4)
         {
-            ConResPrintf(StdErr, IDS_ERROR_INVALID_OPTION_VALUE, L"Name");
+            PrintMessageStringV(3952, L"Name");
             return 1;
         }
 
         if (argv[3][0] != L'\\' || argv[3][1] != L'\\')
         {
-            ConResPrintf(StdErr, IDS_ERROR_INVALID_OPTION_VALUE, L"Name");
+            PrintMessageStringV(3952, L"Name");
             return 1;
         }
 
@@ -213,7 +215,7 @@ cmdUse(
                         else
                         {
                             HeapFree(GetProcessHeap(), 0, Cpy);
-                            ConResPrintf(StdErr, IDS_ERROR_INVALID_OPTION_VALUE, L"Persistent");
+                            PrintMessageStringV(3952, L"Persistent");
                             return 1;
                         }
                     }
@@ -230,7 +232,7 @@ cmdUse(
 
         Status = WNetUseConnection(NULL, &lpNet, NULL, NULL, CONNECT_REDIRECT | (Persist ? CONNECT_UPDATE_PROFILE : 0), Access, &Size, &OutFlags);
         if (argv[2][0] == L'*' && Status == NO_ERROR && OutFlags == CONNECT_LOCALDRIVE)
-            ConResPrintf(StdOut, IDS_USE_NOW_CONNECTED, argv[3], Access);
+            PrintMessageStringV(3919, argv[3], Access);
         else if (Status != NO_ERROR)
             PrintError(Status);
 

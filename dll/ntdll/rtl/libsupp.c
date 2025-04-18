@@ -10,6 +10,8 @@
 /* INCLUDES *****************************************************************/
 
 #include <ntdll.h>
+#include <apisets.h>
+#include <compat_undoc.h>
 
 #define NDEBUG
 #include <debug.h>
@@ -330,7 +332,6 @@ RtlWalkFrameChain(OUT PVOID *Callers,
 }
 #endif
 
-#ifdef _AMD64_
 VOID
 NTAPI
 RtlpGetStackLimits(
@@ -339,9 +340,7 @@ RtlpGetStackLimits(
 {
     *LowLimit = (ULONG_PTR)NtCurrentTeb()->NtTib.StackLimit;
     *HighLimit = (ULONG_PTR)NtCurrentTeb()->NtTib.StackBase;
-    return;
 }
-#endif
 
 BOOLEAN
 NTAPI
@@ -505,6 +504,49 @@ RtlpGetAtomEntry(PRTL_ATOM_TABLE AtomTable, ULONG Index)
    return NULL;
 }
 
+/* Ldr SEH-Protected access to IMAGE_NT_HEADERS */
+
+/* Rtl SEH-Free version of this */
+NTSTATUS
+NTAPI
+RtlpImageNtHeaderEx(
+    _In_ ULONG Flags,
+    _In_ PVOID Base,
+    _In_ ULONG64 Size,
+    _Out_ PIMAGE_NT_HEADERS *OutHeaders);
+
+
+/*
+ * @implemented
+ * @note: This is here, so that we do not drag SEH into rosload, freeldr and bootmgfw
+ */
+NTSTATUS
+NTAPI
+RtlImageNtHeaderEx(
+    _In_ ULONG Flags,
+    _In_ PVOID Base,
+    _In_ ULONG64 Size,
+    _Out_ PIMAGE_NT_HEADERS *OutHeaders)
+{
+    NTSTATUS Status;
+
+    /* Assume failure. This is also done in RtlpImageNtHeaderEx, but this is guarded by SEH. */
+    if (OutHeaders != NULL)
+        *OutHeaders = NULL;
+
+    _SEH2_TRY
+    {
+        Status = RtlpImageNtHeaderEx(Flags, Base, Size, OutHeaders);
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        /* Fail with the SEH error */
+        Status = _SEH2_GetExceptionCode();
+    }
+    _SEH2_END;
+
+    return Status;
+}
 
 /*
  * Ldr Resource support code
@@ -712,14 +754,14 @@ NTSTATUS find_actctx_dll( PUNICODE_STRING pnameW, LPWSTR *fullname, PUNICODE_STR
     {
         status = STATUS_SXS_KEY_NOT_FOUND;
         goto done;
-    }    
+    }
 
     if ((p = wcsrchr( info->lpAssemblyManifestPath, '\\' )))
     {
         DWORD dirlen = info->ulAssemblyDirectoryNameLength / sizeof(WCHAR);
 
         p++;
-        if (!info->lpAssemblyDirectoryName || _wcsnicmp( p, info->lpAssemblyDirectoryName, dirlen ) || wcsicmp( p + dirlen, dotManifestW ))
+        if (!info->lpAssemblyDirectoryName || _wcsnicmp( p, info->lpAssemblyDirectoryName, dirlen ) || _wcsicmp( p + dirlen, dotManifestW ))
         {
             /* manifest name does not match directory name, so it's not a global
              * windows/winsxs manifest; use the manifest directory name instead */
@@ -792,6 +834,8 @@ RtlDosApplyFileIsolationRedirection_Ustr(IN ULONG Flags,
     WCHAR *p;
     BOOLEAN GotExtension;
     WCHAR c;
+    C_ASSERT(sizeof(UNICODE_NULL) == sizeof(WCHAR));
+
 
     /* Check for invalid parameters */
     if (!OriginalName)
@@ -817,6 +861,73 @@ RtlDosApplyFileIsolationRedirection_Ustr(IN ULONG Flags,
     if (StaticString && (OriginalName == StaticString || OriginalName->Buffer == StaticString->Buffer))
     {
         return STATUS_SXS_KEY_NOT_FOUND;
+    }
+
+    if ((Flags & RTL_DOS_APPLY_FILE_REDIRECTION_USTR_FLAG_RESPECT_DOT_LOCAL) &&
+        NtCurrentPeb()->ProcessParameters &&
+        (NtCurrentPeb()->ProcessParameters->Flags & RTL_USER_PROCESS_PARAMETERS_PRIVATE_DLL_PATH))
+    {
+        UNICODE_STRING RealName, LocalName;
+        WCHAR RealNameBuf[MAX_PATH], LocalNameBuf[MAX_PATH];
+
+        RtlInitEmptyUnicodeString(&RealName, RealNameBuf, sizeof(RealNameBuf));
+        RtlInitEmptyUnicodeString(&LocalName, LocalNameBuf, sizeof(LocalNameBuf));
+
+        Status = RtlComputePrivatizedDllName_U(OriginalName, &RealName, &LocalName);
+        if (!NT_SUCCESS(Status))
+        {
+            DPRINT1("RtlComputePrivatizedDllName_U failed for %wZ: 0x%lx\n", OriginalName, Status);
+            return Status;
+        }
+
+        if (RtlDoesFileExists_UStr(&LocalName))
+        {
+            Status = get_buffer(&fullname, LocalName.Length + sizeof(UNICODE_NULL), StaticString, DynamicString != NULL);
+            if (NT_SUCCESS(Status))
+            {
+                RtlCopyMemory(fullname, LocalName.Buffer, LocalName.Length + sizeof(UNICODE_NULL));
+            }
+            else
+            {
+                DPRINT1("Error while retrieving buffer for %wZ: 0x%lx\n", OriginalName, Status);
+            }
+        }
+        else if (RtlDoesFileExists_UStr(&RealName))
+        {
+            Status = get_buffer(&fullname, RealName.Length + sizeof(UNICODE_NULL), StaticString, DynamicString != NULL);
+            if (NT_SUCCESS(Status))
+            {
+                RtlCopyMemory(fullname, RealName.Buffer, RealName.Length + sizeof(UNICODE_NULL));
+            }
+            else
+            {
+                DPRINT1("Error while retrieving buffer for %wZ: 0x%lx\n", OriginalName, Status);
+            }
+        }
+        else
+        {
+            Status = STATUS_NOT_FOUND;
+        }
+
+        if (RealName.Buffer != RealNameBuf)
+            RtlFreeUnicodeString(&RealName);
+        if (LocalName.Buffer != LocalNameBuf)
+            RtlFreeUnicodeString(&LocalName);
+
+        if (NT_SUCCESS(Status))
+        {
+            DPRINT("Redirecting %wZ to %S\n", OriginalName, fullname);
+            if (!StaticString || StaticString->Buffer != fullname)
+            {
+                RtlInitUnicodeString(DynamicString, fullname);
+                *NewName = DynamicString;
+            }
+            else
+            {
+                *NewName = StaticString;
+            }
+            return Status;
+        }
     }
 
     pstrParam = OriginalName;
@@ -877,6 +988,170 @@ RtlDosApplyFileIsolationRedirection_Ustr(IN ULONG Flags,
     else
     {
         *NewName = StaticString;
+    }
+
+    return Status;
+}
+
+#ifndef TAG_USTR
+#define TAG_USTR 'RTSU'
+#endif
+#ifndef RtlpAllocateStringMemory
+#define RtlpAllocateStringMemory(Bytes, Tag) RtlpAllocateMemory(Bytes, Tag)
+#endif
+
+static DWORD
+LdrpApisetVersion(VOID)
+{
+    static DWORD CachedApisetVersion = ~0u;
+
+    if (CachedApisetVersion == ~0u)
+    {
+        DWORD CompatVersion = RosGetProcessCompatVersion();
+
+        switch (CompatVersion)
+        {
+            case 0:
+                break;
+            case _WIN32_WINNT_VISTA:
+                /* No apisets in vista yet*/
+                CachedApisetVersion = 0;
+                break;
+            case _WIN32_WINNT_WIN7:
+                CachedApisetVersion = APISET_WIN7;
+                DPRINT1("Activating apisets for Win7\n");
+                break;
+            case _WIN32_WINNT_WIN8:
+                CachedApisetVersion = APISET_WIN8;
+                DPRINT1("Activating apisets for Win8\n");
+                break;
+            case _WIN32_WINNT_WINBLUE:
+                CachedApisetVersion = APISET_WIN81;
+                DPRINT1("Activating apisets for Win8.1\n");
+                break;
+            case _WIN32_WINNT_WIN10:
+                CachedApisetVersion = APISET_WIN10;
+                DPRINT1("Activating apisets for Win10\n");
+                break;
+            default:
+                DPRINT1("Unknown version 0x%x\n", CompatVersion);
+                CachedApisetVersion = 0;
+                break;
+        }
+    }
+
+    return CachedApisetVersion;
+}
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+LdrpApplyFileNameRedirection(
+    _In_ PUNICODE_STRING OriginalName,
+    _In_ PUNICODE_STRING Extension,
+    _Inout_opt_ PUNICODE_STRING StaticString,
+    _Inout_opt_ PUNICODE_STRING DynamicString,
+    _Inout_ PUNICODE_STRING *NewName,
+    _Out_ PBOOLEAN RedirectedDll)
+{
+
+    /* Check for invalid parameters */
+    if (!OriginalName)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    if (!DynamicString && !StaticString)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    if (!NewName)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    *RedirectedDll = FALSE;
+
+    PCUNICODE_STRING PrevNewName = *NewName;
+    UNICODE_STRING ApisetName = {0};
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    DWORD ApisetVersion = LdrpApisetVersion();
+    if (ApisetVersion)
+    {
+        Status = ApiSetResolveToHost(ApisetVersion, OriginalName, RedirectedDll, &ApisetName);
+        if (!NT_SUCCESS(Status))
+        {
+            DPRINT1("ApiSetResolveToHost FAILED: (Status 0x%x)\n", Status);
+            return Status;
+        }
+    }
+
+    if (*RedirectedDll)
+    {
+        UNICODE_STRING NtSystemRoot;
+        static const UNICODE_STRING System32 = RTL_CONSTANT_STRING(L"\\System32\\");
+        PUNICODE_STRING ResultPath = NULL;
+
+        /* This is an apiset we can use */
+        RtlInitUnicodeString(&NtSystemRoot, SharedUserData->NtSystemRoot);
+
+        SIZE_T Needed = System32.Length + ApisetName.Length + NtSystemRoot.Length + sizeof(UNICODE_NULL);
+
+        if (StaticString && StaticString->MaximumLength >= (USHORT)Needed)
+        {
+            StaticString->Length = 0;
+            ResultPath = StaticString;
+        }
+        else if (DynamicString)
+        {
+            DynamicString->Buffer = RtlpAllocateStringMemory(Needed, TAG_USTR);
+            if (DynamicString->Buffer == NULL)
+            {
+                DPRINT1("LdrpApplyFileNameRedirection out of memory\n");
+                return STATUS_NO_MEMORY;
+            }
+            DynamicString->MaximumLength = (USHORT)Needed;
+            DynamicString->Length = 0;
+
+            ResultPath = DynamicString;
+        }
+        else
+        {
+            DPRINT1("ERROR: LdrpApplyFileNameRedirection no inputbuffer valid\n");
+            return STATUS_INVALID_PARAMETER;
+        }
+
+        RtlAppendUnicodeStringToString(ResultPath, &NtSystemRoot);
+        RtlAppendUnicodeStringToString(ResultPath, &System32);
+        RtlAppendUnicodeStringToString(ResultPath, &ApisetName);
+        DPRINT1("ApiSetResolveToHost redirected %wZ to %wZ\n", OriginalName, ResultPath);
+        *NewName = ResultPath;
+    }
+    else
+    {
+        /* Check if the SxS Assemblies specify another file */
+        Status = RtlDosApplyFileIsolationRedirection_Ustr(RTL_DOS_APPLY_FILE_REDIRECTION_USTR_FLAG_RESPECT_DOT_LOCAL, OriginalName, Extension, StaticString, DynamicString, NewName, NULL, NULL, NULL);
+
+        /* Check success */
+        if (NT_SUCCESS(Status))
+        {
+            /* Let Ldrp know */
+            *RedirectedDll = TRUE;
+        }
+        else if (Status == STATUS_SXS_KEY_NOT_FOUND)
+        {
+            ASSERT(*NewName == PrevNewName);
+            Status = STATUS_SUCCESS;
+        }
+        else
+        {
+            /* Unrecoverable SxS failure; did we get a string? */
+            if (DynamicString && DynamicString->Buffer)
+                RtlFreeUnicodeString(DynamicString);
+            return Status;
+        }
     }
 
     return Status;

@@ -3,7 +3,8 @@
  * PROJECT:          ReactOS kernel
  * PURPOSE:          Coordinate systems
  * FILE:             win32ss/gdi/ntgdi/coord.c
- * PROGRAMER:        Timo Kreuzer (timo.kreuzer@rectos.org)
+ * PROGRAMERS:       Timo Kreuzer (timo.kreuzer@rectos.org)
+ *                   Katayama Hirofumi MZ (katayama.hirofumi.mz@gmail.com)
  */
 
 /* Coordinate translation overview
@@ -195,7 +196,7 @@ DC_vUpdateWorldToDevice(PDC pdc)
     XFORMOBJ_iCombine(&xoWorldToDevice, &xoWorldToPage, &xoPageToDevice);
 
     /* Reset the flags */
-    pdc->pdcattr->flXform &= ~(PAGE_XLATE_CHANGED|PAGE_EXTENTS_CHANGED|WORLD_XFORM_CHANGED);
+    pdc->pdcattr->flXform &= ~WORLD_XFORM_CHANGED;
 }
 
 VOID
@@ -213,7 +214,7 @@ DC_vUpdateDeviceToWorld(PDC pdc)
     XFORMOBJ_vInit(&xoDeviceToWorld, &pdc->pdcattr->mxDeviceToWorld);
     if (XFORMOBJ_iInverse(&xoDeviceToWorld, &xoWorldToDevice) == DDI_ERROR)
     {
-        // FIXME: do we need to reset anything?
+        MX_Set0(&pdc->pdcattr->mxDeviceToWorld);
         return;
     }
 
@@ -377,10 +378,14 @@ NtGdiTransformPoints(
     if (Count <= 0)
         return TRUE;
 
+    if (!UnsafePtsIn || !UnsafePtOut)
+    {
+        return FALSE;
+    }
+
     pdc = DC_LockDc(hDC);
     if (!pdc)
     {
-        EngSetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
     }
 
@@ -411,11 +416,11 @@ NtGdiTransformPoints(
     switch (iMode)
     {
         case GdiDpToLp:
-            DC_vXformDeviceToWorld(pdc, Count, Points, Points);
+            ret = INTERNAL_APPLY_MATRIX(DC_pmxDeviceToWorld(pdc), Points, Count);
             break;
 
         case GdiLpToDp:
-            DC_vXformWorldToDevice(pdc, Count, Points, Points);
+            ret = INTERNAL_APPLY_MATRIX(DC_pmxWorldToDevice(pdc), Points, Count);
             break;
 
         case 2: // Not supported yet. Need testing.
@@ -427,17 +432,20 @@ NtGdiTransformPoints(
         }
     }
 
-    _SEH2_TRY
+    if (ret)
     {
-        /* Pointer was already probed! */
-        RtlCopyMemory(UnsafePtOut, Points, Size);
+        _SEH2_TRY
+        {
+            /* Pointer was already probed! */
+            RtlCopyMemory(UnsafePtOut, Points, Size);
+        }
+        _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+        {
+            /* Do not set last error */
+            ret = FALSE;
+        }
+        _SEH2_END;
     }
-    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
-    {
-        /* Do not set last error */
-        ret = 0;
-    }
-    _SEH2_END;
 
 //
 // If we are getting called that means User XForms is a mess!
@@ -595,7 +603,7 @@ NtGdiOffsetViewportOrgEx(
     }
     pdcattr->ptlViewportOrg.x += XOffset;
     pdcattr->ptlViewportOrg.y += YOffset;
-    pdcattr->flXform |= PAGE_XLATE_CHANGED;
+    pdcattr->flXform |= PAGE_XLATE_CHANGED | WORLD_XFORM_CHANGED | DEVICE_TO_WORLD_INVALID;
 
     DC_UnlockDc(dc);
 
@@ -647,7 +655,7 @@ NtGdiOffsetWindowOrgEx(
 
     pdcattr->ptlWindowOrg.x += XOffset;
     pdcattr->ptlWindowOrg.y += YOffset;
-    pdcattr->flXform |= PAGE_XLATE_CHANGED|DEVICE_TO_WORLD_INVALID;
+    pdcattr->flXform |= PAGE_XLATE_CHANGED | WORLD_XFORM_CHANGED | DEVICE_TO_WORLD_INVALID;
 
     DC_UnlockDc(dc);
 
@@ -696,6 +704,7 @@ NtGdiScaleViewportExtEx(
 
                     pdcattr->flXform |= (PAGE_EXTENTS_CHANGED |
                                          INVALIDATE_ATTRIBUTES |
+                                         WORLD_XFORM_CHANGED |
                                          DEVICE_TO_WORLD_INVALID);
 
                     if (pdcattr->iMapMode == MM_ISOTROPIC)
@@ -797,7 +806,10 @@ NtGdiScaleWindowExtEx(
 
                     IntMirrorWindowOrg(pDC);
 
-                    pdcattr->flXform |= (PAGE_EXTENTS_CHANGED|INVALIDATE_ATTRIBUTES|DEVICE_TO_WORLD_INVALID);
+                    pdcattr->flXform |= (PAGE_EXTENTS_CHANGED |
+                                         INVALIDATE_ATTRIBUTES |
+                                         WORLD_XFORM_CHANGED |
+                                         DEVICE_TO_WORLD_INVALID);
 
                     Ret = TRUE;
                 }
@@ -820,6 +832,9 @@ IntGdiSetMapMode(
     INT iPrevMapMode;
     FLONG flXform;
     PDC_ATTR pdcattr = dc->pdcattr;
+
+    if (MapMode == pdcattr->iMapMode)
+        return MapMode;
 
     flXform = pdcattr->flXform & ~(ISO_OR_ANISO_MAP_MODE|PTOD_EFM22_NEGATIVE|
         PTOD_EFM11_NEGATIVE|POSITIVE_Y_IS_UP|PAGE_TO_DEVICE_SCALE_IDENTITY|
@@ -854,22 +869,22 @@ IntGdiSetMapMode(
             break;
 
         case MM_LOENGLISH:
-            pdcattr->szlWindowExt.cx = MulDiv(1000, pdcattr->szlVirtualDeviceMm.cx, 254);
-            pdcattr->szlWindowExt.cy = MulDiv(1000, pdcattr->szlVirtualDeviceMm.cy, 254);
+            pdcattr->szlWindowExt.cx = EngMulDiv(1000, pdcattr->szlVirtualDeviceMm.cx, 254);
+            pdcattr->szlWindowExt.cy = EngMulDiv(1000, pdcattr->szlVirtualDeviceMm.cy, 254);
             pdcattr->szlViewportExt.cx =  pdcattr->szlVirtualDevicePixel.cx;
             pdcattr->szlViewportExt.cy = -pdcattr->szlVirtualDevicePixel.cy;
             break;
 
         case MM_HIENGLISH:
-            pdcattr->szlWindowExt.cx = MulDiv(10000, pdcattr->szlVirtualDeviceMm.cx, 254);
-            pdcattr->szlWindowExt.cy = MulDiv(10000, pdcattr->szlVirtualDeviceMm.cy, 254);
+            pdcattr->szlWindowExt.cx = EngMulDiv(10000, pdcattr->szlVirtualDeviceMm.cx, 254);
+            pdcattr->szlWindowExt.cy = EngMulDiv(10000, pdcattr->szlVirtualDeviceMm.cy, 254);
             pdcattr->szlViewportExt.cx =  pdcattr->szlVirtualDevicePixel.cx;
             pdcattr->szlViewportExt.cy = -pdcattr->szlVirtualDevicePixel.cy;
             break;
 
         case MM_TWIPS:
-            pdcattr->szlWindowExt.cx = MulDiv(14400, pdcattr->szlVirtualDeviceMm.cx, 254);
-            pdcattr->szlWindowExt.cy = MulDiv(14400, pdcattr->szlVirtualDeviceMm.cy, 254);
+            pdcattr->szlWindowExt.cx = EngMulDiv(14400, pdcattr->szlVirtualDeviceMm.cx, 254);
+            pdcattr->szlWindowExt.cy = EngMulDiv(14400, pdcattr->szlVirtualDeviceMm.cy, 254);
             pdcattr->szlViewportExt.cx =  pdcattr->szlVirtualDevicePixel.cx;
             pdcattr->szlViewportExt.cy = -pdcattr->szlVirtualDevicePixel.cy;
             break;
@@ -888,8 +903,9 @@ IntGdiSetMapMode(
     pdcattr->iMapMode = MapMode;
 
     /* Update xform flags */
-    pdcattr->flXform = flXform | (PAGE_XLATE_CHANGED|PAGE_EXTENTS_CHANGED|
-        INVALIDATE_ATTRIBUTES|DEVICE_TO_PAGE_INVALID|DEVICE_TO_WORLD_INVALID);
+    pdcattr->flXform = flXform | (PAGE_XLATE_CHANGED | PAGE_EXTENTS_CHANGED |
+                                  INVALIDATE_ATTRIBUTES | DEVICE_TO_PAGE_INVALID |
+                                  WORLD_XFORM_CHANGED | DEVICE_TO_WORLD_INVALID);
 
     return iPrevMapMode;
 }
@@ -921,7 +937,7 @@ GreSetViewportOrgEx(
 
     pdcattr->ptlViewportOrg.x = X;
     pdcattr->ptlViewportOrg.y = Y;
-    pdcattr->flXform |= PAGE_XLATE_CHANGED;
+    pdcattr->flXform |= PAGE_XLATE_CHANGED | WORLD_XFORM_CHANGED | DEVICE_TO_WORLD_INVALID;
 
     DC_UnlockDc(dc);
     return TRUE;
@@ -972,7 +988,7 @@ NtGdiSetViewportOrgEx(
 
     pdcattr->ptlViewportOrg.x = X;
     pdcattr->ptlViewportOrg.y = Y;
-    pdcattr->flXform |= PAGE_XLATE_CHANGED;
+    pdcattr->flXform |= PAGE_XLATE_CHANGED | WORLD_XFORM_CHANGED | DEVICE_TO_WORLD_INVALID;
 
     DC_UnlockDc(dc);
 
@@ -1024,7 +1040,7 @@ NtGdiSetWindowOrgEx(
 
     pdcattr->ptlWindowOrg.x = X;
     pdcattr->ptlWindowOrg.y = Y;
-    pdcattr->flXform |= PAGE_XLATE_CHANGED;
+    pdcattr->flXform |= PAGE_XLATE_CHANGED | WORLD_XFORM_CHANGED | DEVICE_TO_WORLD_INVALID;
 
     DC_UnlockDc(dc);
 
@@ -1060,7 +1076,7 @@ IntMirrorWindowOrg(PDC dc)
     X = (X * pdcattr->szlWindowExt.cx) / cx;
 
     pdcattr->ptlWindowOrg.x = pdcattr->lWindowOrgx - X; // Now set the inverted win origion.
-    pdcattr->flXform |= PAGE_XLATE_CHANGED;
+    pdcattr->flXform |= PAGE_XLATE_CHANGED | WORLD_XFORM_CHANGED | DEVICE_TO_WORLD_INVALID;
 
     return;
 }
@@ -1100,6 +1116,7 @@ DC_vSetLayout(
 
     pdcattr->flXform |= (PAGE_EXTENTS_CHANGED |
                          INVALIDATE_ATTRIBUTES |
+                         WORLD_XFORM_CHANGED |
                          DEVICE_TO_WORLD_INVALID);
 }
 

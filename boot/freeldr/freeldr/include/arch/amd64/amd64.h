@@ -22,24 +22,19 @@
 #pragma once
 #endif
 
-// This is needed because headers define wrong one for ReactOS
-#undef KIP0PCRADDRESS
-#define KIP0PCRADDRESS                      0xFFFFF78000001000ULL /* FIXME!!! */
-
 #define VA_MASK 0x0000FFFFFFFFFFFFUL
 
 #define PtrToPfn(p) \
     ((((ULONGLONG)p) >> PAGE_SHIFT) & 0xfffffffULL)
 
-#define VAtoPXI(va) ((((ULONG64)va) >> PXI_SHIFT) & 0x1FF)
-#define VAtoPPI(va) ((((ULONG64)va) >> PPI_SHIFT) & 0x1FF)
-#define VAtoPDI(va) ((((ULONG64)va) >> PDI_SHIFT) & 0x1FF)
-#define VAtoPTI(va) ((((ULONG64)va) >> PTI_SHIFT) & 0x1FF)
+#define VAtoPXI(va) ((((ULONG64)(va)) >> PXI_SHIFT) & 0x1FF)
+#define VAtoPPI(va) ((((ULONG64)(va)) >> PPI_SHIFT) & 0x1FF)
+#define VAtoPDI(va) ((((ULONG64)(va)) >> PDI_SHIFT) & 0x1FF)
+#define VAtoPTI(va) ((((ULONG64)(va)) >> PTI_SHIFT) & 0x1FF)
 
 #ifndef ASM
 
 VOID FrLdrSetupGdtIdt(VOID);
-#define MachInit PcMachInit
 #endif
 
 /* EOF */

@@ -4,6 +4,7 @@
 
 #include <precomp.h>
 
+static BOOL gbInitialized = FALSE;
 extern HGDIOBJ stock_objects[];
 BOOL SetStockObjects = FALSE;
 PDEVCAPS GdiDevCaps = NULL;
@@ -13,16 +14,19 @@ RTL_CRITICAL_SECTION semLocal;
 extern CRITICAL_SECTION gcsClientObjLinks;
 
 /*
- * GDI32.DLL does have an entry point for disable threadlibrarycall,. The initialization is done by a call
- * to GdiDllInitialize(). This call is done from the entry point of USER32.DLL.
+ * GDI32.DLL does have an entry point for DisableThreadLibraryCalls().
+ * The initialization is done by a call to GdiDllInitialize(). This
+ * call is done from the entry point of USER32.DLL.
  */
 BOOL
 WINAPI
 DllMain(
-    HANDLE  hDll,
-    DWORD   dwReason,
-    LPVOID  lpReserved)
+    _In_ HANDLE hDll,
+    _In_ ULONG dwReason,
+    _In_opt_ PVOID pReserved)
 {
+    UNREFERENCED_PARAMETER(pReserved);
+
     switch (dwReason)
     {
     case DLL_PROCESS_ATTACH :
@@ -40,17 +44,22 @@ VOID
 WINAPI
 GdiProcessSetup(VOID)
 {
-    hProcessHeap = GetProcessHeap();
+    if (!gbInitialized)
+    {
+        gbInitialized = TRUE;
+        hProcessHeap = GetProcessHeap();
 
-    /* map the gdi handle table to user space */
-    GdiHandleTable = NtCurrentTeb()->ProcessEnvironmentBlock->GdiSharedHandleTable;
-    GdiSharedHandleTable = NtCurrentTeb()->ProcessEnvironmentBlock->GdiSharedHandleTable;
-    GdiDevCaps = &GdiSharedHandleTable->DevCaps;
-    CurrentProcessId = NtCurrentTeb()->ClientId.UniqueProcess;
-    GDI_BatchLimit = (DWORD) NtCurrentTeb()->ProcessEnvironmentBlock->GdiDCAttributeList;
-    GdiHandleCache = (PGDIHANDLECACHE)NtCurrentTeb()->ProcessEnvironmentBlock->GdiHandleBuffer;
-    RtlInitializeCriticalSection(&semLocal);
-    InitializeCriticalSection(&gcsClientObjLinks);
+        /* map the gdi handle table to user space */
+        GdiHandleTable = NtCurrentTeb()->ProcessEnvironmentBlock->GdiSharedHandleTable;
+        GdiSharedHandleTable = NtCurrentTeb()->ProcessEnvironmentBlock->GdiSharedHandleTable;
+        GdiDevCaps = &GdiSharedHandleTable->DevCaps;
+        CurrentProcessId = NtCurrentTeb()->ClientId.UniqueProcess;
+        GDI_BatchLimit = (DWORD) NtCurrentTeb()->ProcessEnvironmentBlock->GdiDCAttributeList;
+        GdiHandleCache = (PGDIHANDLECACHE)NtCurrentTeb()->ProcessEnvironmentBlock->GdiHandleBuffer;
+        RtlInitializeCriticalSection(&semLocal);
+        InitializeCriticalSection(&gcsClientObjLinks);
+        GdiInitializeLanguagePack(0);
+    }
 }
 
 VOID
@@ -68,10 +77,12 @@ GdiProcessShutdown(VOID)
 BOOL
 WINAPI
 GdiDllInitialize(
-    HANDLE hDll,
-    DWORD dwReason,
-    LPVOID lpReserved)
+    _In_ HANDLE hDll,
+    _In_ ULONG dwReason,
+    _In_opt_ PVOID pReserved)
 {
+    UNREFERENCED_PARAMETER(pReserved);
+
     switch (dwReason)
     {
         case DLL_PROCESS_ATTACH:

@@ -209,7 +209,7 @@ CreateDirectoryExW(IN LPCWSTR lpTemplateDirectory,
     FILE_ATTRIBUTE_TAG_INFORMATION FileTagInfo;
     UNICODE_STRING NtPathU, NtTemplatePathU, NewDirectory;
     RTL_RELATIVE_NAME_U RelativeName, TemplateRelativeName;
-    PWSTR TemplateBuffer, PathUBuffer, FilePart, SubstituteName;        
+    PWSTR TemplateBuffer, PathUBuffer, FilePart, SubstituteName;
 
     /* Get relative name of the template */
     if (!RtlDosPathNameToRelativeNtPathName_U(lpTemplateDirectory, &NtTemplatePathU, NULL, &TemplateRelativeName))
@@ -423,7 +423,7 @@ OpenWithoutReparseSupport:
         CloseHandle(TemplateHandle);
         BaseSetLastNTError(Status);
         return FALSE;
-    } 
+    }
 
     /* Start reading extended attributes */
     if (FileEaInfo.EaSize != 0)
@@ -919,8 +919,8 @@ RemoveDirectoryW(IN LPCWSTR lpPathName)
         return FALSE;
     }
 
-    RtlCopyMemory(&PathName.Buffer, lpPathName, PathName.Length);
-    if (PathName.Buffer[PathName.Length / sizeof(WCHAR)] != L'\\')
+    RtlCopyMemory(PathName.Buffer, lpPathName, PathName.Length);
+    if (PathName.Buffer[(PathName.Length / sizeof(WCHAR)) - 1] != L'\\')
     {
         PathName.Buffer[PathName.Length / sizeof(WCHAR)] = L'\\';
         PathName.Buffer[(PathName.Length / sizeof(WCHAR)) + 1] = UNICODE_NULL;

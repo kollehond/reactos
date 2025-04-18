@@ -1,7 +1,6 @@
 /*
  * PROJECT:     ReactOS DMI/SMBIOS Library
  * LICENSE:     GPL - See COPYING in the top level directory
- * FILE:        dmilib.h
  * PURPOSE:     SMBIOS table parsing functions
  * PROGRAMMERS: Timo Kreuzer (timo.kreuzer@reactos.org)
  */
@@ -18,6 +17,8 @@ enum _ID_STRINGS
     SYS_PRODUCT,
     SYS_VERSION,
     SYS_SERIAL,
+    SYS_SKU,
+    SYS_FAMILY,
     BOARD_VENDOR,
     BOARD_NAME,
     BOARD_VERSION,

@@ -12,14 +12,13 @@
 #define WIN32_NO_STATUS
 #define WIN32_LEAN_AND_MEAN
 
-#include <rpc.h>
+#define NTOS_MODE_USER
 #include <ndk/rtlfuncs.h>
 #include <ndk/kdtypes.h>
+#include <dpfilter.h>
 
-//
-// FIXME: Should go in public headers
-//
-#define DPFLTR_SVCHOST_ID 28
+#include <rpc.h>
+#include <svc.h>
 
 //
 // This prints out a SVCHOST-specific debug print, with the PID/TID
@@ -36,55 +35,13 @@
 #define DBG_TRACE(fmt, ...) SvchostDbgPrint(4, fmt, __VA_ARGS__)
 
 //
-// This is the callback that a hosted service can register for stop notification
-// FIXME: GLOBAL HEADER
-//
-typedef VOID
-    (CALLBACK *PSVCHOST_STOP_CALLBACK) (
-    _In_ PVOID lpParameter,
-    _In_ BOOLEAN TimerOrWaitFired
-    );
-
-//
-// Hosted Services and SvcHost Use this Structure
-// FIXME: GLOBAL HEADER
-//
-typedef struct _SVCHOST_GLOBALS
-{
-    PVOID NullSid;
-    PVOID WorldSid;
-    PVOID LocalSid;
-    PVOID NetworkSid;
-    PVOID LocalSystemSid;
-    PVOID LocalServiceSid;
-    PVOID NetworkServiceSid;
-    PVOID BuiltinDomainSid;
-    PVOID AuthenticatedUserSid;
-    PVOID AnonymousLogonSid;
-    PVOID AliasAdminsSid;
-    PVOID AliasUsersSid;
-    PVOID AliasGuestsSid;
-    PVOID AliasPowerUsersSid;
-    PVOID AliasAccountOpsSid;
-    PVOID AliasSystemOpsSid;
-    PVOID AliasPrintOpsSid;
-    PVOID AliasBackupOpsSid;
-    PVOID RpcpStartRpcServer;
-    PVOID RpcpStopRpcServer;
-    PVOID RpcpStopRpcServerEx;
-    PVOID SvcNetBiosOpen;
-    PVOID SvcNetBiosClose;
-    PVOID SvcNetBiosReset;
-    PVOID SvcRegisterStopCallback;
-} SVCHOST_GLOBALS, *PSVCHOST_GLOBALS;
-
-//
 // This is the callback for them to receive it
 //
 typedef VOID
 (WINAPI *PSVCHOST_INIT_GLOBALS) (
-    _In_ PSVCHOST_GLOBALS Globals
+    _In_ PSVCHOST_GLOBAL_DATA Globals
 );
+
 //
 // Initialization Stages
 //
@@ -97,7 +54,7 @@ typedef VOID
 //
 typedef struct _DOMAIN_SID_DATA
 {
-    PSID Sid;
+    PSID* Sid;
     DWORD SubAuthority;
 } DOMAIN_SID_DATA;
 
@@ -106,7 +63,7 @@ typedef struct _DOMAIN_SID_DATA
 //
 typedef struct _SID_DATA
 {
-    PSID Sid;
+    PSID* Sid;
     SID_IDENTIFIER_AUTHORITY Authority;
     DWORD SubAuthority;
 } SID_DATA;
@@ -183,7 +140,7 @@ RpcpStopRpcServerEx (
 NTSTATUS
 NTAPI
 RpcpStartRpcServer (
-    _In_ LPCWSTR IfName,
+    _In_ PCWSTR IfName,
     _In_ RPC_IF_HANDLE IfSpec
 );
 
@@ -233,7 +190,7 @@ SvcNetBiosInit (
 VOID
 WINAPI
 SvcNetBiosClose (
-VOID
+    VOID
 );
 
 VOID
@@ -287,14 +244,14 @@ RegQueryStringA (
 DWORD
 WINAPI
 SvcRegisterStopCallback (
-    _In_ PHANDLE phNewWaitObject,
-    _In_ LPCWSTR ServiceName,
+    _Out_ PHANDLE phNewWaitObject,
+    _In_ PCWSTR ServiceName,
     _In_ HANDLE hObject,
     _In_ PSVCHOST_STOP_CALLBACK pfnStopCallback,
     _In_ PVOID pContext,
     _In_ ULONG dwFlags
 );
 
-extern PSVCHOST_GLOBALS g_pSvchostSharedGlobals;
+extern PSVCHOST_GLOBAL_DATA g_pSvchostSharedGlobals;
 
 #endif /* _SVCHOST_PCH_ */

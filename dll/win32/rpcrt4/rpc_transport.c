@@ -35,8 +35,6 @@
 #include <string.h>
 #include <assert.h>
 
-
-
 #include "windef.h"
 #include "winbase.h"
 #include "winnls.h"
@@ -44,7 +42,6 @@
 #include "wininet.h"
 #include "wine/winternl.h"
 #include "winioctl.h"
-#include "wine/unicode.h"
 
 #include "rpc.h"
 #include "rpcndr.h"
@@ -58,9 +55,6 @@
 #include "epm_towers.h"
 
 #define DEFAULT_NCACN_HTTP_TIMEOUT (60 * 1000)
-
-#undef ARRAYSIZE
-#define ARRAYSIZE(a) (sizeof((a)) / sizeof((a)[0]))
 
 WINE_DEFAULT_DEBUG_CHANNEL(rpc);
 
@@ -113,23 +107,263 @@ static void release_np_event(RpcConnection_np *connection, HANDLE event)
         CloseHandle(event);
 }
 
+#ifdef __REACTOS__
+/**
+ * @brief
+ * Creates a security descriptor for RPC4 pipe
+ *
+ * @param[out] SecDesc
+ * A pointer to an allocated security descriptor.
+ *
+ * @return
+ * ERROR_SUCCESS is returned if the function has
+ * successfully created the security descriptor,
+ * otherwise a Win32 error code is returned.
+ *
+ * @remarks
+ * Everyone (aka World SID) and anonynous users
+ * are given a subset of rights to access the pipe,
+ * whereas admins are given full power.
+ */
+static DWORD rpcrt4_create_pipe_security(PSECURITY_DESCRIPTOR *SecDesc)
+{
+    DWORD ErrCode;
+    PACL Dacl;
+    ULONG DaclSize, RelSDSize = 0;
+    PSID EveryoneSid = NULL, AnonymousSid = NULL, AdminsSid = NULL;
+    PSECURITY_DESCRIPTOR AbsSD = NULL, RelSD = NULL;
+    static SID_IDENTIFIER_AUTHORITY WorldAuthority = {SECURITY_WORLD_SID_AUTHORITY};
+    static SID_IDENTIFIER_AUTHORITY NtAuthority = {SECURITY_NT_AUTHORITY};
+
+    if (!AllocateAndInitializeSid(&WorldAuthority,
+                                  1,
+                                  SECURITY_WORLD_RID,
+                                  0, 0, 0, 0, 0, 0, 0,
+                                  &EveryoneSid))
+    {
+       ERR("rpcrt4_create_pipe_security(): Failed to allocate Everyone SID (error code %d)\n", GetLastError());
+       return GetLastError();
+    }
+
+    if (!AllocateAndInitializeSid(&NtAuthority,
+                                  1,
+                                  SECURITY_ANONYMOUS_LOGON_RID,
+                                  0, 0, 0, 0, 0, 0, 0,
+                                  &AnonymousSid))
+    {
+        ERR("rpcrt4_create_pipe_security(): Failed to allocate Anonymous SID (error code %d)\n", GetLastError());
+        ErrCode = GetLastError();
+        goto Quit;
+    }
+
+    if (!AllocateAndInitializeSid(&NtAuthority,
+                                  2,
+                                  SECURITY_BUILTIN_DOMAIN_RID,
+                                  DOMAIN_ALIAS_RID_ADMINS,
+                                  0, 0, 0, 0, 0, 0,
+                                  &AdminsSid))
+    {
+        ERR("rpcrt4_create_pipe_security(): Failed to allocate Admins SID (error code %d)\n", GetLastError());
+        ErrCode = GetLastError();
+        goto Quit;
+    }
+
+    AbsSD = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(SECURITY_DESCRIPTOR));
+    if (AbsSD == NULL)
+    {
+        ERR("rpcrt4_create_pipe_security(): Failed to allocate absolute SD!\n");
+        ErrCode = ERROR_OUTOFMEMORY;
+        goto Quit;
+    }
+
+    if (!InitializeSecurityDescriptor(AbsSD, SECURITY_DESCRIPTOR_REVISION))
+    {
+        ERR("rpcrt4_create_pipe_security(): Failed to create absolute SD (error code %d)\n", GetLastError());
+        ErrCode = GetLastError();
+        goto Quit;
+    }
+
+    DaclSize = sizeof(ACL) +
+               sizeof(ACCESS_ALLOWED_ACE) + RtlLengthSid(EveryoneSid) +
+               sizeof(ACCESS_ALLOWED_ACE) + RtlLengthSid(AnonymousSid) +
+               sizeof(ACCESS_ALLOWED_ACE) + RtlLengthSid(AdminsSid);
+
+
+    Dacl = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, DaclSize);
+    if (Dacl == NULL)
+    {
+        ERR("rpcrt4_create_pipe_security(): Failed to allocate DACL!\n");
+        ErrCode = ERROR_OUTOFMEMORY;
+        goto Quit;
+    }
+
+    if (!InitializeAcl(Dacl, DaclSize, ACL_REVISION))
+    {
+        ERR("rpcrt4_create_pipe_security(): Failed to create DACL (error code %d)\n", GetLastError());
+        ErrCode = GetLastError();
+        goto Quit;
+    }
+
+    if (!AddAccessAllowedAce(Dacl,
+                             ACL_REVISION,
+                             GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE | READ_CONTROL,
+                             EveryoneSid))
+    {
+        ERR("rpcrt4_create_pipe_security(): Failed to set up ACE for Everyone SID (error code %d)\n", GetLastError());
+        ErrCode = GetLastError();
+        goto Quit;
+    }
+
+    if (!AddAccessAllowedAce(Dacl,
+                             ACL_REVISION,
+                             GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE | READ_CONTROL,
+                             AnonymousSid))
+    {
+        ERR("rpcrt4_create_pipe_security(): Failed to set up ACE for Anonymous SID (error code %d)\n", GetLastError());
+        ErrCode = GetLastError();
+        goto Quit;
+    }
+
+    if (!AddAccessAllowedAce(Dacl,
+                             ACL_REVISION,
+                             GENERIC_ALL,
+                             AdminsSid))
+    {
+        ERR("rpcrt4_create_pipe_security(): Failed to set up ACE for Admins SID (error code %d)\n", GetLastError());
+        ErrCode = GetLastError();
+        goto Quit;
+    }
+
+    if (!SetSecurityDescriptorDacl(AbsSD, TRUE, Dacl, FALSE))
+    {
+        ERR("rpcrt4_create_pipe_security(): Failed to set DACL to absolute SD (error code %d)\n", GetLastError());
+        ErrCode = GetLastError();
+        goto Quit;
+    }
+
+    if (!SetSecurityDescriptorOwner(AbsSD, AdminsSid, FALSE))
+    {
+        ERR("rpcrt4_create_pipe_security(): Failed to set SD owner (error code %d)\n", GetLastError());
+        ErrCode = GetLastError();
+        goto Quit;
+    }
+
+    if (!SetSecurityDescriptorGroup(AbsSD, AdminsSid, FALSE))
+    {
+        ERR("rpcrt4_create_pipe_security(): Failed to set SD group (error code %d)\n", GetLastError());
+        ErrCode = GetLastError();
+        goto Quit;
+    }
+
+    if (!MakeSelfRelativeSD(AbsSD, NULL, &RelSDSize) && GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+    {
+        ERR("rpcrt4_create_pipe_security(): Unexpected error code (error code %d -- must be ERROR_INSUFFICIENT_BUFFER)\n", GetLastError());
+        ErrCode = GetLastError();
+        goto Quit;
+    }
+
+    RelSD = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, RelSDSize);
+    if (RelSD == NULL)
+    {
+        ERR("rpcrt4_create_pipe_security(): Failed to allocate relative SD!\n");
+        ErrCode = ERROR_OUTOFMEMORY;
+        goto Quit;
+    }
+
+    if (!MakeSelfRelativeSD(AbsSD, RelSD, &RelSDSize) && GetLastError() == ERROR_INSUFFICIENT_BUFFER)
+    {
+        ERR("rpcrt4_create_pipe_security(): Failed to allocate relative SD, buffer too smal (expected size %lu)\n", RelSDSize);
+        ErrCode = ERROR_INSUFFICIENT_BUFFER;
+        goto Quit;
+    }
+
+    TRACE("rpcrt4_create_pipe_security(): Success!\n");
+    *SecDesc = RelSD;
+    ErrCode = ERROR_SUCCESS;
+
+Quit:
+    if (ErrCode != ERROR_SUCCESS)
+    {
+        if (RelSD != NULL)
+        {
+            HeapFree(GetProcessHeap(), 0, RelSD);
+        }
+    }
+
+    if (EveryoneSid != NULL)
+    {
+        FreeSid(EveryoneSid);
+    }
+
+    if (AnonymousSid != NULL)
+    {
+        FreeSid(AnonymousSid);
+    }
+
+    if (AdminsSid != NULL)
+    {
+        FreeSid(AdminsSid);
+    }
+
+    if (Dacl != NULL)
+    {
+        HeapFree(GetProcessHeap(), 0, Dacl);
+    }
+
+    if (AbsSD != NULL)
+    {
+        HeapFree(GetProcessHeap(), 0, AbsSD);
+    }
+
+    return ErrCode;
+}
+#endif
+
 static RPC_STATUS rpcrt4_conn_create_pipe(RpcConnection *conn)
 {
     RpcConnection_np *connection = (RpcConnection_np *) conn;
+#ifdef __REACTOS__
+    DWORD ErrCode;
+    SECURITY_ATTRIBUTES SecurityAttributes;
+    PSECURITY_DESCRIPTOR PipeSecDesc;
+#endif
 
     TRACE("listening on %s\n", connection->listen_pipe);
+
+#ifdef __REACTOS__
+    ErrCode = rpcrt4_create_pipe_security(&PipeSecDesc);
+    if (ErrCode != ERROR_SUCCESS)
+    {
+        ERR("rpcrt4_conn_create_pipe(): Pipe security descriptor creation failed!\n");
+        return RPC_S_CANT_CREATE_ENDPOINT;
+    }
+
+    SecurityAttributes.nLength = sizeof(SECURITY_ATTRIBUTES);
+    SecurityAttributes.lpSecurityDescriptor = PipeSecDesc;
+    SecurityAttributes.bInheritHandle = FALSE;
 
     connection->pipe = CreateNamedPipeA(connection->listen_pipe, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
                                         PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE,
                                         PIPE_UNLIMITED_INSTANCES,
+                                        RPC_MAX_PACKET_SIZE, RPC_MAX_PACKET_SIZE, 5000, &SecurityAttributes);
+    HeapFree(GetProcessHeap(), 0, PipeSecDesc);
+#else
+    connection->pipe = CreateNamedPipeA(connection->listen_pipe, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                                        PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE,
+                                        PIPE_UNLIMITED_INSTANCES,
                                         RPC_MAX_PACKET_SIZE, RPC_MAX_PACKET_SIZE, 5000, NULL);
+#endif
     if (connection->pipe == INVALID_HANDLE_VALUE)
     {
         WARN("CreateNamedPipe failed with error %d\n", GetLastError());
         if (GetLastError() == ERROR_FILE_EXISTS)
+        {
             return RPC_S_DUPLICATE_ENDPOINT;
+        }
         else
+        {
             return RPC_S_CANT_CREATE_ENDPOINT;
+        }
     }
 
     return RPC_S_OK;
@@ -180,6 +414,11 @@ static RPC_STATUS rpcrt4_conn_open_pipe(RpcConnection *Connection, LPCSTR pname,
       }
       TRACE("connection failed, error=%x\n", err);
       return RPC_S_SERVER_TOO_BUSY;
+#ifdef __REACTOS__
+    } else if (err == ERROR_BAD_NETPATH) {
+      TRACE("connection failed, error=%x\n", err);
+      return RPC_S_SERVER_UNAVAILABLE;
+#endif
     }
     if (!wait || !WaitNamedPipeA(pname, NMPWAIT_WAIT_FOREVER)) {
       err = GetLastError();
@@ -258,24 +497,53 @@ static RPC_STATUS rpcrt4_protseq_ncalrpc_open_endpoint(RpcServerProtseq* protseq
   return r;
 }
 
+#ifdef __REACTOS__
 static char *ncacn_pipe_name(const char *server, const char *endpoint)
+#else
+static char *ncacn_pipe_name(const char *endpoint)
+#endif
 {
+#ifdef __REACTOS__
   static const char prefix[] = "\\\\";
   static const char local[] = ".";
   char ComputerName[MAX_COMPUTERNAME_LENGTH + 1];
+  DWORD bufLen = ARRAY_SIZE(ComputerName);
+#else
+  static const char prefix[] = "\\\\.";
+#endif
   char *pipe_name;
-  DWORD bufLen = ARRAYSIZE(ComputerName);
 
-  GetComputerNameA(ComputerName, &bufLen);
+#ifdef __REACTOS__
+  if (server != NULL && *server != 0)
+  {
+    /* Trim any leading UNC server prefix. */
+    if (server[0] == '\\' && server[1] == '\\')
+      server += 2;
 
-  if (server == NULL || *server == 0 || stricmp(ComputerName, server) == 0)
+    /* If the server represents the local computer, use instead
+     * the local prefix to avoid a round in UNC name resolution. */
+    if (GetComputerNameA(ComputerName, &bufLen) &&
+        (stricmp(ComputerName, server) == 0))
+    {
       server = local;
+    }
+  }
+  else
+  {
+    server = local;
+  }
+#endif
 
   /* protseq=ncacn_np: named pipes */
+#ifdef __REACTOS__
   pipe_name = I_RpcAllocate(sizeof(prefix) + strlen(server) + strlen(endpoint));
   strcpy(pipe_name, prefix);
   strcat(pipe_name, server);
   strcat(pipe_name, endpoint);
+#else
+  pipe_name = I_RpcAllocate(sizeof(prefix) + strlen(endpoint));
+  strcat(strcpy(pipe_name, prefix), endpoint);
+#endif
   return pipe_name;
 }
 
@@ -289,7 +557,11 @@ static RPC_STATUS rpcrt4_ncacn_np_open(RpcConnection* Connection)
   if (npc->pipe)
     return RPC_S_OK;
 
+#ifdef __REACTOS__
   pname = ncacn_pipe_name(Connection->NetworkAddr, Connection->Endpoint);
+#else
+  pname = ncacn_pipe_name(Connection->Endpoint);
+#endif
   r = rpcrt4_conn_open_pipe(Connection, pname, FALSE);
   I_RpcFree(pname);
 
@@ -317,7 +589,11 @@ static RPC_STATUS rpcrt4_protseq_ncacn_np_open_endpoint(RpcServerProtseq *protse
   if (r != RPC_S_OK)
     return r;
 
+#ifdef __REACTOS__
   ((RpcConnection_np*)Connection)->listen_pipe = ncacn_pipe_name(NULL, Connection->Endpoint);
+#else
+  ((RpcConnection_np*)Connection)->listen_pipe = ncacn_pipe_name(Connection->Endpoint);
+#endif
   r = rpcrt4_conn_create_pipe(Connection);
 
   EnterCriticalSection(&protseq->cs);
@@ -368,7 +644,11 @@ static RPC_STATUS rpcrt4_ncacn_np_is_server_listening(const char *endpoint)
   char *pipe_name;
   RPC_STATUS status;
 
+#ifdef __REACTOS__
   pipe_name = ncacn_pipe_name(NULL, endpoint);
+#else
+  pipe_name = ncacn_pipe_name(endpoint);
+#endif
   status = is_pipe_listening(pipe_name);
   I_RpcFree(pipe_name);
   return status;
@@ -505,10 +785,9 @@ static void rpcrt4_conn_np_cancel_call(RpcConnection *conn)
     CancelIoEx(connection->pipe, NULL);
 }
 
-static int rpcrt4_conn_np_wait_for_incoming_data(RpcConnection *Connection)
+static int rpcrt4_conn_np_wait_for_incoming_data(RpcConnection *conn)
 {
-    /* FIXME: implement when named pipe writes use overlapped I/O */
-    return -1;
+    return rpcrt4_conn_np_read(conn, NULL, 0);
 }
 
 static size_t rpcrt4_ncacn_np_get_top_of_tower(unsigned char *tower_data,
@@ -977,6 +1256,18 @@ static size_t rpcrt4_ip_tcp_get_top_of_tower(unsigned char *tower_data,
     hints.ai_addr           = NULL;
     hints.ai_canonname      = NULL;
     hints.ai_next           = NULL;
+
+#ifdef __REACTOS__
+    static BOOL wsa_inited;
+    if (!wsa_inited)
+    {
+        WSADATA wsadata;
+        WSAStartup(MAKEWORD(2, 2), &wsadata);
+        /* Note: WSAStartup can be called more than once so we don't bother with
+         * making accesses to wsa_inited thread-safe */
+        wsa_inited = TRUE;
+    }
+#endif
 
     ret = getaddrinfo(networkaddr, endpoint, &hints, &ai);
     if (ret)
@@ -1953,38 +2244,38 @@ static RPC_STATUS rpcrt4_http_internet_connect(RpcConnection_http *httpc)
     }
 
     for (option = httpc->common.NetworkOptions; option;
-         option = (strchrW(option, ',') ? strchrW(option, ',')+1 : NULL))
+         option = (wcschr(option, ',') ? wcschr(option, ',')+1 : NULL))
     {
         static const WCHAR wszRpcProxy[] = {'R','p','c','P','r','o','x','y','=',0};
         static const WCHAR wszHttpProxy[] = {'H','t','t','p','P','r','o','x','y','=',0};
 
-        if (!strncmpiW(option, wszRpcProxy, sizeof(wszRpcProxy)/sizeof(wszRpcProxy[0])-1))
+        if (!_wcsnicmp(option, wszRpcProxy, ARRAY_SIZE(wszRpcProxy)-1))
         {
-            const WCHAR *value_start = option + sizeof(wszRpcProxy)/sizeof(wszRpcProxy[0])-1;
+            const WCHAR *value_start = option + ARRAY_SIZE(wszRpcProxy)-1;
             const WCHAR *value_end;
             const WCHAR *p;
 
-            value_end = strchrW(option, ',');
+            value_end = wcschr(option, ',');
             if (!value_end)
-                value_end = value_start + strlenW(value_start);
+                value_end = value_start + lstrlenW(value_start);
             for (p = value_start; p < value_end; p++)
                 if (*p == ':')
                 {
-                    port = atoiW(p+1);
+                    port = wcstol(p+1, NULL, 10);
                     value_end = p;
                     break;
                 }
             TRACE("RpcProxy value is %s\n", debugstr_wn(value_start, value_end-value_start));
             servername = RPCRT4_strndupW(value_start, value_end-value_start);
         }
-        else if (!strncmpiW(option, wszHttpProxy, sizeof(wszHttpProxy)/sizeof(wszHttpProxy[0])-1))
+        else if (!_wcsnicmp(option, wszHttpProxy, ARRAY_SIZE(wszHttpProxy)-1))
         {
-            const WCHAR *value_start = option + sizeof(wszHttpProxy)/sizeof(wszHttpProxy[0])-1;
+            const WCHAR *value_start = option + ARRAY_SIZE(wszHttpProxy)-1;
             const WCHAR *value_end;
 
-            value_end = strchrW(option, ',');
+            value_end = wcschr(option, ',');
             if (!value_end)
-                value_end = value_start + strlenW(value_start);
+                value_end = value_start + lstrlenW(value_start);
             TRACE("HttpProxy value is %s\n", debugstr_wn(value_start, value_end-value_start));
             proxy = RPCRT4_strndupW(value_start, value_end-value_start);
         }
@@ -2107,9 +2398,9 @@ static RPC_STATUS insert_content_length_header(HINTERNET request, DWORD len)
 {
     static const WCHAR fmtW[] =
         {'C','o','n','t','e','n','t','-','L','e','n','g','t','h',':',' ','%','u','\r','\n',0};
-    WCHAR header[sizeof(fmtW) / sizeof(fmtW[0]) + 10];
+    WCHAR header[ARRAY_SIZE(fmtW) + 10];
 
-    sprintfW(header, fmtW, len);
+    swprintf(header, fmtW, len);
     if ((HttpAddRequestHeadersW(request, header, -1, HTTP_ADDREQ_FLAG_REPLACE | HTTP_ADDREQ_FLAG_ADD))) return RPC_S_OK;
     return RPC_S_SERVER_UNAVAILABLE;
 }
@@ -2436,20 +2727,19 @@ static const struct
 }
 auth_schemes[] =
 {
-    { basicW,     ARRAYSIZE(basicW) - 1,     RPC_C_HTTP_AUTHN_SCHEME_BASIC },
-    { ntlmW,      ARRAYSIZE(ntlmW) - 1,      RPC_C_HTTP_AUTHN_SCHEME_NTLM },
-    { passportW,  ARRAYSIZE(passportW) - 1,  RPC_C_HTTP_AUTHN_SCHEME_PASSPORT },
-    { digestW,    ARRAYSIZE(digestW) - 1,    RPC_C_HTTP_AUTHN_SCHEME_DIGEST },
-    { negotiateW, ARRAYSIZE(negotiateW) - 1, RPC_C_HTTP_AUTHN_SCHEME_NEGOTIATE }
+    { basicW,     ARRAY_SIZE(basicW) - 1,     RPC_C_HTTP_AUTHN_SCHEME_BASIC },
+    { ntlmW,      ARRAY_SIZE(ntlmW) - 1,      RPC_C_HTTP_AUTHN_SCHEME_NTLM },
+    { passportW,  ARRAY_SIZE(passportW) - 1,  RPC_C_HTTP_AUTHN_SCHEME_PASSPORT },
+    { digestW,    ARRAY_SIZE(digestW) - 1,    RPC_C_HTTP_AUTHN_SCHEME_DIGEST },
+    { negotiateW, ARRAY_SIZE(negotiateW) - 1, RPC_C_HTTP_AUTHN_SCHEME_NEGOTIATE }
 };
-static const unsigned int num_auth_schemes = sizeof(auth_schemes)/sizeof(auth_schemes[0]);
 
 static DWORD auth_scheme_from_header( const WCHAR *header )
 {
     unsigned int i;
-    for (i = 0; i < num_auth_schemes; i++)
+    for (i = 0; i < ARRAY_SIZE(auth_schemes); i++)
     {
-        if (!strncmpiW( header, auth_schemes[i].str, auth_schemes[i].len ) &&
+        if (!_wcsnicmp( header, auth_schemes[i].str, auth_schemes[i].len ) &&
             (header[auth_schemes[i].len] == ' ' || !header[auth_schemes[i].len])) return auth_schemes[i].scheme;
     }
     return 0;
@@ -2516,7 +2806,7 @@ static RPC_STATUS do_authorization(HINTERNET request, SEC_WCHAR *servername,
 
         if (creds->AuthnSchemes[0] == RPC_C_HTTP_AUTHN_SCHEME_NTLM) scheme = ntlmW;
         else scheme = negotiateW;
-        scheme_len = strlenW( scheme );
+        scheme_len = lstrlenW( scheme );
 
         if (!*auth_ptr)
         {
@@ -2553,7 +2843,7 @@ static RPC_STATUS do_authorization(HINTERNET request, SEC_WCHAR *servername,
         p = auth_value + scheme_len;
         if (!first && *p == ' ')
         {
-            int len = strlenW(++p);
+            int len = lstrlenW(++p);
             in.cbBuffer = decode_base64(p, len, NULL);
             if (!(in.pvBuffer = HeapAlloc(GetProcessHeap(), 0, in.cbBuffer))) break;
             decode_base64(p, len, in.pvBuffer);
@@ -2621,7 +2911,7 @@ static RPC_STATUS insert_authorization_header(HINTERNET request, ULONG scheme, c
     static const WCHAR basicW[] = {'B','a','s','i','c',' '};
     static const WCHAR negotiateW[] = {'N','e','g','o','t','i','a','t','e',' '};
     static const WCHAR ntlmW[] = {'N','T','L','M',' '};
-    int scheme_len, auth_len = sizeof(authW) / sizeof(authW[0]), len = ((data_len + 2) * 4) / 3;
+    int scheme_len, auth_len = ARRAY_SIZE(authW), len = ((data_len + 2) * 4) / 3;
     const WCHAR *scheme_str;
     WCHAR *header, *ptr;
     RPC_STATUS status = RPC_S_SERVER_UNAVAILABLE;
@@ -2630,15 +2920,15 @@ static RPC_STATUS insert_authorization_header(HINTERNET request, ULONG scheme, c
     {
     case RPC_C_HTTP_AUTHN_SCHEME_BASIC:
         scheme_str = basicW;
-        scheme_len = sizeof(basicW) / sizeof(basicW[0]);
+        scheme_len = ARRAY_SIZE(basicW);
         break;
     case RPC_C_HTTP_AUTHN_SCHEME_NEGOTIATE:
         scheme_str = negotiateW;
-        scheme_len = sizeof(negotiateW) / sizeof(negotiateW[0]);
+        scheme_len = ARRAY_SIZE(negotiateW);
         break;
     case RPC_C_HTTP_AUTHN_SCHEME_NTLM:
         scheme_str = ntlmW;
-        scheme_len = sizeof(ntlmW) / sizeof(ntlmW[0]);
+        scheme_len = ARRAY_SIZE(ntlmW);
         break;
     default:
         ERR("unknown scheme %u\n", scheme);
@@ -2819,9 +3109,10 @@ static RPC_STATUS rpcrt4_ncacn_http_open(RpcConnection* Connection)
     if (!url)
         return RPC_S_OUT_OF_MEMORY;
     memcpy(url, wszRpcProxyPrefix, sizeof(wszRpcProxyPrefix));
-    MultiByteToWideChar(CP_ACP, 0, Connection->NetworkAddr, -1, url+sizeof(wszRpcProxyPrefix)/sizeof(wszRpcProxyPrefix[0])-1, strlen(Connection->NetworkAddr)+1);
-    strcatW(url, wszColon);
-    MultiByteToWideChar(CP_ACP, 0, Connection->Endpoint, -1, url+strlenW(url), strlen(Connection->Endpoint)+1);
+    MultiByteToWideChar(CP_ACP, 0, Connection->NetworkAddr, -1, url+ARRAY_SIZE(wszRpcProxyPrefix)-1,
+                        strlen(Connection->NetworkAddr)+1);
+    lstrcatW(url, wszColon);
+    MultiByteToWideChar(CP_ACP, 0, Connection->Endpoint, -1, url+lstrlenW(url), strlen(Connection->Endpoint)+1);
 
     secure = is_secure(httpc);
     credentials = has_credentials(httpc);
@@ -3299,7 +3590,7 @@ static const struct protseq_ops protseq_list[] =
 const struct protseq_ops *rpcrt4_get_protseq_ops(const char *protseq)
 {
   unsigned int i;
-  for(i=0; i<ARRAYSIZE(protseq_list); i++)
+  for(i = 0; i < ARRAY_SIZE(protseq_list); i++)
     if (!strcmp(protseq_list[i].name, protseq))
       return &protseq_list[i];
   return NULL;
@@ -3308,7 +3599,7 @@ const struct protseq_ops *rpcrt4_get_protseq_ops(const char *protseq)
 static const struct connection_ops *rpcrt4_get_conn_protseq_ops(const char *protseq)
 {
     unsigned int i;
-    for(i=0; i<ARRAYSIZE(conn_protseq_list); i++)
+    for(i = 0; i < ARRAY_SIZE(conn_protseq_list); i++)
         if (!strcmp(conn_protseq_list[i].name, protseq))
             return &conn_protseq_list[i];
     return NULL;
@@ -3458,6 +3749,7 @@ void RPCRT4_ReleaseConnection(RpcConnection *connection)
 
         /* server-only */
         if (connection->server_binding) RPCRT4_ReleaseBinding(connection->server_binding);
+        else if (connection->assoc) RpcAssoc_ConnectionReleased(connection->assoc);
 
         if (connection->wait_release) SetEvent(connection->wait_release);
 
@@ -3545,7 +3837,7 @@ RPC_STATUS RpcTransport_ParseTopOfTower(const unsigned char *tower_data,
         (floor4->count_lhs != sizeof(floor4->protid)))
         return EPT_S_NOT_REGISTERED;
 
-    for(i = 0; i < ARRAYSIZE(conn_protseq_list); i++)
+    for(i = 0; i < ARRAY_SIZE(conn_protseq_list); i++)
         if ((protocol_floor->protid == conn_protseq_list[i].epm_protocols[0]) &&
             (floor4->protid == conn_protseq_list[i].epm_protocols[1]))
         {
@@ -3651,12 +3943,12 @@ RPC_STATUS WINAPI RpcNetworkInqProtseqsW( RPC_PROTSEQ_VECTORW** protseqs )
 
   TRACE("(%p)\n", protseqs);
 
-  *protseqs = HeapAlloc(GetProcessHeap(), 0, sizeof(RPC_PROTSEQ_VECTORW)+(sizeof(unsigned short*)*ARRAYSIZE(protseq_list)));
+  *protseqs = HeapAlloc(GetProcessHeap(), 0, sizeof(RPC_PROTSEQ_VECTORW)+(sizeof(unsigned short*)*ARRAY_SIZE(protseq_list)));
   if (!*protseqs)
     goto end;
   pvector = *protseqs;
   pvector->Count = 0;
-  for (i = 0; i < ARRAYSIZE(protseq_list); i++)
+  for (i = 0; i < ARRAY_SIZE(protseq_list); i++)
   {
     pvector->Protseq[i] = HeapAlloc(GetProcessHeap(), 0, (strlen(protseq_list[i].name)+1)*sizeof(unsigned short));
     if (pvector->Protseq[i] == NULL)
@@ -3684,12 +3976,12 @@ RPC_STATUS WINAPI RpcNetworkInqProtseqsA(RPC_PROTSEQ_VECTORA** protseqs)
 
   TRACE("(%p)\n", protseqs);
 
-  *protseqs = HeapAlloc(GetProcessHeap(), 0, sizeof(RPC_PROTSEQ_VECTORW)+(sizeof(unsigned char*)*ARRAYSIZE(protseq_list)));
+  *protseqs = HeapAlloc(GetProcessHeap(), 0, sizeof(RPC_PROTSEQ_VECTORW)+(sizeof(unsigned char*)*ARRAY_SIZE(protseq_list)));
   if (!*protseqs)
     goto end;
   pvector = *protseqs;
   pvector->Count = 0;
-  for (i = 0; i < ARRAYSIZE(protseq_list); i++)
+  for (i = 0; i < ARRAY_SIZE(protseq_list); i++)
   {
     pvector->Protseq[i] = HeapAlloc(GetProcessHeap(), 0, strlen(protseq_list[i].name)+1);
     if (pvector->Protseq[i] == NULL)

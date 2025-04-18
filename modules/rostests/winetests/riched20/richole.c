@@ -113,16 +113,43 @@ static ULONG get_refcount(IUnknown *iface)
   return IUnknown_Release(iface);
 }
 
+#define CHECK_TYPEINFO(disp,expected_riid) _check_typeinfo((IDispatch *)disp, expected_riid, __LINE__)
+static void _check_typeinfo(IDispatch* disp, REFIID expected_riid, int line)
+{
+    ITypeInfo *typeinfo;
+    TYPEATTR *typeattr;
+    UINT count;
+    HRESULT hr;
+
+    count = 10;
+    hr = IDispatch_GetTypeInfoCount(disp, &count);
+    ok_(__FILE__,line)(hr == S_OK, "IDispatch_GetTypeInfoCount failed: 0x%08x.\n", hr);
+    ok_(__FILE__,line)(count == 1, "got wrong count: %u.\n", count);
+
+    hr = IDispatch_GetTypeInfo(disp, 0, LOCALE_SYSTEM_DEFAULT, &typeinfo);
+    ok_(__FILE__,line)(hr == S_OK, "IDispatch_GetTypeInfo failed: 0x%08x.\n", hr);
+
+    hr = ITypeInfo_GetTypeAttr(typeinfo, &typeattr);
+    ok_(__FILE__,line)(hr == S_OK, "ITypeInfo_GetTypeAttr failed: 0x%08x.\n", hr);
+    ok_(__FILE__,line)(IsEqualGUID(&typeattr->guid, expected_riid),
+                       "Unexpected type guid: %s.\n", wine_dbgstr_guid(&typeattr->guid));
+
+    ITypeInfo_ReleaseTypeAttr(typeinfo, typeattr);
+    ITypeInfo_Release(typeinfo);
+}
+
 static void test_Interfaces(void)
 {
   IRichEditOle *reOle = NULL, *reOle1 = NULL;
   ITextDocument *txtDoc = NULL;
+  ITextDocument2Old *txtDoc2Old = NULL;
   ITextSelection *txtSel = NULL, *txtSel2;
   IUnknown *punk;
   HRESULT hres;
   LRESULT res;
   HWND w;
   ULONG refcount;
+  IUnknown *unk, *unk2;
 
   w = new_richedit(NULL);
   if (!w) {
@@ -144,6 +171,7 @@ static void test_Interfaces(void)
                                  (void **) &txtDoc);
   ok(hres == S_OK, "IRichEditOle_QueryInterface\n");
   ok(txtDoc != NULL, "IRichEditOle_QueryInterface\n");
+  CHECK_TYPEINFO(txtDoc, &IID_ITextDocument);
 
   hres = ITextDocument_GetSelection(txtDoc, NULL);
   ok(hres == E_INVALIDARG, "ITextDocument_GetSelection: 0x%x\n", hres);
@@ -152,6 +180,14 @@ static void test_Interfaces(void)
 
   hres = ITextDocument_GetSelection(txtDoc, &txtSel);
   ok(hres == S_OK, "got 0x%08x\n", hres);
+
+  hres = ITextDocument_QueryInterface(txtDoc, &IID_IUnknown, (void **)&unk);
+  ok(hres == S_OK, "got 0x%08x\n", hres);
+  hres = ITextSelection_QueryInterface(txtSel, &IID_IUnknown, (void **)&unk2);
+  ok(hres == S_OK, "got 0x%08x\n", hres);
+  ok(unk != unk2, "unknowns are the same\n");
+  IUnknown_Release(unk2);
+  IUnknown_Release(unk);
 
   EXPECT_REF(txtDoc, 4);
   EXPECT_REF(txtSel, 2);
@@ -195,6 +231,16 @@ static void test_Interfaces(void)
   hres = IRichEditOle_QueryInterface(reOle, &IID_IOleInPlaceSite, (void **) &punk);
   ok(hres == E_NOINTERFACE, "IRichEditOle_QueryInterface\n");
 
+  hres = IRichEditOle_QueryInterface(reOle, &IID_ITextDocument2Old, (void **)&txtDoc2Old);
+  ok(hres == S_OK, "IRichEditOle_QueryInterface\n");
+  ok(txtDoc2Old != NULL, "IRichEditOle_QueryInterface\n");
+  ok((ITextDocument *)txtDoc2Old == txtDoc, "interface pointer isn't equal.\n");
+  EXPECT_REF(txtDoc2Old, 5);
+  EXPECT_REF(reOle, 5);
+  CHECK_TYPEINFO(txtDoc2Old, &IID_ITextDocument);
+
+  ITextDocument2Old_Release(txtDoc2Old);
+
   ITextDocument_Release(txtDoc);
   IRichEditOle_Release(reOle);
   refcount = IRichEditOle_Release(reOle);
@@ -207,6 +253,19 @@ static void test_Interfaces(void)
   ok(hres == CO_E_RELEASED, "ITextSelection after ITextDocument destroyed\n");
 
   ITextSelection_Release(txtSel);
+
+  w = new_richedit(NULL);
+  res = SendMessageA(w, EM_GETOLEINTERFACE, 0, (LPARAM)&reOle);
+  ok(res, "SendMessage\n");
+  ok(reOle != NULL, "EM_GETOLEINTERFACE\n");
+
+  hres = IRichEditOle_QueryInterface(reOle, &IID_ITextDocument2Old, (void **)&txtDoc2Old);
+  ok(hres == S_OK, "IRichEditOle_QueryInterface failed: 0x%08x.\n", hres);
+  ok(txtDoc2Old != NULL, "IRichEditOle_QueryInterface\n");
+  CHECK_TYPEINFO(txtDoc2Old, &IID_ITextDocument);
+  ITextDocument2Old_Release(txtDoc2Old);
+  IRichEditOle_Release(reOle);
+  DestroyWindow(w);
 }
 
 static void test_ITextDocument_Open(void)
@@ -247,8 +306,8 @@ static void test_ITextDocument_Open(void)
       tomReadOnly|tomShareDenyWrite, tomReadOnly|tomShareDenyRead
     };
 
-  int tomNumSingle =  sizeof(tomConstantsSingle)/sizeof(tomConstantsSingle[0]);
-  int tomNumMulti = sizeof(tomConstantsMulti)/sizeof(tomConstantsMulti[0]);
+  int tomNumSingle =  ARRAY_SIZE(tomConstantsSingle);
+  int tomNumMulti = ARRAY_SIZE(tomConstantsMulti);
   int i;
 
   V_VT(&testfile) = VT_BSTR;
@@ -481,21 +540,21 @@ static void test_GetText(void)
   SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
 
   /* ITextSelection */
-  first = 0, lim = 4;
+  first = 0; lim = 4;
   SendMessageA(w, EM_SETSEL, first, lim);
   hres = ITextSelection_GetText(txtSel, &bstr);
   ok(hres == S_OK, "ITextSelection_GetText\n");
   ok(!lstrcmpW(bstr, bufW1), "got wrong text: %s\n", wine_dbgstr_w(bstr));
   SysFreeString(bstr);
 
-  first = 4, lim = 0;
+  first = 4; lim = 0;
   SendMessageA(w, EM_SETSEL, first, lim);
   hres = ITextSelection_GetText(txtSel, &bstr);
   ok(hres == S_OK, "ITextSelection_GetText\n");
   ok(!lstrcmpW(bstr, bufW1), "got wrong text: %s\n", wine_dbgstr_w(bstr));
   SysFreeString(bstr);
 
-  first = 1, lim = 1;
+  first = 1; lim = 1;
   SendMessageA(w, EM_SETSEL, first, lim);
   hres = ITextSelection_GetText(txtSel, &bstr);
   ok(hres == S_OK, "ITextSelection_GetText\n");
@@ -507,35 +566,35 @@ static void test_GetText(void)
       ok(hres == E_INVALIDARG, "ITextSelection_GetText\n");
     }
 
-  first = 8, lim = 12;
+  first = 8; lim = 12;
   SendMessageA(w, EM_SETSEL, first, lim);
   hres = ITextSelection_GetText(txtSel, &bstr);
   ok(hres == S_OK, "ITextSelection_GetText\n");
   ok(!lstrcmpW(bstr, bufW3), "got wrong text: %s\n", wine_dbgstr_w(bstr));
   SysFreeString(bstr);
 
-  first = 8, lim = 13;
+  first = 8; lim = 13;
   SendMessageA(w, EM_SETSEL, first, lim);
   hres = ITextSelection_GetText(txtSel, &bstr);
   ok(hres == S_OK, "ITextSelection_GetText\n");
   ok(!lstrcmpW(bstr, bufW2), "got wrong text: %s\n", wine_dbgstr_w(bstr));
   SysFreeString(bstr);
 
-  first = 12, lim = 13;
+  first = 12; lim = 13;
   SendMessageA(w, EM_SETSEL, first, lim);
   hres = ITextSelection_GetText(txtSel, &bstr);
   ok(hres == S_OK, "ITextSelection_GetText\n");
   ok(!lstrcmpW(bstr, bufW5), "got wrong text: %s\n", wine_dbgstr_w(bstr));
   SysFreeString(bstr);
 
-  first = 0, lim = -1;
+  first = 0; lim = -1;
   SendMessageA(w, EM_SETSEL, first, lim);
   hres = ITextSelection_GetText(txtSel, &bstr);
   ok(hres == S_OK, "ITextSelection_GetText\n");
   ok(!lstrcmpW(bstr, bufW4), "got wrong text: %s\n", wine_dbgstr_w(bstr));
   SysFreeString(bstr);
 
-  first = -1, lim = 9;
+  first = -1; lim = 9;
   SendMessageA(w, EM_SETSEL, first, lim);
   hres = ITextSelection_GetText(txtSel, &bstr);
   ok(hres == S_OK, "ITextSelection_GetText\n");
@@ -707,7 +766,7 @@ static void test_ITextRange_GetChar(void)
   ITextRange_Release(txtRge);
   release_interfaces(&w, &reOle, &txtDoc, NULL);
 
-  first = 0, lim = 0;
+  first = 0; lim = 0;
   create_interfaces(&w, &reOle, &txtDoc, NULL);
   SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
   hres = ITextDocument_Range(txtDoc, first, lim, &txtRge);
@@ -719,7 +778,7 @@ static void test_ITextRange_GetChar(void)
   ITextRange_Release(txtRge);
   release_interfaces(&w, &reOle, &txtDoc, NULL);
 
-  first = 12, lim = 12;
+  first = 12; lim = 12;
   create_interfaces(&w, &reOle, &txtDoc, NULL);
   SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
   hres = ITextDocument_Range(txtDoc, first, lim, &txtRge);
@@ -731,7 +790,7 @@ static void test_ITextRange_GetChar(void)
   ITextRange_Release(txtRge);
   release_interfaces(&w, &reOle, &txtDoc, NULL);
 
-  first = 13, lim = 13;
+  first = 13; lim = 13;
   create_interfaces(&w, &reOle, &txtDoc, NULL);
   SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
   hres = ITextDocument_Range(txtDoc, first, lim, &txtRge);
@@ -745,7 +804,7 @@ static void test_ITextRange_GetChar(void)
 
   create_interfaces(&w, &reOle, &txtDoc, NULL);
   SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
-  first = 12, lim = 12;
+  first = 12; lim = 12;
   hres = ITextDocument_Range(txtDoc, first, lim, &txtRge);
   ok(hres == S_OK, "got 0x%08x\n", hres);
   hres = ITextRange_GetChar(txtRge, NULL);
@@ -803,15 +862,19 @@ static void test_ITextRange_ScrollIntoView(void)
 
   /* Scroll to the top. */
   check_range(w, txtDoc, 0, 1, tomStart, 0);
+  check_range(w, txtDoc, 0, 1, tomEnd, 0);
 
   /* Scroll to the bottom. */
   check_range(w, txtDoc, 19, 20, tomStart, 1);
+  check_range(w, txtDoc, 19, 20, tomEnd, 1);
 
   /* Back up to the top. */
   check_range(w, txtDoc, 0, 1, tomStart, 0);
+  check_range(w, txtDoc, 0, 1, tomEnd, 0);
 
   /* Large range */
   check_range(w, txtDoc, 0, 20, tomStart, 0);
+  check_range(w, txtDoc, 0, 20, tomEnd, 1);
 
   hres = ITextDocument_Range(txtDoc, 0, 0, &txtRge);
   ok(hres == S_OK, "got 0x%08x\n", hres);
@@ -835,28 +898,28 @@ static void test_ITextSelection_GetChar(void)
   create_interfaces(&w, &reOle, &txtDoc, &txtSel);
   SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
 
-  first = 0, lim = 4;
+  first = 0; lim = 4;
   SendMessageA(w, EM_SETSEL, first, lim);
   pch = 0xdeadbeef;
   hres = ITextSelection_GetChar(txtSel, &pch);
   ok(hres == S_OK, "ITextSelection_GetChar\n");
   ok(pch == 'T', "got wrong char: %c\n", pch);
 
-  first = 0, lim = 0;
+  first = 0; lim = 0;
   SendMessageA(w, EM_SETSEL, first, lim);
   pch = 0xdeadbeef;
   hres = ITextSelection_GetChar(txtSel, &pch);
   ok(hres == S_OK, "ITextSelection_GetChar\n");
   ok(pch == 'T', "got wrong char: %c\n", pch);
 
-  first = 12, lim = 12;
+  first = 12; lim = 12;
   SendMessageA(w, EM_SETSEL, first, lim);
   pch = 0xdeadbeef;
   hres = ITextSelection_GetChar(txtSel, &pch);
   ok(hres == S_OK, "ITextSelection_GetChar\n");
   ok(pch == '\r', "got wrong char: %c\n", pch);
 
-  first = 13, lim = 13;
+  first = 13; lim = 13;
   SendMessageA(w, EM_SETSEL, first, lim);
   pch = 0xdeadbeef;
   hres = ITextSelection_GetChar(txtSel, &pch);
@@ -890,7 +953,7 @@ static void test_ITextRange_GetStart_GetEnd(void)
   create_interfaces(&w, &reOle, &txtDoc, NULL);
   SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
 
-  first = 1, lim = 6;
+  first = 1; lim = 6;
   hres = ITextDocument_Range(txtDoc, first, lim, &txtRge);
   ok(hres == S_OK, "got 0x%08x\n", hres);
   start = 0xdeadbeef;
@@ -903,7 +966,7 @@ static void test_ITextRange_GetStart_GetEnd(void)
   ok(end == 6, "got wrong end value: %d\n", end);
   ITextRange_Release(txtRge);
 
-  first = 6, lim = 1;
+  first = 6; lim = 1;
   hres = ITextDocument_Range(txtDoc, first, lim, &txtRge);
   ok(hres == S_OK, "got 0x%08x\n", hres);
   start = 0xdeadbeef;
@@ -916,7 +979,7 @@ static void test_ITextRange_GetStart_GetEnd(void)
   ok(end == 6, "got wrong end value: %d\n", end);
   ITextRange_Release(txtRge);
 
-  first = -1, lim = 13;
+  first = -1; lim = 13;
   hres = ITextDocument_Range(txtDoc, first, lim, &txtRge);
   ok(hres == S_OK, "got 0x%08x\n", hres);
   start = 0xdeadbeef;
@@ -929,7 +992,7 @@ static void test_ITextRange_GetStart_GetEnd(void)
   ok(end == 13, "got wrong end value: %d\n", end);
   ITextRange_Release(txtRge);
 
-  first = 13, lim = 13;
+  first = 13; lim = 13;
   hres = ITextDocument_Range(txtDoc, first, lim, &txtRge);
   ok(hres == S_OK, "got 0x%08x\n", hres);
   start = 0xdeadbeef;
@@ -1109,7 +1172,7 @@ static void test_ITextSelection_GetStart_GetEnd(void)
   create_interfaces(&w, &reOle, &txtDoc, &txtSel);
   SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
 
-  first = 2, lim = 5;
+  first = 2; lim = 5;
   SendMessageA(w, EM_SETSEL, first, lim);
   start = 0xdeadbeef;
   hres = ITextSelection_GetStart(txtSel, &start);
@@ -1120,7 +1183,7 @@ static void test_ITextSelection_GetStart_GetEnd(void)
   ok(hres == S_OK, "ITextSelection_GetEnd\n");
   ok(end == 5, "got wrong end value: %d\n", end);
 
-  first = 5, lim = 2;
+  first = 5; lim = 2;
   SendMessageA(w, EM_SETSEL, first, lim);
   start = 0xdeadbeef;
   hres = ITextSelection_GetStart(txtSel, &start);
@@ -1131,7 +1194,7 @@ static void test_ITextSelection_GetStart_GetEnd(void)
   ok(hres == S_OK, "ITextSelection_GetEnd\n");
   ok(end == 5, "got wrong end value: %d\n", end);
 
-  first = 0, lim = -1;
+  first = 0; lim = -1;
   SendMessageA(w, EM_SETSEL, first, lim);
   start = 0xdeadbeef;
   hres = ITextSelection_GetStart(txtSel, &start);
@@ -1142,7 +1205,7 @@ static void test_ITextSelection_GetStart_GetEnd(void)
   ok(hres == S_OK, "ITextSelection_GetEnd\n");
   ok(end == 13, "got wrong end value: %d\n", end);
 
-  first = 13, lim = 13;
+  first = 13; lim = 13;
   SendMessageA(w, EM_SETSEL, first, lim);
   start = 0xdeadbeef;
   hres = ITextSelection_GetStart(txtSel, &start);
@@ -1315,7 +1378,7 @@ static void test_ITextRange_GetDuplicate(void)
 
   create_interfaces(&w, &reOle, &txtDoc, NULL);
   SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
-  first = 0, lim = 4;
+  first = 0; lim = 4;
   hres = ITextDocument_Range(txtDoc, first, lim, &txtRge);
   ok(hres == S_OK, "ITextDocument_Range fails 0x%x.\n", hres);
 
@@ -1358,7 +1421,7 @@ static void test_ITextRange_Collapse(void)
   create_interfaces(&w, &reOle, &txtDoc, NULL);
   SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
 
-  first = 4, lim = 8;
+  first = 4; lim = 8;
   hres = ITextDocument_Range(txtDoc, first, lim, &txtRge);
   ok(hres == S_OK, "got 0x%08x\n", hres);
   hres = ITextRange_Collapse(txtRge, tomTrue);
@@ -1420,7 +1483,7 @@ static void test_ITextRange_Collapse(void)
   ok(end == 4, "got wrong end value: %d\n", end);
   ITextRange_Release(txtRge);
 
-  first = 6, lim = 6;
+  first = 6; lim = 6;
   hres = ITextDocument_Range(txtDoc, first, lim, &txtRge);
   ok(hres == S_OK, "got 0x%08x\n", hres);
   hres = ITextRange_Collapse(txtRge, tomEnd);
@@ -1433,7 +1496,7 @@ static void test_ITextRange_Collapse(void)
   ok(end == 6, "got wrong end value: %d\n", end);
   ITextRange_Release(txtRge);
 
-  first = 8, lim = 8;
+  first = 8; lim = 8;
   hres = ITextDocument_Range(txtDoc, first, lim, &txtRge);
   ok(hres == S_OK, "got 0x%08x\n", hres);
   hres = ITextRange_Collapse(txtRge, tomStart);
@@ -1469,7 +1532,7 @@ static void test_ITextSelection_Collapse(void)
   create_interfaces(&w, &reOle, &txtDoc, &txtSel);
   SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
 
-  first = 4, lim = 8;
+  first = 4; lim = 8;
   SendMessageA(w, EM_SETSEL, first, lim);
   hres = ITextSelection_Collapse(txtSel, tomTrue);
   ok(hres == S_OK, "ITextSelection_Collapse\n");
@@ -1506,7 +1569,7 @@ static void test_ITextSelection_Collapse(void)
   ok(start == 4, "got wrong start value: %d\n", start);
   ok(end == 4, "got wrong end value: %d\n", end);
 
-  first = 6, lim = 6;
+  first = 6; lim = 6;
   SendMessageA(w, EM_SETSEL, first, lim);
   hres = ITextSelection_Collapse(txtSel, tomEnd);
   ok(hres == S_FALSE, "ITextSelection_Collapse\n");
@@ -1514,7 +1577,7 @@ static void test_ITextSelection_Collapse(void)
   ok(start == 6, "got wrong start value: %d\n", start);
   ok(end == 6, "got wrong end value: %d\n", end);
 
-  first = 8, lim = 8;
+  first = 8; lim = 8;
   SendMessageA(w, EM_SETSEL, first, lim);
   hres = ITextSelection_Collapse(txtSel, tomStart);
   ok(hres == S_FALSE, "ITextSelection_Collapse\n");
@@ -3149,15 +3212,36 @@ static void fill_reobject_struct(REOBJECT *reobj, LONG cp, LPOLEOBJECT poleobj,
   reobj->dwUser = user;
 }
 
-#define CHECK_REOBJECT_STRUCT(reobj,poleobj,pstg,polesite,user) \
-  _check_reobject_struct(reobj, poleobj, pstg, polesite, user, __LINE__)
-static void _check_reobject_struct(REOBJECT reobj, LPOLEOBJECT poleobj, LPSTORAGE pstg,
-                                  LPOLECLIENTSITE polesite, DWORD user, int line)
+#define CHECK_REOBJECT_STRUCT(reole,index,flags,cp,poleobj,pstg,polesite,user) \
+  _check_reobject_struct(reole, index, flags, cp, poleobj, pstg, polesite, user, __LINE__)
+static void _check_reobject_struct(IRichEditOle *reole, LONG index, DWORD flags, LONG cp,
+    LPOLEOBJECT poleobj, LPSTORAGE pstg, LPOLECLIENTSITE polesite, DWORD user, int line)
 {
+  REOBJECT reobj;
+  HRESULT hr;
+
+  reobj.cbStruct = sizeof(reobj);
+  reobj.cp = cp;
+  hr = IRichEditOle_GetObject(reole, index, &reobj, flags);
+  ok(hr == S_OK, "IRichEditOle_GetObject failed: %#x.\n", hr);
   ok_(__FILE__,line)(reobj.poleobj == poleobj, "got wrong object interface.\n");
   ok_(__FILE__,line)(reobj.pstg == pstg, "got wrong storage interface.\n");
   ok_(__FILE__,line)(reobj.polesite == polesite, "got wrong site interface.\n");
   ok_(__FILE__,line)(reobj.dwUser == user, "got wrong user-defined value.\n");
+}
+
+#define INSERT_REOBJECT(reole,reobj,cp,user) \
+  _insert_reobject(reole, reobj, cp, user, __LINE__)
+static void _insert_reobject(IRichEditOle *reole, REOBJECT *reobj, LONG cp, DWORD user, int line)
+{
+  IOleClientSite *clientsite;
+  HRESULT hr;
+  hr = IRichEditOle_GetClientSite(reole, &clientsite);
+  ok_(__FILE__,line)(hr == S_OK, "IRichEditOle_GetClientSite got hr %#x.\n", hr);
+  fill_reobject_struct(reobj, cp, NULL, NULL, clientsite, 10, 10, DVASPECT_CONTENT, 0, user);
+  hr = IRichEditOle_InsertObject(reole, reobj);
+  ok_(__FILE__,line)(hr == S_OK, "IRichEditOle_InsertObject got hr %#x.\n", hr);
+  IOleClientSite_Release(clientsite);
 }
 
 static void test_InsertObject(void)
@@ -3165,13 +3249,25 @@ static void test_InsertObject(void)
   static CHAR test_text1[] = "abcdefg";
   IRichEditOle *reole = NULL;
   ITextDocument *doc = NULL;
-  IOleClientSite *clientsite;
-  REOBJECT reo1, reo2, reo3, received_reo1, received_reo2, received_reo3, received_reo4;
+  REOBJECT reo1, reo2, reo3, received_reo;
   HRESULT hr;
   HWND hwnd;
-  LONG count;
+  const WCHAR *expected_string;
+  const CHAR *expected_stringA;
+  ITextSelection *selection;
+  IDataObject *dataobject;
+  TEXTRANGEA textrange;
+  FORMATETC formatetc;
+  CHARRANGE charrange;
+  GETTEXTEX gettextex;
+  STGMEDIUM stgmedium;
+  WCHAR buffer[1024];
+  CHAR bufferA[1024];
+  LONG count, result;
+  ITextRange *range;
+  BSTR bstr;
 
-  create_interfaces(&hwnd, &reole, &doc, NULL);
+  create_interfaces(&hwnd, &reole, &doc, &selection);
   SendMessageA(hwnd, WM_SETTEXT, 0, (LPARAM)test_text1);
 
   hr = IRichEditOle_InsertObject(reole, NULL);
@@ -3179,106 +3275,278 @@ static void test_InsertObject(void)
 
   /* insert object1 in (0, 1)*/
   SendMessageA(hwnd, EM_SETSEL, 0, 1);
-  hr = IRichEditOle_GetClientSite(reole, &clientsite);
-  ok(hr == S_OK, "IRichEditOle_GetClientSite failed: 0x%08x\n", hr);
-  fill_reobject_struct(&reo1, REO_CP_SELECTION, NULL, NULL, clientsite, 10, 10, DVASPECT_CONTENT, 0, 1);
-  hr = IRichEditOle_InsertObject(reole, &reo1);
-  ok(hr == S_OK, "IRichEditOle_InsertObject failed: 0x%08x\n", hr);
+  INSERT_REOBJECT(reole, &reo1, REO_CP_SELECTION, 1);
   count = IRichEditOle_GetObjectCount(reole);
   ok(count == 1, "got wrong object count: %d\n", count);
-  IOleClientSite_Release(clientsite);
 
   /* insert object2 in (2, 3)*/
   SendMessageA(hwnd, EM_SETSEL, 2, 3);
-  hr = IRichEditOle_GetClientSite(reole, &clientsite);
-  ok(hr == S_OK, "IRichEditOle_GetClientSite failed: 0x%08x\n", hr);
-  fill_reobject_struct(&reo2, REO_CP_SELECTION, NULL, NULL, clientsite, 10, 10, DVASPECT_CONTENT, 0, 2);
-  hr = IRichEditOle_InsertObject(reole, &reo2);
-  ok(hr == S_OK, "IRichEditOle_InsertObject failed: 0x%08x\n", hr);
+  INSERT_REOBJECT(reole, &reo2, REO_CP_SELECTION, 2);
   count = IRichEditOle_GetObjectCount(reole);
   ok(count == 2, "got wrong object count: %d\n", count);
-  IOleClientSite_Release(clientsite);
 
   /* insert object3 in (1, 2)*/
   SendMessageA(hwnd, EM_SETSEL, 1, 2);
-  hr = IRichEditOle_GetClientSite(reole, &clientsite);
-  ok(hr == S_OK, "IRichEditOle_GetClientSite failed: 0x%08x\n", hr);
-  fill_reobject_struct(&reo3, REO_CP_SELECTION, NULL, NULL, clientsite, 10, 10, DVASPECT_CONTENT, 0, 3);
-  hr = IRichEditOle_InsertObject(reole, &reo3);
-  ok(hr == S_OK, "IRichEditOle_InsertObject failed: 0x%08x\n", hr);
+  INSERT_REOBJECT(reole, &reo3, REO_CP_SELECTION, 3);
   count = IRichEditOle_GetObjectCount(reole);
   ok(count == 3, "got wrong object count: %d\n", count);
-  IOleClientSite_Release(clientsite);
 
   /* tests below show that order of rebject (from 0 to 2) is: reo1,reo3,reo2 */
-  received_reo1.cbStruct = sizeof(received_reo1);
-  hr = IRichEditOle_GetObject(reole, 0, &received_reo1, REO_GETOBJ_ALL_INTERFACES);
-  ok(hr == S_OK, "IRichEditOle_GetObject failed: 0x%08x\n", hr);
-  CHECK_REOBJECT_STRUCT(received_reo1, NULL, NULL, reo1.polesite, 1);
-
-  received_reo2.cbStruct = sizeof(received_reo2);
-  hr = IRichEditOle_GetObject(reole, 1, &received_reo2, REO_GETOBJ_ALL_INTERFACES);
-  ok(hr == S_OK, "IRichEditOle_GetObject failed: 0x%08x\n", hr);
-  CHECK_REOBJECT_STRUCT(received_reo2, NULL, NULL, reo3.polesite, 3);
-
-  received_reo3.cbStruct = sizeof(received_reo3);
-  hr = IRichEditOle_GetObject(reole, 2, &received_reo3, REO_GETOBJ_ALL_INTERFACES);
-  ok(hr == S_OK, "IRichEditOle_GetObject failed: 0x%08x\n", hr);
-  CHECK_REOBJECT_STRUCT(received_reo3, NULL, NULL, reo2.polesite, 2);
+  CHECK_REOBJECT_STRUCT(reole, 0, REO_GETOBJ_ALL_INTERFACES, 0, NULL, NULL, reo1.polesite, 1);
+  CHECK_REOBJECT_STRUCT(reole, 1, REO_GETOBJ_ALL_INTERFACES, 0, NULL, NULL, reo3.polesite, 3);
+  CHECK_REOBJECT_STRUCT(reole, 2, REO_GETOBJ_ALL_INTERFACES, 0, NULL, NULL, reo2.polesite, 2);
 
   hr = IRichEditOle_GetObject(reole, 2, NULL, REO_GETOBJ_ALL_INTERFACES);
   ok(hr == E_INVALIDARG, "IRichEditOle_GetObject should fail: 0x%08x\n", hr);
 
-  received_reo4.cbStruct = 0;
-  hr = IRichEditOle_GetObject(reole, 2, &received_reo4, REO_GETOBJ_ALL_INTERFACES);
+  received_reo.cbStruct = 0;
+  hr = IRichEditOle_GetObject(reole, 2, &received_reo, REO_GETOBJ_ALL_INTERFACES);
   ok(hr == E_INVALIDARG, "IRichEditOle_GetObject should fail: 0x%08x\n", hr);
 
-  received_reo4.cbStruct = sizeof(received_reo4);
-  hr = IRichEditOle_GetObject(reole, 2, &received_reo4, REO_GETOBJ_PSTG);
-  ok(hr == S_OK, "IRichEditOle_GetObject failed: 0x%08x\n", hr);
-  CHECK_REOBJECT_STRUCT(received_reo4, NULL, NULL, NULL, 2);
+  CHECK_REOBJECT_STRUCT(reole, 2, REO_GETOBJ_PSTG, 0, NULL, NULL, NULL, 2);
+  CHECK_REOBJECT_STRUCT(reole, 2, REO_GETOBJ_POLESITE, 0, NULL, NULL, reo2.polesite, 2);
 
-  hr = IRichEditOle_GetObject(reole, 2, &received_reo4, REO_GETOBJ_POLESITE);
-  ok(hr == S_OK, "IRichEditOle_GetObject failed: 0x%08x\n", hr);
-  CHECK_REOBJECT_STRUCT(received_reo4, NULL, NULL, reo2.polesite, 2);
-
-  hr = IRichEditOle_GetObject(reole, 4, &received_reo4, REO_GETOBJ_POLESITE);
+  hr = IRichEditOle_GetObject(reole, 3, &received_reo, REO_GETOBJ_POLESITE);
   ok(hr == E_INVALIDARG, "IRichEditOle_GetObject should fail: 0x%08x\n", hr);
 
-  hr = IRichEditOle_GetObject(reole, 1024, &received_reo4, REO_GETOBJ_POLESITE);
+  hr = IRichEditOle_GetObject(reole, 4, &received_reo, REO_GETOBJ_POLESITE);
   ok(hr == E_INVALIDARG, "IRichEditOle_GetObject should fail: 0x%08x\n", hr);
 
-  /* received_reo4 will be zeroed before be used */
-  hr = IRichEditOle_GetObject(reole, 2, &received_reo4, REO_GETOBJ_NO_INTERFACES);
-  ok(hr == S_OK, "IRichEditOle_GetObject failed: 0x%08x\n", hr);
-  CHECK_REOBJECT_STRUCT(received_reo4, NULL, NULL, NULL, 2);
-
-  received_reo4.cbStruct = sizeof(received_reo4);
-  received_reo4.cp = 0;
-  hr = IRichEditOle_GetObject(reole, REO_IOB_USE_CP, &received_reo4, REO_GETOBJ_ALL_INTERFACES);
-  ok(hr == S_OK, "IRichEditOle_GetObject failed: 0x%08x\n", hr);
-  CHECK_REOBJECT_STRUCT(received_reo4, NULL, NULL, reo1.polesite, 1);
-
-  received_reo4.cbStruct = sizeof(received_reo4);
-  received_reo4.cp = 1;
-  hr = IRichEditOle_GetObject(reole, REO_IOB_USE_CP, &received_reo4, REO_GETOBJ_ALL_INTERFACES);
-  ok(hr == S_OK, "IRichEditOle_GetObject failed: 0x%08x\n", hr);
-  CHECK_REOBJECT_STRUCT(received_reo4, NULL, NULL, reo3.polesite, 3);
-
-  received_reo4.cbStruct = sizeof(received_reo4);
-  received_reo4.cp = 2;
-  hr = IRichEditOle_GetObject(reole, REO_IOB_USE_CP, &received_reo4, REO_GETOBJ_ALL_INTERFACES);
-  ok(hr == S_OK, "IRichEditOle_GetObject failed: 0x%08x\n", hr);
-  CHECK_REOBJECT_STRUCT(received_reo4, NULL, NULL, reo2.polesite, 2);
-
-  received_reo4.cbStruct = sizeof(received_reo4);
-  received_reo4.cp = 4;
-  hr = IRichEditOle_GetObject(reole, REO_IOB_USE_CP, &received_reo4, REO_GETOBJ_ALL_INTERFACES);
+  hr = IRichEditOle_GetObject(reole, 1024, &received_reo, REO_GETOBJ_POLESITE);
   ok(hr == E_INVALIDARG, "IRichEditOle_GetObject should fail: 0x%08x\n", hr);
-  /* received_reo4 didn't be zeroed in E_INVALIDARG case */
-  CHECK_REOBJECT_STRUCT(received_reo4, NULL, NULL, reo2.polesite, 2);
 
-  release_interfaces(&hwnd, &reole, &doc, NULL);
+  hr = IRichEditOle_GetObject(reole, -10, &received_reo, REO_GETOBJ_POLESITE);
+  ok(hr == E_INVALIDARG, "IRichEditOle_GetObject should fail: 0x%08x\n", hr);
+
+  /* received_reo will be zeroed before be used */
+  received_reo.cbStruct = sizeof(received_reo);
+  received_reo.polesite = (IOleClientSite *)0xdeadbeef;
+  hr = IRichEditOle_GetObject(reole, 2, &received_reo, REO_GETOBJ_NO_INTERFACES);
+  ok(hr == S_OK, "IRichEditOle_GetObject failed: 0x%08x\n", hr);
+  ok(received_reo.polesite == (IOleClientSite *)NULL, "Got wrong site interface.\n");
+
+  CHECK_REOBJECT_STRUCT(reole, REO_IOB_USE_CP, REO_GETOBJ_ALL_INTERFACES, 0, NULL, NULL, reo1.polesite, 1);
+  CHECK_REOBJECT_STRUCT(reole, REO_IOB_USE_CP, REO_GETOBJ_ALL_INTERFACES, 1, NULL, NULL, reo3.polesite, 3);
+  CHECK_REOBJECT_STRUCT(reole, REO_IOB_USE_CP, REO_GETOBJ_ALL_INTERFACES, 2, NULL, NULL, reo2.polesite, 2);
+
+  received_reo.cbStruct = sizeof(received_reo);
+  received_reo.polesite = (IOleClientSite *)0xdeadbeef;
+  received_reo.dwUser = 4;
+  received_reo.cp = 4;
+  hr = IRichEditOle_GetObject(reole, REO_IOB_USE_CP, &received_reo, REO_GETOBJ_ALL_INTERFACES);
+  ok(hr == E_INVALIDARG, "IRichEditOle_GetObject should fail: 0x%08x\n", hr);
+  ok(received_reo.polesite == (IOleClientSite *)0xdeadbeef, "Got wrong site interface.\n");
+  ok(received_reo.dwUser == 4, "Got wrong user-defined value: %d.\n", received_reo.dwUser);
+
+  SendMessageA(hwnd, EM_SETSEL, 0, 1);
+  CHECK_REOBJECT_STRUCT(reole, REO_IOB_SELECTION, REO_GETOBJ_ALL_INTERFACES, 0, NULL, NULL, reo1.polesite, 1);
+
+  SendMessageA(hwnd, EM_SETSEL, 1, 2);
+  CHECK_REOBJECT_STRUCT(reole, REO_IOB_SELECTION, REO_GETOBJ_ALL_INTERFACES, 0, NULL, NULL, reo3.polesite, 3);
+
+  SendMessageA(hwnd, EM_SETSEL, 2, 3);
+  CHECK_REOBJECT_STRUCT(reole, REO_IOB_SELECTION, REO_GETOBJ_ALL_INTERFACES, 0, NULL, NULL, reo2.polesite, 2);
+
+  SendMessageA(hwnd, EM_SETSEL, 0, 2);
+  CHECK_REOBJECT_STRUCT(reole, REO_IOB_SELECTION, REO_GETOBJ_ALL_INTERFACES, 0, NULL, NULL, reo1.polesite, 1);
+
+  SendMessageA(hwnd, EM_SETSEL, 1, 3);
+  CHECK_REOBJECT_STRUCT(reole, REO_IOB_SELECTION, REO_GETOBJ_ALL_INTERFACES, 0, NULL, NULL, reo3.polesite, 3);
+
+  SendMessageA(hwnd, EM_SETSEL, 2, 0);
+  CHECK_REOBJECT_STRUCT(reole, REO_IOB_SELECTION, REO_GETOBJ_ALL_INTERFACES, 0, NULL, NULL, reo1.polesite, 1);
+
+  SendMessageA(hwnd, EM_SETSEL, 0, 6);
+  CHECK_REOBJECT_STRUCT(reole, REO_IOB_SELECTION, REO_GETOBJ_ALL_INTERFACES, 0, NULL, NULL, reo1.polesite, 1);
+
+  SendMessageA(hwnd, EM_SETSEL, 4, 5);
+  received_reo.cbStruct = sizeof(received_reo);
+  received_reo.cp = 0;
+  hr = IRichEditOle_GetObject(reole, REO_IOB_SELECTION, &received_reo, REO_GETOBJ_ALL_INTERFACES);
+  ok(hr == E_INVALIDARG, "IRichEditOle_GetObject should fail: 0x%08x\n", hr);
+
+  SendMessageA(hwnd, WM_SETTEXT, 0, (LPARAM)test_text1);
+
+  /* "abc|d|efg" */
+  INSERT_REOBJECT(reole, &reo1, 3, 1);
+  INSERT_REOBJECT(reole, &reo2, 5, 2);
+
+  SendMessageW(hwnd, EM_SETSEL, 2, 3);
+  result = SendMessageW(hwnd, EM_SELECTIONTYPE, 0, 0);
+  ok(result == SEL_TEXT, "Got selection type: %x.\n", result);
+
+  SendMessageW(hwnd, EM_SETSEL, 3, 4);
+  result = SendMessageW(hwnd, EM_SELECTIONTYPE, 0, 0);
+  todo_wine ok(result == SEL_OBJECT, "Got selection type: %x.\n", result);
+  todo_wine CHECK_REOBJECT_STRUCT(reole, REO_IOB_SELECTION, REO_GETOBJ_ALL_INTERFACES, 1, NULL, NULL, reo1.polesite, 1);
+
+  SendMessageW(hwnd, EM_SETSEL, 2, 4);
+  result = SendMessageW(hwnd, EM_SELECTIONTYPE, 0, 0);
+  todo_wine ok(result == (SEL_TEXT | SEL_OBJECT), "Got selection type: %x.\n", result);
+
+  SendMessageW(hwnd, EM_SETSEL, 5, 6);
+  todo_wine CHECK_REOBJECT_STRUCT(reole, REO_IOB_SELECTION, REO_GETOBJ_ALL_INTERFACES, 1, NULL, NULL, reo2.polesite, 2);
+
+#ifdef __REACTOS__
+  expected_string = L"abc\xfffc"L"d\xfffc"L"efg";
+#else
+  expected_string = L"abc\xfffc""d\xfffc""efg";
+#endif
+
+  gettextex.cb = sizeof(buffer);
+  gettextex.flags = GT_DEFAULT;
+  gettextex.codepage = 1200;
+  gettextex.lpDefaultChar = NULL;
+  gettextex.lpUsedDefChar = NULL;
+  result = SendMessageW(hwnd, EM_GETTEXTEX, (WPARAM)&gettextex, (LPARAM)buffer);
+  ok(result == lstrlenW(expected_string), "Got wrong length: %d.\n", result);
+  todo_wine ok(!lstrcmpW(buffer, expected_string), "Got wrong content: %s.\n", debugstr_w(buffer));
+
+  gettextex.flags = GT_RAWTEXT;
+  memset(buffer, 0, sizeof(buffer));
+  result = SendMessageW(hwnd, EM_GETTEXTEX, (WPARAM)&gettextex, (LPARAM)buffer);
+  ok(result == lstrlenW(expected_string), "Got wrong length: %d.\n", result);
+  todo_wine ok(!lstrcmpW(buffer, expected_string), "Got wrong content: %s.\n", debugstr_w(buffer));
+
+  expected_stringA = "abc d efg";
+  memset(bufferA, 0, sizeof(bufferA));
+  SendMessageA(hwnd, EM_SETSEL, 0, -1);
+  result = SendMessageA(hwnd, EM_GETSELTEXT, (WPARAM)sizeof(bufferA), (LPARAM)bufferA);
+  ok(result == strlen(expected_stringA), "Got wrong length: %d.\n", result);
+  todo_wine ok(!strcmp(bufferA, expected_stringA), "Got wrong content: %s.\n", bufferA);
+
+  memset(bufferA, 0, sizeof(bufferA));
+  textrange.lpstrText = bufferA;
+  textrange.chrg.cpMin = 0;
+  textrange.chrg.cpMax = 11;
+  result = SendMessageA(hwnd, EM_GETTEXTRANGE, 0, (LPARAM)&textrange);
+  ok(result == strlen(expected_stringA), "Got wrong length: %d.\n", result);
+  todo_wine ok(!strcmp(bufferA, expected_stringA), "Got wrong content: %s.\n", bufferA);
+
+#ifdef __REACTOS__
+  expected_string = L"abc\xfffc"L"d\xfffc"L"efg\r";
+#else
+  expected_string = L"abc\xfffc""d\xfffc""efg\r";
+#endif
+
+  hr = ITextDocument_Range(doc, 0, 11, &range);
+  ok(hr == S_OK, "Got hr %#x.\n", hr);
+  hr = ITextRange_GetText(range, &bstr);
+  ok(hr == S_OK, "Got hr %#x.\n", hr);
+  ok(lstrlenW(bstr) == lstrlenW(expected_string), "Got wrong length: %d.\n", lstrlenW(bstr));
+  todo_wine ok(!lstrcmpW(bstr, expected_string), "Got text: %s.\n", wine_dbgstr_w(bstr));
+  SysFreeString(bstr);
+  hr = ITextRange_SetRange(range, 3, 4);
+  ok(hr == S_OK, "Got hr %#x.\n", hr);
+  hr = ITextRange_GetChar(range, &result);
+  ok(hr == S_OK, "Got hr %#x.\n", hr);
+  todo_wine ok(result == 0xfffc, "Got char: %c\n", result);
+  ITextRange_Release(range);
+
+  SendMessageW(hwnd, EM_SETSEL, 0, -1);
+  hr = ITextSelection_GetText(selection, &bstr);
+  ok(hr == S_OK, "Got hr %#x.\n", hr);
+  ok(lstrlenW(bstr) == lstrlenW(expected_string), "Got wrong length: %d.\n", lstrlenW(bstr));
+  todo_wine ok(!lstrcmpW(bstr, expected_string), "Got text: %s.\n", wine_dbgstr_w(bstr));
+  SysFreeString(bstr);
+  SendMessageW(hwnd, EM_SETSEL, 3, 4);
+  result = 0;
+  hr = ITextSelection_GetChar(selection, &result);
+  ok(hr == S_OK, "Got hr %#x.\n", hr);
+  todo_wine ok(result == 0xfffc, "Got char: %c\n", result);
+
+  SendMessageA(hwnd, WM_SETTEXT, 0, (LPARAM)"");
+  result = SendMessageW(hwnd, EM_SETTEXTMODE, (WPARAM)TM_PLAINTEXT, 0);
+  ok(!result, "Got result %x.\n", result);
+  /* "abc|d|efg" */
+  SendMessageA(hwnd, WM_SETTEXT, 0, (LPARAM)test_text1);
+  INSERT_REOBJECT(reole, &reo1, 3, 1);
+  INSERT_REOBJECT(reole, &reo2, 5, 2);
+
+  expected_string = L"abc d efg";
+  charrange.cpMin = 0;
+  charrange.cpMax = 11;
+  hr = IRichEditOle_GetClipboardData(reole, &charrange, 1, &dataobject);
+  ok(hr == S_OK, "Got hr %#x.\n", hr);
+  formatetc.cfFormat = CF_UNICODETEXT;
+  formatetc.dwAspect = DVASPECT_CONTENT;
+  formatetc.ptd = NULL;
+  formatetc.tymed = TYMED_HGLOBAL;
+  formatetc.lindex = -1;
+  hr = IDataObject_GetData(dataobject, &formatetc, &stgmedium);
+  ok(hr == S_OK, "Got hr %#x.\n", hr);
+  todo_wine ok(lstrlenW(stgmedium.hGlobal) == lstrlenW(expected_string), "Got wrong length: %d.\n", result);
+  todo_wine ok(!lstrcmpW(stgmedium.hGlobal, expected_string), "Got wrong content: %s.\n", debugstr_w(stgmedium.hGlobal));
+
+#ifdef __REACTOS__
+  expected_string = L"abc\xfffc"L"d\xfffc"L"efg";
+#else
+  expected_string = L"abc\xfffc""d\xfffc""efg";
+#endif
+
+  gettextex.cb = sizeof(buffer);
+  gettextex.flags = GT_DEFAULT;
+  gettextex.codepage = 1200;
+  gettextex.lpDefaultChar = NULL;
+  gettextex.lpUsedDefChar = NULL;
+  result = SendMessageW(hwnd, EM_GETTEXTEX, (WPARAM)&gettextex, (LPARAM)buffer);
+  ok(result == lstrlenW(expected_string), "Got wrong length: %d.\n", result);
+  todo_wine ok(!lstrcmpW(buffer, expected_string), "Got wrong content: %s.\n", debugstr_w(buffer));
+
+  gettextex.flags = GT_RAWTEXT;
+  memset(buffer, 0, sizeof(buffer));
+  result = SendMessageW(hwnd, EM_GETTEXTEX, (WPARAM)&gettextex, (LPARAM)buffer);
+  ok(result == lstrlenW(expected_string), "Got wrong length: %d.\n", result);
+  todo_wine ok(!lstrcmpW(buffer, expected_string), "Got wrong content: %s.\n", debugstr_w(buffer));
+
+  expected_stringA = "abc d efg";
+  memset(bufferA, 0, sizeof(bufferA));
+  SendMessageA(hwnd, EM_SETSEL, 0, -1);
+  result = SendMessageA(hwnd, EM_GETSELTEXT, (WPARAM)sizeof(bufferA), (LPARAM)bufferA);
+  ok(result == strlen(expected_stringA), "Got wrong length: %d.\n", result);
+  todo_wine ok(!strcmp(bufferA, expected_stringA), "Got wrong content: %s.\n", bufferA);
+
+  memset(bufferA, 0, sizeof(bufferA));
+  textrange.lpstrText = bufferA;
+  textrange.chrg.cpMin = 0;
+  textrange.chrg.cpMax = 11;
+  result = SendMessageA(hwnd, EM_GETTEXTRANGE, 0, (LPARAM)&textrange);
+  ok(result == strlen(expected_stringA), "Got wrong length: %d.\n", result);
+  todo_wine ok(!strcmp(bufferA, expected_stringA), "Got wrong content: %s.\n", bufferA);
+
+#ifdef __REACTOS__
+  expected_string = L"abc\xfffc"L"d\xfffc"L"efg";
+#else
+  expected_string = L"abc\xfffc""d\xfffc""efg";
+#endif
+
+  hr = ITextDocument_Range(doc, 0, 11, &range);
+  ok(hr == S_OK, "Got hr %#x.\n", hr);
+  hr = ITextRange_GetText(range, &bstr);
+  ok(hr == S_OK, "Got hr %#x.\n", hr);
+  todo_wine ok(lstrlenW(bstr) == lstrlenW(expected_string), "Got wrong length: %d.\n", lstrlenW(bstr));
+  todo_wine ok(!lstrcmpW(bstr, expected_string), "Got text: %s.\n", wine_dbgstr_w(bstr));
+  SysFreeString(bstr);
+  hr = ITextRange_SetRange(range, 3, 4);
+  ok(hr == S_OK, "Got hr %#x.\n", hr);
+  hr = ITextRange_GetChar(range, &result);
+  ok(hr == S_OK, "Got hr %#x.\n", hr);
+  todo_wine ok(result == 0xfffc, "Got char: %c\n", result);
+  ITextRange_Release(range);
+
+  SendMessageW(hwnd, EM_SETSEL, 0, -1);
+  hr = ITextSelection_GetText(selection, &bstr);
+  ok(hr == S_OK, "Got hr %#x.\n", hr);
+  todo_wine ok(lstrlenW(bstr) == lstrlenW(expected_string), "Got wrong length: %d.\n", lstrlenW(bstr));
+  todo_wine ok(!lstrcmpW(bstr, expected_string), "Got text: %s.\n", wine_dbgstr_w(bstr));
+  SysFreeString(bstr);
+  SendMessageW(hwnd, EM_SETSEL, 3, 4);
+  result = 0;
+  hr = ITextSelection_GetChar(selection, &result);
+  ok(hr == S_OK, "Got hr %#x.\n", hr);
+  todo_wine ok(result == 0xfffc, "Got char: %c\n", result);
+
+  release_interfaces(&hwnd, &reole, &doc, &selection);
 }
 
 static void test_GetStoryLength(void)
@@ -3481,6 +3749,51 @@ static void _check_selection(ITextSelection *selection, LONG expected_start, LON
                      expected_end, value);
 }
 
+static void test_ITextRange_SetRange(void)
+{
+  static const CHAR test_text1[] = "TestSomeText";
+  ITextDocument *txtDoc = NULL;
+  IRichEditOle *reOle = NULL;
+  ITextRange *txtRge = NULL;
+  HRESULT hr;
+  HWND w;
+
+  create_interfaces(&w, &reOle, &txtDoc, NULL);
+  SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
+  ITextDocument_Range(txtDoc, 0, 0, &txtRge);
+
+  hr = ITextRange_SetRange(txtRge, 2, 4);
+  ok(hr == S_OK, "got 0x%08x.\n", hr);
+  CHECK_RANGE(txtRge, 2, 4);
+
+  hr = ITextRange_SetRange(txtRge, 2, 4);
+  ok(hr == S_FALSE, "got 0x%08x.\n", hr);
+  CHECK_RANGE(txtRge, 2, 4);
+
+  hr = ITextRange_SetRange(txtRge, 4, 2);
+  ok(hr == S_FALSE, "got 0x%08x.\n", hr);
+  CHECK_RANGE(txtRge, 2, 4);
+
+  hr = ITextRange_SetRange(txtRge, 14, 14);
+  ok(hr == S_OK, "got 0x%08x.\n", hr);
+  CHECK_RANGE(txtRge, 12, 12);
+
+  hr = ITextRange_SetRange(txtRge, 15, 15);
+  ok(hr == S_FALSE, "got 0x%08x.\n", hr);
+  CHECK_RANGE(txtRge, 12, 12);
+
+  hr = ITextRange_SetRange(txtRge, 14, 1);
+  ok(hr == S_OK, "got 0x%08x.\n", hr);
+  CHECK_RANGE(txtRge, 1, 13);
+
+  hr = ITextRange_SetRange(txtRge, -1, 4);
+  ok(hr == S_OK, "got 0x%08x.\n", hr);
+  CHECK_RANGE(txtRge, 0, 4);
+
+  ITextRange_Release(txtRge);
+  release_interfaces(&w, &reOle, &txtDoc, NULL);
+}
+
 static void test_Expand(void)
 {
   static const char test_text1[] = "TestSomeText";
@@ -3540,7 +3853,7 @@ static void test_Expand(void)
   ITextRange_Release(range);
 }
 
-static void test_MoveEnd(void)
+static void test_MoveEnd_story(void)
 {
   static const char test_text1[] = "Word1 Word2";
   IRichEditOle *reole = NULL;
@@ -3654,449 +3967,288 @@ static void test_MoveEnd(void)
   ITextRange_Release(range);
 }
 
-static void test_ITextRange_SetStart(void)
+static void test_character_movestart(ITextRange *range, int textlen, int i, int j, LONG target)
 {
-  HWND w;
-  IRichEditOle *reOle = NULL;
-  ITextDocument *txtDoc = NULL;
-  ITextRange *txtRge = NULL;
-  HRESULT hres;
-  LONG first, lim, start, end;
-  static const CHAR test_text1[] = "TestSomeText";
+    HRESULT hr;
+    LONG delta = 0;
+    LONG expected_delta;
+    LONG expected_start = target;
 
-  create_interfaces(&w, &reOle, &txtDoc, NULL);
-  SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
-
-  first = 4, lim = 8;
-  ITextDocument_Range(txtDoc, first, lim, &txtRge);
-  hres = ITextRange_SetStart(txtRge, first);
-  ok(hres == S_FALSE, "ITextRange_SetStart\n");
-
-#define TEST_TXTRGE_SETSTART(cp, expected_start, expected_end)  \
-  hres = ITextRange_SetStart(txtRge, cp);                       \
-  ok(hres == S_OK, "ITextRange_SetStart\n");                    \
-  ITextRange_GetStart(txtRge, &start);                          \
-  ITextRange_GetEnd(txtRge, &end);                              \
-  ok(start == expected_start, "got wrong start value: %d\n", start);  \
-  ok(end == expected_end, "got wrong end value: %d\n", end);
-
-  TEST_TXTRGE_SETSTART(2, 2, 8)
-  TEST_TXTRGE_SETSTART(-1, 0, 8)
-  TEST_TXTRGE_SETSTART(13, 12, 12)
-
-  release_interfaces(&w, &reOle, &txtDoc, NULL);
+    if (expected_start < 0)
+        expected_start = 0;
+    else if (expected_start > textlen)
+        expected_start = textlen;
+    expected_delta = expected_start - i;
+    hr = ITextRange_SetRange(range, i, j);
+    ok(SUCCEEDED(hr), "got 0x%08x\n", hr);
+    hr = ITextRange_MoveStart(range, tomCharacter, target - i, &delta);
+    if (expected_start == i) {
+        ok(hr == S_FALSE, "(%d,%d) move by %d got hr=0x%08x\n", i, j, target - i, hr);
+        ok(delta == 0, "(%d,%d) move by %d got delta %d\n", i, j, target - i, delta);
+        CHECK_RANGE(range, i, j);
+    } else {
+        ok(hr == S_OK, "(%d,%d) move by %d got hr=0x%08x\n", i, j, target - i, hr);
+        ok(delta == expected_delta, "(%d,%d) move by %d got delta %d\n", i, j, target - i, delta);
+        if (expected_start <= j)
+            CHECK_RANGE(range, expected_start, j);
+        else
+            CHECK_RANGE(range, expected_start, expected_start);
+    }
 }
 
-static void test_ITextRange_SetEnd(void)
+static void test_character_moveend(ITextRange *range, int textlen, int i, int j, LONG target)
 {
-  HWND w;
-  IRichEditOle *reOle = NULL;
-  ITextDocument *txtDoc = NULL;
-  ITextRange *txtRge = NULL;
-  HRESULT hres;
-  LONG first, lim, start, end;
-  static const CHAR test_text1[] = "TestSomeText";
+    HRESULT hr;
+    LONG delta;
+    LONG expected_delta;
+    LONG expected_end = target;
 
-  create_interfaces(&w, &reOle, &txtDoc, NULL);
-  SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
-
-  first = 4, lim = 8;
-  ITextDocument_Range(txtDoc, first, lim, &txtRge);
-  hres = ITextRange_SetEnd(txtRge, lim);
-  ok(hres == S_FALSE, "ITextRange_SetEnd\n");
-
-#define TEST_TXTRGE_SETEND(cp, expected_start, expected_end)    \
-  hres = ITextRange_SetEnd(txtRge, cp);                         \
-  ok(hres == S_OK, "ITextRange_SetEnd\n");                      \
-  ITextRange_GetStart(txtRge, &start);                          \
-  ITextRange_GetEnd(txtRge, &end);                              \
-  ok(start == expected_start, "got wrong start value: %d\n", start);  \
-  ok(end == expected_end, "got wrong end value: %d\n", end);
-
-  TEST_TXTRGE_SETEND(6, 4, 6)
-  TEST_TXTRGE_SETEND(14, 4, 13)
-  TEST_TXTRGE_SETEND(-1, 0, 0)
-
-  ITextRange_Release(txtRge);
-  release_interfaces(&w, &reOle, &txtDoc, NULL);
+    if (expected_end < 0)
+        expected_end = 0;
+    else if (expected_end > textlen + 1)
+        expected_end = textlen + 1;
+    expected_delta = expected_end - j;
+    hr = ITextRange_SetRange(range, i, j);
+    ok(SUCCEEDED(hr), "got 0x%08x\n", hr);
+    hr = ITextRange_MoveEnd(range, tomCharacter, target - j, &delta);
+    if (expected_end == j) {
+        ok(hr == S_FALSE, "(%d,%d) move by %d got hr=0x%08x\n", i, j, target - j, hr);
+        ok(delta == 0, "(%d,%d) move by %d got delta %d\n", i, j, target - j, delta);
+        CHECK_RANGE(range, i, j);
+    } else {
+        ok(hr == S_OK, "(%d,%d) move by %d got hr=0x%08x\n", i, j, target - j, hr);
+        ok(delta == expected_delta, "(%d,%d) move by %d got delta %d\n", i, j, target - j, delta);
+        if (i <= expected_end)
+            CHECK_RANGE(range, i, expected_end);
+        else
+            CHECK_RANGE(range, expected_end, expected_end);
+    }
 }
 
-static void test_ITextSelection_SetStart(void)
+static void test_character_move(ITextRange *range, int textlen, int i, int j, LONG target)
 {
-  HWND w;
-  IRichEditOle *reOle = NULL;
-  ITextDocument *txtDoc = NULL;
-  ITextSelection *txtSel = NULL;
-  HRESULT hres;
-  LONG first, lim, start, end;
-  static const CHAR test_text1[] = "TestSomeText";
+    HRESULT hr;
+    LONG move_by;
+    LONG delta = 0;
+    LONG expected_delta;
+    LONG expected_location = target;
 
-  create_interfaces(&w, &reOle, &txtDoc, &txtSel);
-  SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
+    if (expected_location < 0)
+        expected_location = 0;
+    else if (expected_location > textlen)
+        expected_location = textlen;
 
-  first = 4, lim = 8;
-  SendMessageA(w, EM_SETSEL, first, lim);
-  hres = ITextSelection_SetStart(txtSel, first);
-  ok(hres == S_FALSE, "ITextSelection_SetStart\n");
+    if (target <= i) {
+        move_by = target - i;
+        expected_delta = expected_location - i;
+        if (i != j) {
+            --move_by;
+            --expected_delta;
+        }
+    } else if (j <= target) {
+        move_by = target - j;
+        expected_delta = expected_location - j;
+        if (i != j) {
+            ++move_by;
+            ++expected_delta;
+        }
+    } else {
+        /* There's no way to move to a point between start and end: */
+        return;
+    }
 
-#define TEST_TXTSEL_SETSTART(cp, expected_start, expected_end)        \
-  hres = ITextSelection_SetStart(txtSel, cp);                         \
-  ok(hres == S_OK, "ITextSelection_SetStart\n");                      \
-  SendMessageA(w, EM_GETSEL, (LPARAM)&start, (WPARAM)&end);           \
-  ok(start == expected_start, "got wrong start value: %d\n", start);  \
-  ok(end == expected_end, "got wrong end value: %d\n", end);
-
-  TEST_TXTSEL_SETSTART(2, 2, 8)
-  TEST_TXTSEL_SETSTART(-1, 0, 8)
-  TEST_TXTSEL_SETSTART(13, 12, 12)
-
-  release_interfaces(&w, &reOle, &txtDoc, &txtSel);
+    hr = ITextRange_SetRange(range, i, j);
+    ok(SUCCEEDED(hr), "got 0x%08x\n", hr);
+    hr = ITextRange_Move(range, tomCharacter, move_by, &delta);
+    if (expected_delta == 0) {
+        ok(hr == S_FALSE, "(%d,%d) move by %d got hr=0x%08x\n", i, j, move_by, hr);
+        ok(delta == 0, "(%d,%d) move by %d got delta %d\n", i, j, move_by, delta);
+        CHECK_RANGE(range, expected_location, expected_location);
+    } else {
+        ok(hr == S_OK, "(%d,%d) move by %d got hr=0x%08x\n", i, j, move_by, hr);
+        ok(delta == expected_delta, "(%d,%d) move by %d got delta %d\n", i, j, move_by, delta);
+        CHECK_RANGE(range, expected_location, expected_location);
+    }
 }
 
-static void test_ITextSelection_SetEnd(void)
+static void test_character_startof(ITextRange *range, int textlen, int i, int j)
 {
-  HWND w;
-  IRichEditOle *reOle = NULL;
-  ITextDocument *txtDoc = NULL;
-  ITextSelection *txtSel = NULL;
-  HRESULT hres;
-  LONG first, lim, start, end;
-  static const CHAR test_text1[] = "TestSomeText";
+    HRESULT hr;
+    LONG delta;
 
-  create_interfaces(&w, &reOle, &txtDoc, &txtSel);
-  SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
+    hr = ITextRange_SetRange(range, i, j);
+    ok(SUCCEEDED(hr), "got 0x%08x\n", hr);
+    hr = ITextRange_StartOf(range, tomCharacter, tomMove, &delta);
+    if (i == j) {
+        ok(hr == S_FALSE, "(%d,%d) tomMove got hr=0x%08x\n", i, j, hr);
+        ok(delta == 0, "(%d,%d) tomMove got delta %d\n", i, j, delta);
+    } else {
+        ok(hr == S_OK, "(%d,%d) tomMove got hr=0x%08x\n", i, j, hr);
+        ok(delta == -1, "(%d,%d) tomMove got delta %d\n", i, j, delta);
+    }
+    CHECK_RANGE(range, i, i);
 
-  first = 4, lim = 8;
-  SendMessageA(w, EM_SETSEL, first, lim);
-  hres = ITextSelection_SetEnd(txtSel, lim);
-  ok(hres == S_FALSE, "ITextSelection_SetEnd\n");
-
-#define TEST_TXTSEL_SETEND(cp, expected_start, expected_end)          \
-  hres = ITextSelection_SetEnd(txtSel, cp);                           \
-  ok(hres == S_OK, "ITextSelection_SetEnd\n");                        \
-  SendMessageA(w, EM_GETSEL, (LPARAM)&start, (WPARAM)&end);           \
-  ok(start == expected_start, "got wrong start value: %d\n", start);  \
-  ok(end == expected_end, "got wrong end value: %d\n", end);
-
-  TEST_TXTSEL_SETEND(6, 4, 6)
-  TEST_TXTSEL_SETEND(14, 4, 13)
-  TEST_TXTSEL_SETEND(-1, 0, 0)
-
-  release_interfaces(&w, &reOle, &txtDoc, &txtSel);
+    hr = ITextRange_SetRange(range, i, j);
+    ok(SUCCEEDED(hr), "got 0x%08x\n", hr);
+    hr = ITextRange_StartOf(range, tomCharacter, tomExtend, &delta);
+    ok(hr == S_FALSE, "(%d,%d) tomExtend got hr=0x%08x\n", i, j, hr);
+    ok(delta == 0, "(%d,%d) tomExtend got delta %d\n", i, j, delta);
+    CHECK_RANGE(range, i, j);
 }
 
-static void test_ITextRange_GetFont(void)
+static void test_character_endof(ITextRange *range, int textlen, int i, int j)
 {
-  HWND w;
-  IRichEditOle *reOle = NULL;
-  ITextDocument *txtDoc = NULL;
-  ITextRange *txtRge = NULL;
-  ITextFont *txtFont = NULL, *txtFont1 = NULL;
-  HRESULT hres;
-  int first, lim;
-  int refcount;
-  static const CHAR test_text1[] = "TestSomeText";
-  LONG value;
+    HRESULT hr;
+    LONG end;
+    LONG delta;
 
-  create_interfaces(&w, &reOle, &txtDoc, NULL);
-  SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
+    hr = ITextRange_SetRange(range, i, j);
+    ok(SUCCEEDED(hr), "got 0x%08x\n", hr);
+    hr = ITextRange_EndOf(range, tomCharacter, tomMove, &delta);
 
-  first = 4, lim = 4;
-  ITextDocument_Range(txtDoc, first, lim, &txtRge);
-  refcount = get_refcount((IUnknown *)txtRge);
-  ok(refcount == 1, "got wrong ref count: %d\n", refcount);
+    /* A character "end", apparently cannot be before the very first character */
+    end = j;
+    if (j == 0)
+        ++end;
 
-  hres = ITextRange_GetFont(txtRge, &txtFont);
-  ok(hres == S_OK, "ITextRange_GetFont\n");
-  refcount = get_refcount((IUnknown *)txtFont);
-  ok(refcount == 1, "got wrong ref count: %d\n", refcount);
-  refcount = get_refcount((IUnknown *)txtRge);
-  ok(refcount == 2, "got wrong ref count: %d\n", refcount);
+    if (i == end) {
+        ok(hr == S_FALSE, "(%d,%d) tomMove got hr=0x%08x\n", i, j, hr);
+        ok(delta == 0, "(%d,%d) tomMove got delta %d\n", i, j, delta);
+    } else {
+        ok(hr == S_OK, "(%d,%d) tomMove got hr=0x%08x\n", i, j, hr);
+        ok(delta == 1, "(%d,%d) tomMove got delta %d\n", i, j, delta);
+    }
+    CHECK_RANGE(range, end, end);
 
-  hres = ITextRange_GetFont(txtRge, &txtFont1);
-  ok(hres == S_OK, "ITextRange_GetFont\n");
-  ok(txtFont1 != txtFont, "A new pointer should be return\n");
-  refcount = get_refcount((IUnknown *)txtFont1);
-  ok(refcount == 1, "got wrong ref count: %d\n", refcount);
-  ITextFont_Release(txtFont1);
-  refcount = get_refcount((IUnknown *)txtRge);
-  ok(refcount == 2, "got wrong ref count: %d\n", refcount);
-
-  ITextRange_Release(txtRge);
-  release_interfaces(&w, &reOle, &txtDoc, NULL);
-
-  hres = ITextFont_GetOutline(txtFont, &value);
-  ok(hres == CO_E_RELEASED, "ITextFont after ITextDocument destroyed\n");
-
-  ITextFont_Release(txtFont);
+    hr = ITextRange_SetRange(range, i, j);
+    ok(SUCCEEDED(hr), "got 0x%08x\n", hr);
+    hr = ITextRange_EndOf(range, tomCharacter, tomExtend, &delta);
+    if (0 < j) {
+        ok(hr == S_FALSE, "(%d,%d) tomExtend got hr=0x%08x\n", i, j, hr);
+        ok(delta == 0, "(%d,%d) tomExtend got delta %d\n", i, j, delta);
+    } else {
+        ok(hr == S_OK, "(%d,%d) tomExtend got hr=0x%08x\n", i, j, hr);
+        ok(delta == 1, "(%d,%d) tomExtend got delta %d\n", i, j, delta);
+    }
+    CHECK_RANGE(range, i, end);
 }
 
-static void test_ITextSelection_GetFont(void)
+static void test_character_movement(void)
 {
-  HWND w;
-  IRichEditOle *reOle = NULL;
-  ITextDocument *txtDoc = NULL;
-  ITextSelection *txtSel = NULL;
-  ITextFont *txtFont = NULL, *txtFont1 = NULL;
-  HRESULT hres;
-  int first, lim;
-  int refcount;
-  static const CHAR test_text1[] = "TestSomeText";
-  LONG value;
+  static const char test_text1[] = "ab\n c";
+  IRichEditOle *reole = NULL;
+  ITextDocument *doc = NULL;
+  ITextRange *range;
+  ITextSelection *selection;
+  HRESULT hr;
+  HWND hwnd;
+  int i, j;
+  const int textlen = strlen(test_text1);
 
-  create_interfaces(&w, &reOle, &txtDoc, &txtSel);
-  SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
+  create_interfaces(&hwnd, &reole, &doc, &selection);
+  SendMessageA(hwnd, WM_SETTEXT, 0, (LPARAM)test_text1);
 
-  first = 4, lim = 4;
-  SendMessageA(w, EM_SETSEL, first, lim);
-  refcount = get_refcount((IUnknown *)txtSel);
-  ok(refcount == 2, "got wrong ref count: %d\n", refcount);
+  hr = ITextDocument_Range(doc, 0, 0, &range);
+  ok(hr == S_OK, "got 0x%08x\n", hr);
 
-  hres = ITextSelection_GetFont(txtSel, &txtFont);
-  ok(hres == S_OK, "ITextSelection_GetFont\n");
-  refcount = get_refcount((IUnknown *)txtFont);
-  ok(refcount == 1, "got wrong ref count: %d\n", refcount);
-  refcount = get_refcount((IUnknown *)txtSel);
-  ok(refcount == 3, "got wrong ref count: %d\n", refcount);
+  /* Exhaustive test of every possible combination of (start,end) locations,
+   * against every possible target location to move to. */
+  for (i = 0; i <= textlen; i++) {
+      for (j = i; j <= textlen; j++) {
+          LONG target;
+          for (target = -2; target <= textlen + 3; target++) {
+              test_character_moveend(range, textlen, i, j, target);
+              test_character_movestart(range, textlen, i, j, target);
+              test_character_move(range, textlen, i, j, target);
+          }
+          test_character_startof(range, textlen, i, j);
+          test_character_endof(range, textlen, i, j);
+      }
+  }
 
-  hres = ITextSelection_GetFont(txtSel, &txtFont1);
-  ok(hres == S_OK, "ITextSelection_GetFont\n");
-  ok(txtFont1 != txtFont, "A new pointer should be return\n");
-  refcount = get_refcount((IUnknown *)txtFont1);
-  ok(refcount == 1, "got wrong ref count: %d\n", refcount);
-  ITextFont_Release(txtFont1);
-  refcount = get_refcount((IUnknown *)txtSel);
-  ok(refcount == 3, "got wrong ref count: %d\n", refcount);
-
-  release_interfaces(&w, &reOle, &txtDoc, &txtSel);
-
-  hres = ITextFont_GetOutline(txtFont, &value);
-  ok(hres == CO_E_RELEASED, "ITextFont after ITextDocument destroyed\n");
-
-  ITextFont_Release(txtFont);
+  release_interfaces(&hwnd, &reole, &doc, NULL);
+  ITextSelection_Release(selection);
+  ITextRange_Release(range);
 }
 
-static void test_ITextRange_GetPara(void)
+#define CLIPBOARD_RANGE_CONTAINS(range, start, end, expected) _clipboard_range_contains(range, start, end, expected, __LINE__, 0);
+#define TODO_CLIPBOARD_RANGE_CONTAINS(range, start, end, expected) _clipboard_range_contains(range, start, end, expected, __LINE__, 1);
+static void _clipboard_range_contains(ITextRange *range, LONG start, LONG end, const char *expected, int line, int todo)
 {
-  HWND w;
-  IRichEditOle *reOle = NULL;
-  ITextDocument *txtDoc = NULL;
-  ITextRange *txtRge = NULL;
-  ITextPara *txtPara = NULL, *txtPara1 = NULL;
-  HRESULT hres;
-  int first, lim;
-  int refcount;
-  static const CHAR test_text1[] = "TestSomeText";
-  LONG value;
+  HRESULT hr;
+  BOOL clipboard_open;
+  HGLOBAL global;
+  const char *clipboard_text;
 
-  create_interfaces(&w, &reOle, &txtDoc, NULL);
-  SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
+  hr = ITextRange_SetRange(range, start, end);
+  ok_(__FILE__,line)(SUCCEEDED(hr), "SetRange failed: 0x%08x\n", hr);
+  hr = ITextRange_Copy(range, NULL);
+  ok_(__FILE__,line)(hr == S_OK, "Copy failed: 0x%08x\n", hr);
 
-  first = 4, lim = 4;
-  ITextDocument_Range(txtDoc, first, lim, &txtRge);
-  refcount = get_refcount((IUnknown *)txtRge);
-  ok(refcount == 1, "got wrong ref count: %d\n", refcount);
-
-  hres = ITextRange_GetPara(txtRge, &txtPara);
-  ok(hres == S_OK, "ITextRange_GetPara\n");
-  refcount = get_refcount((IUnknown *)txtPara);
-  ok(refcount == 1, "got wrong ref count: %d\n", refcount);
-  refcount = get_refcount((IUnknown *)txtRge);
-  ok(refcount == 2, "got wrong ref count: %d\n", refcount);
-
-  hres = ITextRange_GetPara(txtRge, &txtPara1);
-  ok(hres == S_OK, "ITextRange_GetPara\n");
-  ok(txtPara1 != txtPara, "A new pointer should be return\n");
-  refcount = get_refcount((IUnknown *)txtPara1);
-  ok(refcount == 1, "got wrong ref count: %d\n", refcount);
-  ITextPara_Release(txtPara1);
-  refcount = get_refcount((IUnknown *)txtRge);
-  ok(refcount == 2, "got wrong ref count: %d\n", refcount);
-
-  ITextRange_Release(txtRge);
-  release_interfaces(&w, &reOle, &txtDoc, NULL);
-
-  hres = ITextPara_GetStyle(txtPara, &value);
-  ok(hres == CO_E_RELEASED, "ITextPara after ITextDocument destroyed\n");
-
-  ITextPara_Release(txtPara);
+  clipboard_open = OpenClipboard(NULL);
+  ok_(__FILE__,line)(clipboard_open, "OpenClipboard failed: %d\n", GetLastError());
+  global = GetClipboardData(CF_TEXT);
+  ok_(__FILE__,line)(global != NULL, "GetClipboardData failed: %p\n", global);
+  clipboard_text = GlobalLock(global);
+  ok_(__FILE__,line)(clipboard_text != NULL, "GlobalLock failed: %p\n", clipboard_text);
+#ifdef __REACTOS__
+  if (expected != NULL && clipboard_text != NULL)
+    todo_wine_if(todo) ok_(__FILE__,line)(!strcmp(expected, clipboard_text), "unexpected contents: %s\n", wine_dbgstr_a(clipboard_text));
+  else
+    todo_wine_if(todo) ok_(__FILE__,line)(FALSE, "Either 'expected' or 'clipboard_text' was NULL\n");
+#else
+  todo_wine_if(todo) ok_(__FILE__,line)(!strcmp(expected, clipboard_text), "unexpected contents: %s\n", wine_dbgstr_a(clipboard_text));
+#endif
+  GlobalUnlock(global);
+  CloseClipboard();
 }
 
-static void test_ITextRange_GetText(void)
+static void test_clipboard(void)
 {
-  HWND w;
-  IRichEditOle *reOle = NULL;
-  ITextDocument *txtDoc = NULL;
-  ITextRange *txtRge = NULL;
-  HRESULT hres;
-  BSTR bstr = NULL;
-  static const CHAR test_text1[] = "TestSomeText";
-  static const WCHAR bufW1[] = {'T', 'e', 's', 't', 0};
-  static const WCHAR bufW2[] = {'T', 'e', 'x', 't', '\r', 0};
-  static const WCHAR bufW3[] = {'T', 'e', 'x', 't', 0};
-  static const WCHAR bufW4[] = {'T', 'e', 's', 't', 'S', 'o', 'm',
-                                'e', 'T', 'e', 'x', 't', '\r', 0};
-  static const WCHAR bufW5[] = {'\r', 0};
+  static const char text_in[] = "ab\n c";
+  IRichEditOle *reole = NULL;
+  ITextDocument *doc = NULL;
+  ITextRange *range;
+  ITextSelection *selection;
+  HRESULT hr;
+  HWND hwnd;
 
+  create_interfaces(&hwnd, &reole, &doc, &selection);
+  SendMessageA(hwnd, WM_SETTEXT, 0, (LPARAM)text_in);
 
-#define TEST_TXTRGE_GETTEXT(first, lim, expected_string)                \
-  create_interfaces(&w, &reOle, &txtDoc, NULL);                         \
-  SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);                   \
-  ITextDocument_Range(txtDoc, first, lim, &txtRge);                     \
-  hres = ITextRange_GetText(txtRge, &bstr);                             \
-  ok(hres == S_OK, "ITextRange_GetText\n");                             \
-  ok(!lstrcmpW(bstr, expected_string), "got wrong text: %s\n", wine_dbgstr_w(bstr)); \
-  SysFreeString(bstr);                                                  \
-  ITextRange_Release(txtRge);                                           \
-  release_interfaces(&w, &reOle, &txtDoc, NULL);
+  hr = ITextDocument_Range(doc, 0, 0, &range);
+  ok(hr == S_OK, "got 0x%08x\n", hr);
 
-  TEST_TXTRGE_GETTEXT(0, 4, bufW1)
-  TEST_TXTRGE_GETTEXT(4, 0, bufW1)
-  TEST_TXTRGE_GETTEXT(8, 12, bufW3)
-  TEST_TXTRGE_GETTEXT(8, 13, bufW2)
-  TEST_TXTRGE_GETTEXT(12, 13, bufW5)
-  TEST_TXTRGE_GETTEXT(0, 13, bufW4)
-  TEST_TXTRGE_GETTEXT(1, 1, NULL)
-}
+  CLIPBOARD_RANGE_CONTAINS(range, 0, 5, "ab\r\n c")
+  CLIPBOARD_RANGE_CONTAINS(range, 0, 0, "ab\r\n c")
+  CLIPBOARD_RANGE_CONTAINS(range, 1, 1, "ab\r\n c")
+  CLIPBOARD_RANGE_CONTAINS(range, 0, 1, "a")
+  CLIPBOARD_RANGE_CONTAINS(range, 5, 6, "")
 
-static void test_ITextRange_SetRange(void)
-{
-  HWND w;
-  IRichEditOle *reOle = NULL;
-  ITextDocument *txtDoc = NULL;
-  ITextRange *txtRge = NULL;
-  HRESULT hres;
-  int start, end;
-  static const CHAR test_text1[] = "TestSomeText";
+  /* Setting password char does not stop Copy */
+  SendMessageA(hwnd, EM_SETPASSWORDCHAR, '*', 0);
+  CLIPBOARD_RANGE_CONTAINS(range, 0, 1, "a")
 
-  create_interfaces(&w, &reOle, &txtDoc, NULL);
-  SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
-  ITextDocument_Range(txtDoc, 0, 0, &txtRge);
+  /* Cut can be undone */
+  hr = ITextRange_SetRange(range, 0, 1);
+  ok(SUCCEEDED(hr), "SetRange failed: 0x%08x\n", hr);
+  hr = ITextRange_Cut(range, NULL);
+  ok(hr == S_OK, "Cut failed: 0x%08x\n", hr);
+  CLIPBOARD_RANGE_CONTAINS(range, 0, 4, "b\r\n c");
+  hr = ITextDocument_Undo(doc, 1, NULL);
+  todo_wine ok(hr == S_OK, "Undo failed: 0x%08x\n", hr);
+  TODO_CLIPBOARD_RANGE_CONTAINS(range, 0, 5, "ab\r\n c");
 
-#define TEST_TXTRGE_SETRANGE(first, lim, expected_start, expected_end, expected_return) \
-  hres = ITextRange_SetRange(txtRge, first, lim);                       \
-  ok(hres == expected_return, "ITextRange_SetRange\n");                 \
-  ITextRange_GetStart(txtRge, &start);                                  \
-  ITextRange_GetEnd(txtRge, &end);                                      \
-  ok(start == expected_start, "got wrong start value: %d\n", start);    \
-  ok(end == expected_end, "got wrong end value: %d\n", end);
+  /* Cannot cut when read-only */
+  SendMessageA(hwnd, EM_SETREADONLY, TRUE, 0);
+  hr = ITextRange_SetRange(range, 0, 1);
+  ok(SUCCEEDED(hr), "SetRange failed: 0x%08x\n", hr);
+  hr = ITextRange_Cut(range, NULL);
+  ok(hr == E_ACCESSDENIED, "got 0x%08x\n", hr);
 
-  TEST_TXTRGE_SETRANGE(2, 4, 2, 4, S_OK)
-  TEST_TXTRGE_SETRANGE(2, 4, 2, 4, S_FALSE)
-  TEST_TXTRGE_SETRANGE(4, 2, 2, 4, S_FALSE)
-  TEST_TXTRGE_SETRANGE(14, 14, 12, 12, S_OK)
-  TEST_TXTRGE_SETRANGE(15, 15, 12, 12, S_FALSE)
-  TEST_TXTRGE_SETRANGE(14, 1, 1, 13, S_OK)
-  TEST_TXTRGE_SETRANGE(-1, 4, 0, 4, S_OK)
-
-  ITextRange_Release(txtRge);
-  release_interfaces(&w, &reOle, &txtDoc, NULL);
-}
-
-static void test_ITextRange_IsEqual2(void)
-{
-  HWND w;
-  IRichEditOle *reOle = NULL;
-  ITextDocument *txtDoc = NULL;
-  ITextRange *txtRge1 = NULL, *txtRge2 = NULL;
-  HRESULT hres;
-  static const CHAR test_text1[] = "TestSomeText";
-  LONG res;
-
-  create_interfaces(&w, &reOle, &txtDoc, NULL);
-  SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
-  ITextDocument_Range(txtDoc, 2, 4, &txtRge1);
-  ITextDocument_Range(txtDoc, 2, 4, &txtRge2);
-
-#define TEST_TXTRGE_ISEQUAL(expected_hres, expected_res)                \
-  hres = ITextRange_IsEqual(txtRge1, txtRge2, &res);                    \
-  ok(hres == expected_hres, "ITextRange_IsEqual\n");                    \
-  ok(res == expected_res, "got wrong return value: %d\n", res);
-
-  TEST_TXTRGE_ISEQUAL(S_OK, tomTrue)
-  ITextRange_SetRange(txtRge2, 1, 2);
-  TEST_TXTRGE_ISEQUAL(S_FALSE, tomFalse)
-
-  ITextRange_SetRange(txtRge1, 1, 1);
-  ITextRange_SetRange(txtRge2, 2, 2);
-  TEST_TXTRGE_ISEQUAL(S_FALSE, tomFalse)
-
-  ITextRange_SetRange(txtRge2, 1, 1);
-  TEST_TXTRGE_ISEQUAL(S_OK, tomTrue)
-
-  hres = ITextRange_IsEqual(txtRge1, txtRge1, &res);
-  ok(hres == S_OK, "ITextRange_IsEqual\n");
-  ok(res == tomTrue, "got wrong return value: %d\n", res);
-
-  hres = ITextRange_IsEqual(txtRge1, txtRge2, NULL);
-  ok(hres == S_OK, "ITextRange_IsEqual\n");
-
-  hres = ITextRange_IsEqual(txtRge1, NULL, NULL);
-  ok(hres == S_FALSE, "ITextRange_IsEqual\n");
-
-  ITextRange_Release(txtRge1);
-  ITextRange_Release(txtRge2);
-  release_interfaces(&w, &reOle, &txtDoc, NULL);
-}
-
-static void test_ITextRange_GetStoryLength(void)
-{
-  HWND w;
-  IRichEditOle *reOle = NULL;
-  ITextDocument *txtDoc = NULL;
-  ITextRange *txtRge = NULL;
-  HRESULT hres;
-  LONG count;
-  static const CHAR test_text1[] = "TestSomeText";
-  int len = strlen(test_text1) + 1;
-
-  create_interfaces(&w, &reOle, &txtDoc, NULL);
-  SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
-  ITextDocument_Range(txtDoc, 0, 0, &txtRge);
-
-  hres = ITextRange_GetStoryLength(txtRge, &count);
-  ok(hres == S_OK, "ITextRange_GetStoryLength\n");
-  ok(count == len, "got wrong length: %d\n", count);
-
-  ITextRange_SetRange(txtRge, 1, 2);
-  hres = ITextRange_GetStoryLength(txtRge, &count);
-  ok(hres == S_OK, "ITextRange_GetStoryLength\n");
-  ok(count == len, "got wrong length: %d\n", count);
-
-  hres = ITextRange_GetStoryLength(txtRge, NULL);
-  ok(hres == E_INVALIDARG, "ITextRange_GetStoryLength\n");
-
-  ITextRange_Release(txtRge);
-  release_interfaces(&w, &reOle, &txtDoc, NULL);
-}
-
-static void test_ITextSelection_GetStoryLength(void)
-{
-  HWND w;
-  IRichEditOle *reOle = NULL;
-  ITextDocument *txtDoc = NULL;
-  ITextSelection *txtSel = NULL;
-  HRESULT hres;
-  LONG count;
-  static const CHAR test_text1[] = "TestSomeText";
-  int len = strlen(test_text1) + 1;
-
-  create_interfaces(&w, &reOle, &txtDoc, &txtSel);
-  SendMessageA(w, WM_SETTEXT, 0, (LPARAM)test_text1);
-
-  hres = ITextSelection_GetStoryLength(txtSel, &count);
-  ok(hres == S_OK, "ITextSelection_GetStoryLength\n");
-  ok(count == len, "got wrong length: %d\n", count);
-
-  SendMessageA(w, EM_SETSEL, 1, 2);
-  hres = ITextSelection_GetStoryLength(txtSel, &count);
-  ok(hres == S_OK, "ITextSelection_GetStoryLength\n");
-  ok(count == len, "got wrong length: %d\n", count);
-
-  hres = ITextSelection_GetStoryLength(txtSel, NULL);
-  ok(hres == E_INVALIDARG, "ITextSelection_GetStoryLength\n");
-
-  release_interfaces(&w, &reOle, &txtDoc, &txtSel);
+  release_interfaces(&hwnd, &reole, &doc, NULL);
+  ITextSelection_Release(selection);
+  ITextRange_Release(range);
 }
 
 START_TEST(richole)
@@ -4111,25 +4263,14 @@ START_TEST(richole)
   test_GetText();
   test_ITextSelection_GetChar();
   test_ITextSelection_GetStart_GetEnd();
-  test_ITextSelection_SetStart();
-  test_ITextSelection_SetEnd();
   test_ITextSelection_Collapse();
-  test_ITextSelection_GetFont();
-  test_ITextSelection_GetStoryLength();
   test_ITextDocument_Range();
   test_ITextRange_GetChar();
   test_ITextRange_ScrollIntoView();
   test_ITextRange_GetStart_GetEnd();
-  test_ITextRange_GetDuplicate();
-  test_ITextRange_SetStart();
-  test_ITextRange_SetEnd();
-  test_ITextRange_Collapse();
-  test_ITextRange_GetFont();
-  test_ITextRange_GetPara();
-  test_ITextRange_GetText();
   test_ITextRange_SetRange();
-  test_ITextRange_IsEqual2();
-  test_ITextRange_GetStoryLength();
+  test_ITextRange_GetDuplicate();
+  test_ITextRange_Collapse();
   test_GetClientSite();
   test_IOleWindow_GetWindow();
   test_IOleInPlaceSite_GetWindow();
@@ -4148,5 +4289,7 @@ START_TEST(richole)
   test_GetStoryLength();
   test_ITextSelection_GetDuplicate();
   test_Expand();
-  test_MoveEnd();
+  test_MoveEnd_story();
+  test_character_movement();
+  test_clipboard();
 }

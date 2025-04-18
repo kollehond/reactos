@@ -2,7 +2,7 @@ spec2def(libtirpc.dll libtirpc/libtirpc.spec ADD_IMPORTLIB)
 
 remove_definitions(-D_WIN32_WINNT=0x502)
 add_definitions(-D_WIN32_WINNT=0x600)
-add_definitions(-DUNICODE -D_WIN32 -DPORTMAP -Dstrdup=_strdup)
+add_definitions(-DUNICODE -D_WIN32 -DPORTMAP -D_CRT_NONSTDC_NO_DEPRECATE=1)
 
 include_directories(${REACTOS_SOURCE_DIR}/dll/3rdparty/libtirpc/tirpc)
 
@@ -39,7 +39,6 @@ list(APPEND SOURCE
     src/gettimeofday.c
     src/key_call.c
     src/key_prot_xdr.c
-    src/libtirpc.def
     #src/makefile
     #src/Makefile.am
     src/mt_misc.c
@@ -88,19 +87,26 @@ list(APPEND SOURCE
     src/xdr_stdio.c
     precomp.h)
 
-add_library(libtirpc SHARED
+add_library(libtirpc MODULE
     ${SOURCE}
 #    libtirpc/libtirpc.rc
     libtirpc/libtirpc_ros.rc
     ${CMAKE_CURRENT_BINARY_DIR}/libtirpc.def)
 
-if(MSVC AND (NOT USE_CLANG_CL))
+if(MSVC)
+    # Disable warning C4273: 'strtok_s': inconsistent dll linkage
+    # Disable warning C4313: 'fprintf': '%x' in format string conflicts with argument 2 of type 'HANDLE'
+    target_compile_options(libtirpc PRIVATE /wd4273 /wd4313)
+    if(CMAKE_C_COMPILER_ID STREQUAL "MSVC")
+        target_compile_options(libtirpc PRIVATE /wd4101 /wd4133 /wd4473 /wd4477)
+    endif()
 else()
     # FIXME: Tons of warnings.
-    add_target_compile_flags(libtirpc "-w")
+    target_compile_options(libtirpc PRIVATE "-w")
 endif()
 
 set_module_type(libtirpc win32dll)
+target_link_libraries(libtirpc oldnames)
 add_importlibs(libtirpc user32 advapi32 kernel32_vista ws2_32 msvcrt kernel32 ntdll)
 add_delay_importlibs(libtirpc secur32)
 add_pch(libtirpc precomp.h SOURCE)

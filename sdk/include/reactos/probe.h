@@ -41,7 +41,7 @@ static const LARGE_STRING __emptyLargeString = {0, 0, 0, NULL};
 #define ProbeForWriteLonglong(Ptr) ProbeForWriteGenericType(Ptr, LONGLONG)
 #define ProbeForWritePointer(Ptr) ProbeForWriteGenericType(Ptr, PVOID)
 #define ProbeForWriteHandle(Ptr) ProbeForWriteGenericType(Ptr, HANDLE)
-#define ProbeForWriteLangid(Ptr) ProbeForWriteGenericType(Ptr, LANGID)
+#define ProbeForWriteLangId(Ptr) ProbeForWriteGenericType(Ptr, LANGID)
 #define ProbeForWriteSize_t(Ptr) ProbeForWriteGenericType(Ptr, SIZE_T)
 #define ProbeForWriteLargeInteger(Ptr) ProbeForWriteGenericType(&((PLARGE_INTEGER)Ptr)->QuadPart, LONGLONG)
 #define ProbeForWriteUlargeInteger(Ptr) ProbeForWriteGenericType(&((PULARGE_INTEGER)Ptr)->QuadPart, ULONGLONG)
@@ -70,7 +70,7 @@ static const LARGE_STRING __emptyLargeString = {0, 0, 0, NULL};
 #define ProbeForReadLonglong(Ptr) ProbeForReadGenericType(Ptr, LONGLONG, 0)
 #define ProbeForReadPointer(Ptr) ProbeForReadGenericType(Ptr, PVOID, NULL)
 #define ProbeForReadHandle(Ptr) ProbeForReadGenericType(Ptr, HANDLE, NULL)
-#define ProbeForReadLangid(Ptr) ProbeForReadGenericType(Ptr, LANGID, 0)
+#define ProbeForReadLangId(Ptr) ProbeForReadGenericType(Ptr, LANGID, 0)
 #define ProbeForReadSize_t(Ptr) ProbeForReadGenericType(Ptr, SIZE_T, 0)
 #define ProbeForReadLargeInteger(Ptr) ProbeForReadGenericType((const LARGE_INTEGER *)(Ptr), LARGE_INTEGER, __emptyLargeInteger)
 #define ProbeForReadUlargeInteger(Ptr) ProbeForReadGenericType((const ULARGE_INTEGER *)(Ptr), ULARGE_INTEGER, __emptyULargeInteger)
@@ -180,7 +180,18 @@ ProbeAndCaptureUnicodeString(OUT PUNICODE_STRING Dest,
 
                     /* Set it as the buffer */
                     Dest->Buffer = Buffer;
-                    Dest->MaximumLength = Dest->Length + sizeof(WCHAR);
+                    if (Dest->Length % sizeof(WCHAR))
+                    {
+                        Dest->Length--;
+                    }
+                    if (Dest->Length >= UNICODE_STRING_MAX_BYTES)
+                    {
+                        Dest->MaximumLength = Dest->Length;
+                    }
+                    else
+                    {
+                        Dest->MaximumLength = Dest->Length + sizeof(WCHAR);
+                    }
                 }
                 else
                 {
