@@ -270,6 +270,7 @@ exit /b
 :lang_add_short
 set tfile=%2
 set tempval=%1
+set tempfull=%3
 cd lang
 awk -f E:\source\reactos\translate3.awk %tfile%
 move temp.name ..\ >nul
@@ -300,7 +301,7 @@ set tpath=%1
 set tm=%2
 set tmodfile=%tpath%%tm%
 cd %tpath%
-call :lang_add en-US.rc %tmodfile%
+call :lang_add en-US.rc %tm% %tmodfile%
 exit /b
 
 :shortlangdefault
