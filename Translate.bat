@@ -94,11 +94,13 @@ call :shortcall E:\source\reactos\base\shell\explorer\ explorer.rc
 call :shortcall E:\source\reactos\base\system\diskpart\ diskpart.rc
 call :shortcall E:\source\reactos\base\system\format\ format.rc
 call :shortcall E:\source\reactos\base\system\regsvr32\ regsvr32.rc
+::working
 call :shortcall E:\source\reactos\base\system\rundll32\ rundll32.rc
 call :shortcall E:\source\reactos\base\system\runonce\ runonce.rc
 call :shortcall E:\source\reactos\base\system\services\ services.rc
 call :shortcall E:\source\reactos\base\system\subst\ subst.rc
 call :shortcall E:\source\reactos\base\system\userinit\ userinit.rc
+::end working
 call :shortcall E:\source\reactos\base\system\winlogon\ winlogon.rc
 ::End of \base
 ::count 73
@@ -111,6 +113,7 @@ call :shortcall E:\source\reactos\dll\cpl\hdwwiz\ hdwwiz.rc
 call :shortcall E:\source\reactos\dll\cpl\inetcpl\ inetcpl.rc
 call :shortcall E:\source\reactos\dll\cpl\input\ input.rc
 call :shortcall E:\source\reactos\dll\cpl\intl\ intl.rc
+::Working
 call :shortcall E:\source\reactos\dll\cpl\joy\ joy.rc
 call :shortcall E:\source\reactos\dll\cpl\liccpa\ liccpa.rc
 call :shortcall E:\source\reactos\dll\cpl\main\ main.rc
@@ -139,8 +142,8 @@ call :shortcall E:\source\reactos\dll\win32\iernonce\ iernonce.rc
 call :shortcall E:\source\reactos\dll\win32\kernel32\winnls\ locale_rc.rc
 call :shortcall E:\source\reactos\dll\win32\lsasrv\ lsasrv.rc
 call :shortcall E:\source\reactos\dll\win32\modemui\ modemui.rc
-::count 110
 call :shortcall E:\source\reactos\dll\win32\msgina\ msgina.rc
+::end working
 call :shortcall E:\source\reactos\dll\win32\msports\ msports.rc
 call :shortcall E:\source\reactos\dll\win32\mycomput\ mycomput.rc
 call :shortcall E:\source\reactos\dll\win32\netcfgx\ netcfgx.rc
@@ -151,7 +154,9 @@ call :shortcall E:\source\reactos\dll\win32\samsrv\ samsrv.rc
 call :shortcall E:\source\reactos\dll\win32\serialui\ serialui.rc
 call :shortcall E:\source\reactos\dll\win32\setupapi\ setupapi.rc
 call :shortcall E:\source\reactos\dll\win32\shell32\ shell32.rc
+::working
 call :shortcall E:\source\reactos\dll\win32\shimgvw\ shimgvw.rc
+call :shortcall E:\source\reactos\dll\win32\shlwapi\ shlwapi.rc
 call :shortcall E:\source\reactos\dll\win32\syssetup\ syssetup.rc
 call :shortcall E:\source\reactos\dll\win32\tapiui\ tapiui.rc
 call :shortcall E:\source\reactos\dll\win32\userenv\ userenv.rc
@@ -159,7 +164,6 @@ call :shortcall E:\source\reactos\modules\rosapps\applications\cmdutils\arping\ 
 call :shortcall E:\source\reactos\modules\rosapps\applications\fraginator\ fraginator.rc
 call :shortcall E:\source\reactos\modules\rosapps\applications\screensavers\blankscr\ scrnsave.rc
 call :shortcall E:\source\reactos\modules\rosapps\applications\screensavers\butterflies\ butterflies.rc
-::count 130
 call :shortcall E:\source\reactos\modules\rosapps\applications\screensavers\circles\ circles.rc
 call :shortcall E:\source\reactos\modules\rosapps\applications\screensavers\cylfrac\ cylfrac.rc
 call :shortcall E:\source\reactos\modules\rosapps\applications\screensavers\matrix\ rsrc.rc
@@ -170,26 +174,24 @@ call :shortcall E:\source\reactos\modules\rosapps\applications\sysutils\ctm\ ctm
 call :shortcall E:\source\reactos\modules\rosapps\applications\sysutils\fontsub\ fontsub_res.rc
 call :shortcall E:\source\reactos\modules\rosapps\applications\sysutils\systeminfo\ systeminfo.rc
 call :shortcall E:\source\reactos\modules\rosapps\templates\old_wordpad\ rsrc.rc
-::working
 call :shortcall E:\source\reactos\subsystems\mvdm\ntvdm\ ntvdm.rc
-call :shortcall E:\source\reactos\win32ss\user\winsrv\usersrv\ usersrv.rc
+call :shortcall E:\source\reactos\win32ss\printing\monitors\localmon\ localmon.rc
+call :shortcall E:\source\reactos\win32ss\user\user32\ user32.rc
 call :shortcall E:\source\reactos\win32ss\user\winsrv\consrv\ consrv.rc
 call :shortcall E:\source\reactos\win32ss\user\winsrv\consrv\frontends\gui\ guiterm.rc
-call :shortcall E:\source\reactos\win32ss\user\user32\ user32.rc
-call :shortcall E:\source\reactos\win32ss\printing\monitors\localmon\ localmon.rc
+call :shortcall E:\source\reactos\win32ss\user\winsrv\usersrv\ usersrv.rc
+::end working
 ::count 147
 ::Start with short language fieldnames
 call :shortlangdefault E:\source\reactos\base\applications\winhlp32\
 call :shortlangdefault E:\source\reactos\base\applications\write\
 call :shortlangdefault E:\source\reactos\dll\win32\mshtml\
 call :shortlangdefault E:\source\reactos\dll\win32\shdoclc\
-cd E:\source\reactos\dll\win32\hhctrl.ocx\
-call :lang_add_short hhctrl.rc En.rc E:\source\reactos\dll\win32\hhctrl.ocx\
-cd E:\source\reactos\dll\win32\mapi32\
-call :lang_add_short version.rc En.rc E:\source\reactos\dll\win32\mapi32\
-::count 6
-::count 153
 ::Short as part of the filename
+cd E:\source\reactos\dll\win32\hhctrl.ocx\
+call :lang_add_short hhctrl.rc En.rc
+cd E:\source\reactos\dll\win32\mapi32\
+call :lang_add_short version.rc En.rc
 cd E:\source\reactos\dll\win32\avifil32\
 call :lang_add_short rsrc.rc avifile_En.rc
 cd E:\source\reactos\dll\win32\comctl32\
@@ -226,8 +228,6 @@ cd E:\source\reactos\dll\win32\oleaut32\
 call :lang_add_short oleaut32.rc oleaut32_En.rc
 cd E:\source\reactos\dll\win32\oledlg\
 call :lang_add_short rsrc.rc oledlg_En.rc
-cd E:\source\reactos\dll\win32\shlwapi\
-call :lang_add_short version.rc shlwapi_En.rc
 cd E:\source\reactos\dll\win32\wininet\
 call :lang_add_short rsrc.rc wininet_En.rc
 cd E:\source\reactos\dll\win32\winmm\
@@ -241,7 +241,7 @@ call :lang_add_short localui.rc ui_En.rc
 ::Processing completed
 echo Removing duplicates from missing.txt
 cd E:\source\reactos\
-awk -f E:\source\reactos\removeDuplMissing.awk E:\source\reactos\missing.txt
+awk -f E:\source\reactos\removeDuplMissing.awk missing.txt
 del missing.txt
 ren Missing1.txt missing.txt
 echo Done!
@@ -296,5 +296,5 @@ exit /b
 :shortlangdefault
 set ttpath=%1
 cd %ttpath%
-call :lang_add_short rsrc.rc En.rc %ttpath%
+call :lang_add_short rsrc.rc En.rc
 exit /b
