@@ -1,17 +1,17 @@
 BEGIN	{		
-	#Save original filename
 	print FILENAME
+	#Save original filename	
 	ofn=FILENAME
-	#switch to wordlist.txt
+	#specify the seperator
 	FS = "|"	
+	#switch to wordlist.txt
 	while((getline<"E:/source/reactos/wordlist.txt") != 0){
+		#english in the first column, afrikaans in the second		
 		wordlist[$1] = $2
 	}		
-		
-	#specify the seperator
-	#english in the first column, afrikaans in the second
 }
 {	
+	#Read line
 	templine = $0
 	if(NR == 1){
 		while((getline<"E:/source/reactos/translate.config") != 0){
@@ -25,15 +25,14 @@ BEGIN	{
 						outfilename = substr($0,12)
 					}
 					print outfilename>"temp.name"
-
 				}
 			}
 		}
 	}
+	#Set the separator to a blank space
 	FS = " "
-	#set back to original filename
 	OFS = " "
-	#add the file path to the output file
+	#set back to original filename
 	FILENAME = ofn
 	
 	if (substr($0,1,14) == "LANGUAGE LANG_"){

@@ -1,8 +1,10 @@
 echo off
 title Awk Translator
+E:
 for /f %%a in ('copy /Z "%~dpf0" nul') do set "CR=%%a"
 set "n=0"
 ::reactos\base\applications
+cd E:\source\reactos
 call :shortcall E:\source\reactos\base\applications\cacls\ cacls.rc
 call :shortcall E:\source\reactos\base\applications\calc\ resource.rc
 call :shortcall E:\source\reactos\base\applications\charmap\ charmap.rc
@@ -59,10 +61,8 @@ call :shortcall E:\source\reactos\base\applications\mspaint\ rsrc.rc
 call :shortcall E:\source\reactos\base\applications\mstsc\ rdc.rc
 ::count 42
 ::..\network
-::call :shortcall E:\source\reactos\base\applications\network\dwnl\ dwnl.rc
 call :shortcall E:\source\reactos\base\applications\network\ipconfig\ ipconfig.rc
 call :shortcall E:\source\reactos\base\applications\network\net\ net.rc
-::call :shortcall E:\source\reactos\base\applications\network\netstat\ netstat.rc
 call :shortcall E:\source\reactos\base\applications\network\ping\ ping.rc
 call :shortcall E:\source\reactos\base\applications\network\telnet\ telnet.rc
 call :shortcall E:\source\reactos\base\applications\network\tracert\ tracert.rc
@@ -84,7 +84,6 @@ call :shortcall E:\source\reactos\base\applications\shutdown\ shutdown.rc
 call :shortcall E:\source\reactos\base\applications\sndrec32\ rsrc.rc
 call :shortcall E:\source\reactos\base\applications\sndvol32\ sndvol32.rc
 call :shortcall E:\source\reactos\base\applications\taskmgr\ taskmgr.rc
-::call :shortcall E:\source\reactos\base\applications\utilman\ utilman.rc
 call :shortcall E:\source\reactos\base\applications\wordpad\ rsrc.rc
 ::End of base\applications
 ::count 60
@@ -92,7 +91,6 @@ call :shortcall E:\source\reactos\base\setup\reactos\ reactos.rc
 call :shortcall E:\source\reactos\base\setup\welcome\ welcome.rc
 call :shortcall E:\source\reactos\base\shell\cmd\ cmd.rc
 call :shortcall E:\source\reactos\base\shell\explorer\ explorer.rc
-::call :shortcall E:\source\reactos\base\system\chkdsk\ chkdsk.rc
 call :shortcall E:\source\reactos\base\system\diskpart\ diskpart.rc
 call :shortcall E:\source\reactos\base\system\format\ format.rc
 call :shortcall E:\source\reactos\base\system\regsvr32\ regsvr32.rc
@@ -124,14 +122,10 @@ call :shortcall E:\source\reactos\dll\cpl\telephon\ telephon.rc
 call :shortcall E:\source\reactos\dll\cpl\timedate\ timedate.rc
 call :shortcall E:\source\reactos\dll\cpl\usrmgr\ usrmgr.rc
 call :shortcall E:\source\reactos\dll\cpl\wined3dcfg\ wined3dcfg.rc
-::count 93
 call :shortcall E:\source\reactos\dll\shellext\acppage\ acppage.rc
-::call :shortcall E:\source\reactos\dll\shellext\cryptext\ cryptext.rc
 call :shortcall E:\source\reactos\dll\shellext\deskadp\ deskadp.rc
 call :shortcall E:\source\reactos\dll\shellext\deskmon\ deskmon.rc
-::call :shortcall E:\source\reactos\dll\shellext\devcpux\ devcpux.rc
 call :shortcall E:\source\reactos\dll\shellext\fontext\ fontext.rc
-::call :shortcall E:\source\reactos\dll\shellext\netplwiz\ netplwiz.rc
 call :shortcall E:\source\reactos\dll\shellext\netshell\ netshell.rc
 call :shortcall E:\source\reactos\dll\shellext\ntobjshex\ ntobjshex.rc
 call :shortcall E:\source\reactos\dll\shellext\stobject\ stobject.rc
@@ -160,11 +154,9 @@ call :shortcall E:\source\reactos\dll\win32\shell32\ shell32.rc
 call :shortcall E:\source\reactos\dll\win32\shimgvw\ shimgvw.rc
 call :shortcall E:\source\reactos\dll\win32\syssetup\ syssetup.rc
 call :shortcall E:\source\reactos\dll\win32\tapiui\ tapiui.rc
-::call :shortcall E:\source\reactos\dll\win32\themeui\ themeui.rc
 call :shortcall E:\source\reactos\dll\win32\userenv\ userenv.rc
 call :shortcall E:\source\reactos\modules\rosapps\applications\cmdutils\arping\ arping.rc
 call :shortcall E:\source\reactos\modules\rosapps\applications\fraginator\ fraginator.rc
-call :shortcall E:\source\reactos\modules\rosapps\applications\imagesoft\ imagesoft.rc
 call :shortcall E:\source\reactos\modules\rosapps\applications\screensavers\blankscr\ scrnsave.rc
 call :shortcall E:\source\reactos\modules\rosapps\applications\screensavers\butterflies\ butterflies.rc
 ::count 130
@@ -177,12 +169,12 @@ call :shortcall E:\source\reactos\modules\rosapps\applications\screensavers\star
 call :shortcall E:\source\reactos\modules\rosapps\applications\sysutils\ctm\ ctm.rc
 call :shortcall E:\source\reactos\modules\rosapps\applications\sysutils\fontsub\ fontsub_res.rc
 call :shortcall E:\source\reactos\modules\rosapps\applications\sysutils\systeminfo\ systeminfo.rc
-call :shortcall E:\source\reactos\modules\rosapps\applications\winfile\ rsrc.rc
 call :shortcall E:\source\reactos\modules\rosapps\templates\old_wordpad\ rsrc.rc
+::working
 call :shortcall E:\source\reactos\subsystems\mvdm\ntvdm\ ntvdm.rc
 call :shortcall E:\source\reactos\win32ss\user\winsrv\usersrv\ usersrv.rc
-call :shortcall E:\source\reactos\win32ss\user\winsrv\consrv_new\ consrv.rc
-call :shortcall E:\source\reactos\win32ss\user\winsrv\consrv_new\frontends\gui\ guiterm.rc
+call :shortcall E:\source\reactos\win32ss\user\winsrv\consrv\ consrv.rc
+call :shortcall E:\source\reactos\win32ss\user\winsrv\consrv\frontends\gui\ guiterm.rc
 call :shortcall E:\source\reactos\win32ss\user\user32\ user32.rc
 call :shortcall E:\source\reactos\win32ss\printing\monitors\localmon\ localmon.rc
 ::count 147
@@ -192,9 +184,9 @@ call :shortlangdefault E:\source\reactos\base\applications\write\
 call :shortlangdefault E:\source\reactos\dll\win32\mshtml\
 call :shortlangdefault E:\source\reactos\dll\win32\shdoclc\
 cd E:\source\reactos\dll\win32\hhctrl.ocx\
-call :lang_add_short hhctrl.rc En.rc
+call :lang_add_short hhctrl.rc En.rc E:\source\reactos\dll\win32\hhctrl.ocx\
 cd E:\source\reactos\dll\win32\mapi32\
-call :lang_add_short version.rc En.rc
+call :lang_add_short version.rc En.rc E:\source\reactos\dll\win32\mapi32\
 ::count 6
 ::count 153
 ::Short as part of the filename
@@ -249,7 +241,7 @@ call :lang_add_short localui.rc ui_En.rc
 ::Processing completed
 echo Removing duplicates from missing.txt
 cd E:\source\reactos\
-awk -f removeDuplMissing.awk missing.txt
+awk -f E:\source\reactos\removeDuplMissing.awk E:\source\reactos\missing.txt
 del missing.txt
 ren Missing1.txt missing.txt
 echo Done!
@@ -258,28 +250,29 @@ pause
 :lang_add
 set tfile=%1
 set tempval=%2
+cd lang
+awk -f E:\source\reactos\translate2.awk %tfile%
+cd ..
 awk -f E:\source\reactos\langadd.awk %tempval%
 del %tempval%
 ren tempfile.rc %tempval%
-cd lang
-awk -f E:\source\reactos\translate2.awk %tfile%
-::call :show_progress %n% 176
+call :show_progress %n% 173
 set /a "n=%n%+1"
 exit /b
 
 :lang_add_short
-set tfile=%2
-set tempval=%1
-set tempfull=%3
+set tfiles=%2
+set tempvals=%1
+
 cd lang
-awk -f E:\source\reactos\translate3.awk %tfile%
+awk -f E:\source\reactos\translate3.awk %tfiles%
 move temp.name ..\ >nul
 cd ..
-awk -f E:\source\reactos\langadd_short.awk %tempval%
-del %tempval%
+awk -f E:\source\reactos\langadd_short.awk %tempvals%
+del %tempvals%
 del temp.name
-ren tempfile.rc %tempval%
-::call :show_progress %n% 176
+ren tempfile1.rc %tempvals%
+call :show_progress %n% 173
 set /a "n=%n%+1"
 exit /b
 
@@ -289,23 +282,19 @@ setlocal EnableDelayedExpansion
 set current_step=%1
 set total_steps=%2
 set /a "progress=(current_step * 100) / total_steps"
-
 set /p ".=Progress: !progress!%%!CR!" <nul
-
 ::if !progress! equ 100 echo.
-
 exit /b
 
 :shortcall
 set tpath=%1
 set tm=%2
-set tmodfile=%tpath%%tm%
 cd %tpath%
-call :lang_add en-US.rc %tm% %tmodfile%
+call :lang_add en-US.rc %tm%
 exit /b
 
 :shortlangdefault
 set ttpath=%1
 cd %ttpath%
-call :lang_add_short rsrc.rc En.rc
+call :lang_add_short rsrc.rc En.rc %ttpath%
 exit /b

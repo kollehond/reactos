@@ -25,12 +25,12 @@ BEGIN{
 		}else {
 			if (substr($0,1,15) == "#ifdef LANGUAGE")
 			{
-				print langdef>>"tempfile.rc"
-				print LangFileInclude>>"tempfile.rc"
-				print "#endif">>"tempfile.rc"
+				print langdef>>"tempfile1.rc"
+				print LangFileInclude>>"tempfile1.rc"
+				print "#endif">>"tempfile1.rc"
 				LangInFile = "Y"
 			}
 		}
 	}
-	print templine>>"tempfile.rc"
+	print templine>>"tempfile1.rc"
 }
