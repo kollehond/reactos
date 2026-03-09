@@ -32,9 +32,12 @@ Computer Name|Rekenaar Naam
 Classic Theme|Klassieke Tema
 Comet|Komeet
 Disconnect|Diskonnekteer
+Users|Gebruikers
 Snowman|Sneeuman
 Black Star|Swart Ster
+Welcome|Welkom
 Spanish peseta|Spaanse peseta
+Remove|Verwyder
 Umbrella|Sambreel
 White Star|Wit Ster
 Bullseye|Kolskoot
