@@ -27011,6 +27011,7 @@ Small|Klein
 Large|Groot
 &Restore|He&rstel
 kB|kB
+Repair|Maak reg
 Owner|Eienaar
 &System|&Sisteem
 Circles|Sirkels
@@ -27018,7 +27019,22 @@ http://www.thaputer.com|http://www.thaputer.com
 Test|Toets
 Unit:|Eenheid:
 History| Geskiedenis
+My Pictures|My Prente
+Rules|Reels
+Done|Gedoen
+v0.1|v0.1
+Recommendations:|Voorstelle:
+Printers|Drukkers
+System Manufacturer|Sisteem Vervaardiger
+System Model|Sisteem Model
+System type|Sisteem tipe
+&Tone|&Toon
+&Pulse|&Puls
 Cm|Cm
+Date and Time:|Datum en Tyd:
+Comments|Kommentaar
+My Music|My Musiek
+Disconnect|Diskonnekteer
 Index|Indeks
 Issued to: |Uitgereik aan: 
 Issued by: |Uitgereik deur: 
@@ -27037,8 +27053,17 @@ Start|Begin
 Width:|Wydte:
 Height:|Hoogte:
 Resolution:|Resolusie:
+Computer Name|Rekenaar Naam
 Time zone|Tyd zone
+Next Picture|Volgende Prent
+Handwriting|Handskrif
+Ne&w...|Nu&we...
+To:|Na:
+Previous Picture|Vorige Prent
 MHz|MHz
+Voice recording|Stem opname
+Speakers|Luidsprekers
+Mandatory|Verplig
 GHz|GHz
 ReactOS Help|ReactOS Hulp
 Top|Bo
