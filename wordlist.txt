@@ -27038,11 +27038,24 @@ Width:|Wydte:
 Height:|Hoogte:
 Resolution:|Resolusie:
 Time zone|Tyd zone
+MHz|MHz
+GHz|GHz
 ReactOS Help|ReactOS Hulp
 Top|Bo
+&Update Now|Opdateer No&u
 Please wait...|Wag asseblief...
 &from:|vana&f:
+packets|pakkies
+Invalid|Ongeldig
+Administrator|Administrateur
 &to:|na:(&t)
 Bottom|Onder
+Timezone:|Tydzone:
+HTML Help|HTML Hulp
+Lautus theme|Lautus tema
+Classic theme|Klassieke tema
 Current format:|Huidige formaat:
 Unavailable|Nie Beskikbaar
+Na&me:|Na&am:
+&Organization:|&Organisasie:
+&Administrator Password:|&Administrateur Wagwoord:
