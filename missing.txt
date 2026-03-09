@@ -128,13 +128,10 @@ The ReactOS developers would like to acknowledge the following Open Source proje
 ReactOS is licensed under the GPL, so if you want to reuse or redistribute (parts of) it you must respect the GPL.|
 &View GPL...|
 Type your full name and the name of your company or organization.|
-Na&me:|
-&Organization:|
 Type a name for your computer that is 15 characters or less. If you are on a network, your computer name must be unique.|
 &Computer Name:|
 Setup will create a user account on your computer called Administrator. You can use this account if you need full access to your computer.|
 Type an Administrator Password that is 127 characters or less.|
-&Administrator Password:|
 C&onfirm Password:|
 The system locale should match the language of the applications you want to use. The user locale controls how numbers, currencies, and dates appear.|
 To change system or user locale settings, click Customize.|
@@ -143,22 +140,17 @@ The keyboard layout controls the characters that appear when you type.|
 To change the keyboard layout, click Customize.|
 C&ustomize...|
 Date and Time:|
-Timezone:|
 Automatically adjust clock for &daylight saving changes|
-Lautus theme|
-Classic theme|
 Completing ReactOS Setup|
 Completing the ReactOS Setup Wizard|
 You have successfully completed ReactOS Setup.\n\nWhen you click Finish, your computer will restart.|
 If there is a CD in a drive, remove it. Then, to restart your computer, click Finish.|
 GNU General Public License|
-
 Progress1|
 &Sample Rate:|
 reports per second|
 &Wheel Detection:|
 &Input buffer length:|
-packets|
 &Fast Initialization|
 &Defaults|
 Acknowledgements|
@@ -177,7 +169,6 @@ GetProcAddr failed: |
 DllRegisterServer failed: |
 DllInstall failed: |
 Timeout during registration|
-Administrator|
 Setup cannot continue until you enter your name.|
 Setup failed to set the computer name.|
 Setup cannot continue until you enter the name of your computer.|
@@ -7082,8 +7073,6 @@ MB of RAM|
 GB of RAM|
 TB of RAM|
 PB of RAM|
-MHz|
-GHz|
 %lu Days, %02lu:%02lu:%02lu|
 Minidump (64KB)|
 Kernel dump|
@@ -7123,11 +7112,9 @@ Configure your telephone dialing rules and modem settings.|
 Automatically adjust clock for &Daylight Saving changes|
 Internet Time|
 Automatically &synchronize with an Internet time server|
-&Update Now|
 Synchronization can only occur when your computer is connected to the Internet.|
 Changes date, time and time zone information.|
 Current time zone: %s|
-Invalid|
 The time has been successfully synchronized with %s on %s at %s|
 Next synchronization: %s at %s|
 Please wait while ReactOS synchronizes the time with %s|
@@ -7220,5 +7207,4 @@ Performance Monitor Users|
 Members of this group have remote access to monitor this computer|
 Performance Log Users|
 Members of this group have remote access to schedule logging of performance counters on this computer|
-HTML Help|
 Not enough memory available for this task.\nQuit one or more applications to increase available memory, and then try again.|
