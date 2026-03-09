@@ -180,7 +180,7 @@ Dword|Dwoord
 &Delete\tDel|Verwy&der\tDel
 &Delete|Verwy&der
 &Details|Beson&derhede
-&Device|Toestel
+&Device|Toestel (&D)
 &Disconnect|&Diskonnekteer
 &Display|&Vertoon
 &Documents|&Dokumente
@@ -465,8 +465,8 @@ Dword|Dwoord
 <CJK Ideograph, Last>|<CJK Ideograph, Last>
 <Message>|<Boodskap>
 <No Dependencies>|<Geen Afhanklikhede>
-<Not a Character>|<Not a Character>
-<Reserved>|<Reserved>
+<Not a Character>|<Nie 'n Karakter nie>
+<Reserved>|<Gereserveerd>
 ->|->
 …|…
 0%|0%
@@ -482,8 +482,8 @@ Dword|Dwoord
 10,|10,
 100%|100%
 100.00%|100.00%
-10000 (MAC - Roman)|10000 (MAC - Roman)
-10001 (MAC - Japanese)|10001 (MAC - Japanese)
+10000 (MAC - Roman)|10000 (MAC - Romeins)
+10001 (MAC - Japanese)|10001 (MAC - Japanees)
 10002 (MAC - Traditional Chinese Big5)|10002 (MAC - Traditional Chinese Big5)
 10003 (MAC - Korean)|10003 (MAC - Korean)
 10004 (MAC - Arabic)|10004 (MAC - Arabic)
@@ -26985,7 +26985,7 @@ YNA|YNA
 Yugoslavia|Yugoslavië
 Z Axis|Z As
 Zambia|Zambië
-Zero Width No-Break Space|Zero Wydte Geen-Breek Spasie
+Zero Width No-Break Space|Nul Wydte Geen-Breek Spasie
 Zhang|Zhang
 Zimbabwe|Zimbabwe
 Zoom In (+)|Zoom In (+)
@@ -27010,7 +27010,8 @@ Summary|Opsomming
 Small|Klein
 Large|Groot
 &Restore|He&rstel
-kB|kG
+kB|kB
+Owner|Eienaar
 &System|&Sisteem
 Circles|Sirkels
 http://www.thaputer.com|http://www.thaputer.com
@@ -27018,14 +27019,28 @@ Test|Toets
 Unit:|Eenheid:
 History| Geskiedenis
 Cm|Cm
+Index|Indeks
+Issued to: |Uitgereik aan: 
+Issued by: |Uitgereik deur: 
+State or Province|Staat of Provinsie
+Title|Titel
+Given Name|Gegewe Naam
+Initials|Voorletters
+Surname|Van
+Import|Invoer
+Wait for|Wag vir
+Dial the number.|Skakel die nommer.
 Color|Kleur
+Dial the &number|Skakel die &nommer
 Favorites|Gunstelinge
+Start|Begin
 Width:|Wydte:
 Height:|Hoogte:
 Resolution:|Resolusie:
 Time zone|Tyd zone
 ReactOS Help|ReactOS Hulp
 Top|Bo
+Please wait...|Wag asseblief...
 &from:|vana&f:
 &to:|na:(&t)
 Bottom|Onder

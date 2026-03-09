@@ -152,7 +152,7 @@ Completing the ReactOS Setup Wizard|
 You have successfully completed ReactOS Setup.\n\nWhen you click Finish, your computer will restart.|
 If there is a CD in a drive, remove it. Then, to restart your computer, click Finish.|
 GNU General Public License|
-Please wait...|
+
 Progress1|
 &Sample Rate:|
 reports per second|
@@ -178,7 +178,7 @@ DllRegisterServer failed: |
 DllInstall failed: |
 Timeout during registration|
 Administrator|
-Owner|
+
 Setup cannot continue until you enter your name.|
 Setup failed to set the computer name.|
 Setup cannot continue until you enter the name of your computer.|
@@ -257,7 +257,7 @@ Include the area &code|
 Prefix|
 Prefixes|
 Rules|
-Wait for|
+
 Select the type of prompt to wait for before continuing with the dialing sequence.|
 Wait for a &dial tone|
 Wait for a &voice message to complete|
@@ -267,7 +267,7 @@ Destination number|
 This step will place the destination number that you will be dialing into the calling card sequence.  When dialing the destination number, which parts of the number do you want to dial?|
 Dial the &country/region code|
 Dial the &area code|
-Dial the &number|
+
 The following telephony providers are installed on this computer:|
 &Providers:|
 A&dd...|
@@ -329,7 +329,7 @@ Dial the country/region code and number.|
 Dial the area code and number.|
 Dial the country/region code.|
 Dial the area code.|
-Dial the number.|
+
 dialing long distance calls.|
 dialing international calls.|
 dialing local calls.|
@@ -399,7 +399,7 @@ Bad value for option -n, valid range is from 1 to %1!u!.\n\0|
 ARPING %1 from %2\n\0|
 ms\0|
 Unicast reply from %1 [%2]  %3%4\n\0|
-Start|
+
 Choose a drive:|
 Choose an action:|
 I am a monkey, hear me eeK|
@@ -561,7 +561,7 @@ Popup|
 Font Substitutes Editor|
 Substitute|
 (Please enter a font name...)|
-Import|
+
 Could not import.|
 Could not export.|
 Registry Files (*.reg)|*.reg|All Files (*.*)|*.*||
@@ -743,7 +743,7 @@ Help files (*.hlp)|
 Cannot find '%s'. Do you want to find this file yourself?|
 Cannot find a richedit implementation... Aborting|
 Help topics: |
-Index|
+
 resources.h|
 Starting Wordpad failed|
 Done|
@@ -1043,11 +1043,8 @@ Organization|
 Organizational Unit|
 Common Name|
 Locality|
-State or Province|
-Title|
-Given Name|
-Initials|
-Surname|
+
+
 Domain Component|
 Street Address|
 Serial Number|
@@ -1209,8 +1206,7 @@ This certificate could not be validated to a trusted root certificate.|
 This certificate's issuer could not be found.|
 All the intended purposes of this certificate could not be verified.|
 This certificate is intended for the following purposes:|
-Issued to: |
-Issued by: |
+
 Valid from |
 This certificate has an invalid signature.|
 This certificate has expired or is not yet valid.|
