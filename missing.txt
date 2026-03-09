@@ -178,7 +178,6 @@ DllRegisterServer failed: |
 DllInstall failed: |
 Timeout during registration|
 Administrator|
-
 Setup cannot continue until you enter your name.|
 Setup failed to set the computer name.|
 Setup cannot continue until you enter the name of your computer.|
@@ -257,7 +256,6 @@ Include the area &code|
 Prefix|
 Prefixes|
 Rules|
-
 Select the type of prompt to wait for before continuing with the dialing sequence.|
 Wait for a &dial tone|
 Wait for a &voice message to complete|
@@ -267,7 +265,6 @@ Destination number|
 This step will place the destination number that you will be dialing into the calling card sequence.  When dialing the destination number, which parts of the number do you want to dial?|
 Dial the &country/region code|
 Dial the &area code|
-
 The following telephony providers are installed on this computer:|
 &Providers:|
 A&dd...|
@@ -329,7 +326,6 @@ Dial the country/region code and number.|
 Dial the area code and number.|
 Dial the country/region code.|
 Dial the area code.|
-
 dialing long distance calls.|
 dialing international calls.|
 dialing local calls.|
@@ -399,7 +395,6 @@ Bad value for option -n, valid range is from 1 to %1!u!.\n\0|
 ARPING %1 from %2\n\0|
 ms\0|
 Unicast reply from %1 [%2]  %3%4\n\0|
-
 Choose a drive:|
 Choose an action:|
 I am a monkey, hear me eeK|
@@ -561,7 +556,6 @@ Popup|
 Font Substitutes Editor|
 Substitute|
 (Please enter a font name...)|
-
 Could not import.|
 Could not export.|
 Registry Files (*.reg)|*.reg|All Files (*.*)|*.*||
@@ -743,7 +737,6 @@ Help files (*.hlp)|
 Cannot find '%s'. Do you want to find this file yourself?|
 Cannot find a richedit implementation... Aborting|
 Help topics: |
-
 resources.h|
 Starting Wordpad failed|
 Done|
@@ -1043,8 +1036,6 @@ Organization|
 Organizational Unit|
 Common Name|
 Locality|
-
-
 Domain Component|
 Street Address|
 Serial Number|
@@ -1206,7 +1197,6 @@ This certificate could not be validated to a trusted root certificate.|
 This certificate's issuer could not be found.|
 All the intended purposes of this certificate could not be verified.|
 This certificate is intended for the following purposes:|
-
 Valid from |
 This certificate has an invalid signature.|
 This certificate has expired or is not yet valid.|
@@ -2433,7 +2423,6 @@ Large icons|
 Show text labels|
 No text labels|
 Selective text on right|
-|Go|||
 Go to |
 A&ddress|
 Folders|
@@ -6997,3 +6986,239 @@ Bitmap Image|
 PNG Image|
 TIF Image|
 WMF Image|
+System Uptime:|
+Visit the <A HREF=|
+View &license...|
+Device Manager|
+The Device Manager lists all the hardware devices installed on your computer. Use the Device Manager to change the properties of any device.|
+&Device Manager...|
+Hardware Wizard|
+The Hardware wizard helps you install, uninstall, repair, unplug, eject, and configure your hardware.|
+&Hardware Wizard...|
+Hardware Profiles|
+Hardware profiles provide a way for you to set up and store different hardware configurations.|
+Hard&ware Profiles...|
+Administrator privileges are required for most of these settings.|
+Performance options control how applications use memory, which affects the speed of your computer.|
+Desktop settings related to your logon|
+Startup and Recovery|
+Startup and recovery options tell your computer how to start and what to do if an error causes your computer to stop.|
+S&ystem Settings|
+Enviro&nment Variables|
+E&rror Reporting|
+Version Info|
+ReactOS is built as a server OS and reports as such. Check this box to change this for applications only.|
+&Report as Workstation|
+You can set up hardware profiles for different hardware configurations. At startup, you can choose the profile you want to use.|
+Available hardware profiles:|
+Hardware profiles selection|
+When ReactOS starts:|
+&Wait until I select a hardware profile|
+&Select the first profile listed if I don't select a profile in|
+Dock ID:|
+Serial Number:|
+This is a &portable computer|
+The docking &state is unknown|
+The computer is &docked|
+The computer is &undocked|
+Always &include this profile as an option when ReactOS starts|
+Copy Profile|
+To:|
+Rename Profile|
+User profiles contain desktop settings and other information related to your login. A different profile can be created on each computer you use, or you can select a roaming profile that is the same on every computer you use.|
+Profiles stored on this computer:|
+&Change Type|
+Copy &To|
+To create new user accounts, open <A>User Accounts</A> in Control Panel.|
+Change Profile Type|
+&Roaming profile|
+&Local profile|
+Copy To|
+Copy &profile to|
+Permitted to use|
+&Change|
+System startup|
+Default operating &system:|
+&Time to display list of operating systems:|
+Time to &display recovery options when needed:|
+To edit the startup options file manually, click Edit.|
+System failure|
+&Write an event to the system log|
+Se&nd an administrative alert|
+Automatically &restart|
+Write debugging information|
+Dump &file:|
+Virtual Memory|
+Drive  [Volume Label]|
+Paging File Size (MB)|
+Paging file size for selected drive|
+Drive:|
+Space available:|
+&Initial size (MB):|
+Ma&ximum size (MB):|
+&Custom size|
+S&ystem managed size|
+&No paging file|
+Total paging file size for all drives|
+Ne&w...|
+Ed&it...|
+De&lete|
+Variable &Name:|
+Variable &Value:|
+Browse &Directory...|
+Browse &Files...|
+Move D&own|
+Edit &text...|
+Visual Effects|
+Select the settings you want to use for the appearance and performance of ReactOS on this computer.|
+CPU scheduling|
+Adjust for best performance of:|
+Background &services|
+Virtual memory|
+A paging file is an area on the hard disk that ReactOS uses as if it were RAM.|
+See information about your computer and change various system and hardware settings.|
+Performance Options|
+MB of RAM|
+GB of RAM|
+TB of RAM|
+PB of RAM|
+MHz|
+GHz|
+%lu Days, %02lu:%02lu:%02lu|
+Minidump (64KB)|
+Kernel dump|
+Complete dump|
+Local|
+Roaming|
+Mandatory|
+Are you sure you want to delete %s's profile?|
+Account Unknown|
+Account Deleted|
+When %s logs onto this computer, should the operating system use the roaming profile or just the locally cached copy of the roaming profile.|
+System control panel applet|
+Enter a numeric value for the paging file initial size.|
+Enter a numeric value for the paging file maximum size.|
+The initial paging file size must be between 2 MB and %lu MB on the selected drive.|
+The maximum paging file size must be larger than or equal to its initial size, and less than %lu MB on the selected drive.|
+%lu MB|
+System Managed|
+You have to reboot the computer in order to apply the changes.|
+Confirm Profile Delete|
+Are you sure you want to delete the hardware profile |
+The profile name is already in use.|
+Any changes that have been done will be discarded and the variable's value will be edited as text.|
+System Properties|
+All Files (*.*)\0*.*\0|
+ReactOS created a temporary paging file on your computer because of a problem that occurred with your paging file configuration when you started your computer. The total paging file size for all disk drives may be somewhat larger than the size you specified.|
+You are not logged onto ReactOS as a member of the user group that has the right to view the workstation's Virtual Memory settings.|
+There is not enough space on this drive for the paging file size specified. Please enter a smaller number or free some disk space.|
+Drive %c: is too small for the maximum paging file size specified. Please enter a smaller number.|
+Could not read the current virtual memory settings.|
+Drive %c: does not have enough free space for the maximum paging file size specified. If you continue with this setting, the paging file will only grow to the size of the available free space.|
+Another file exists with the filename \|
+There is not enough space on this drive to create the page file size specified. At least %d MB of free disk space must be left after the page file is created. Specify a smaller page file size or free some disk space.|
+If the pagefile on volume %c: has an initial size of less than %d MB, then the system may not be able to create a debugging information file if a STOP error occurs. Continue anyway?|
+Unable to determine the current paging file size. The value reported as the current paging file size may be incorrect.|
+Configure your telephone dialing rules and modem settings.|
+Automatically adjust clock for &Daylight Saving changes|
+Internet Time|
+Automatically &synchronize with an Internet time server|
+&Update Now|
+Synchronization can only occur when your computer is connected to the Internet.|
+Changes date, time and time zone information.|
+Current time zone: %s|
+Invalid|
+The time has been successfully synchronized with %s on %s at %s|
+Next synchronization: %s at %s|
+Please wait while ReactOS synchronizes the time with %s|
+An error occured while ReactOS was synchronizing with %s|
+Please type an NTP server name in order to synchronize the time|
+Select an NTP server from the list or type an NTP server name to synchronize the computer's time|
+Search removable media|
+Select the folder containing proper drivers for this hardware.|
+One or more additional lines did not connect.|
+If only a single line connected, the server may not be configured to accept multi-link calls. Check 'Do not attempt failed lines' to avoid unnecessary connection charges in such a case.|
+You have 'Set By Caller' callback privilege on the server. Press OK and the server will call you back at the number below. Press Cancel to skip callback.|
+The autodial attempt failed. Do you want to disable autodial from this location?|
+You have connections to a NetWare compatible network. These connections will be closed when the PPP IPX connection is established.|
+Pick up the handset and dial (or ask the operator to dial). After dialing is complete, click OK. Listen to handset until silent, and then hang up.|
+These preferences apply to 'Login using Dial-Up Networking' at Ctrl-Alt-Del login. You, as an administrator, have access to this sheet.|
+When you dial into a server, it may offer to call you back to reduce your phone charges. Specify whether you want callback. (Callback is not supported for virtual private network (VPN) connections.)|
+You need to set the dial out credentials that this interface will use when connecting to the remote router. These credentials must match the dial in credentials configured on the remote router.|
+Select a name for this demand dial interface. A common practice is to name interfaces after the network or router to which they connect.|
+A&utomatically use my ReactOS logon name and password (and domain if any)|
+Type the phone number below.|
+&Save user name and password|
+When you dial into a router, it may offer to call you back to reduce your phone charges or to increase security. Specify whether you want callback or not.|
+To dial this connection automatically when a computer on your local network attempts to access external resources, select the following check box.|
+You can configure this connection to use your smart card to log you into the remote network. Select whether to use your smart card with this connection.|
+U&se this account name and password when anyone connects to the Internet from this computer|
+Select the check box next to each user who should be allowed a connection to this computer. Note that other factors, such as a disabled user account, may affect a user's ability to connect.|
+The entry name must contain at least one non-blank character and cannot begin with a period. Choose a different name.\0|
+The custom authentication configuration DLL could not be loaded. Make sure the custom authentication package is correctly installed.\0|
+TCP/IP is not installed or is disabled for Routing and Remote Access. In Control Panel, start Network, go to the Services page, choose 'Routing and Remote Access Service' Properties, and press the Network button.\0|
+IPX is not installed or is disabled for Routing and Remote Access. You can install/enable IPX by viewing the properties of any connection in |
+A file named %1 already exists. Overwrite it?\0|
+'%1' is now connected.\0|
+Link to %1 failed. Reconnect pending...\0|
+An entry named %1 already exists. Choose a different name.\0|
+There are no connections available to all users. You must logon before dialing.\0|
+The Internet protocols (TCP/IP), are not installed or are disabled for Remote Access. In Control Panel, start Network, go to the Services page, choose 'Remote Access Service' Properties, and press the Network button.\0|
+No entry is selected. Press the New button to create an entry.\0|
+The %1 protocol cannot be selected because it is not installed or is disabled for Remote Access. To change, in Control Panel start Network, choose Services page, Remote Access Properties, and press the Network button.\0|
+Before you can call older RAS servers you must install the NetBEUI protocol. NetBEUI can be installed with the Control Panel Network applet.\0|
+You have chosen to disable one or more transports. Doing so requires the routing managers and routing protocols for the disabled transports to be removed from this demand-dial interface.\nClick Yes if you want to continue, or No if you want to re-enable the transports.\0|
+You now need to set the dial-out credentials that interface '%1' will use when connecting to the remote router. These credentials must match the dial-in credentials configured on the remote router. When connecting to a Win NT4/2000 router, the user name must also match the interface name of the remote router.\0|
+Before you can call SLIP servers you must install the TCP/IP protocol. TCP/IP can be installed with the Control Panel Network applet.\0|
+Internet Connection Sharing is currently enabled for connection '%1'.\n\nIt will now be enabled for connection '%2' instead.\0|
+When Internet Connection Sharing is enabled, your LAN adapter will be set to use IP address 192.168.0.1. Your computer may lose connectivity with other computers on your network. If these other computers have static IP addresses, you should set them to obtain their IP addresses automatically. Are you sure you want to enable Internet Connection Sharing?\0|
+Use any form of authentication required including clear text. Do not encrypt data.\0|
+Use any form of authentication that requires passwords to be encrypted. Do not encrypt data.\0|
+Use any form of authentication that requires encrypted passwords. Do not encrypt data.\0|
+The entry name begins with a period. or contains some invalid characters.\nChoose a different name.\0|
+A user account named %1 already exists on the local computer. Should the demand dial interface be configured to use this user account?\0|
+The selected EAP package does not provide encryption keys. Select an EAP package that does provide keys or select not to encrypt.\0|
+The protocols you have selected include PAP, SPAP, and/or CHAP. If one of these is negotiated, data encryption will not occur. Do you want to keep these settings?\0|
+To connect to '%1', you must first be connected to '%2'. Do you want to connect to '%2' now?\0|
+This connection was configured to use a data encryption strength that is not supported by the installed software. The security properties of this connection have been reset to the available encryption strengths.\0|
+This user name and password will be saved for your own use. There is already a user name and password saved for all other users of this connection. Do you want to delete the user name and password saved for all other users?\0|
+You have selected to use a preshared key but you have not entered one.\nPlease enter a preshared key.\0|
+Your user account does not have permission to use this connection. Usually, this is because you are logged in as Guest.\0|
+The passwords entered are not the same. Please re-enter them.\0|
+An internal error has occured.\0|
+An error has occurred while attempting to commit the changes you have made to the local user database.\0|
+You have insufficient privileges to add a user to the local system database.\0|
+An internal error has occurred: The local user database handle is corrupt.\0|
+An internal error occured while attempting to rollback the changes you made to the local user database.\0|
+An error has occurred while attempting to commit some of the device/vpn related changes you have made.\0|
+An internal error has occurred.\0|
+Unable to commit the changes you made to the TCP/IP protocol to the system.\0|
+Unable to save the changes you made to the IPX protocol to the system.\0|
+Unable to load TCP/IP properties from the system.\0|
+Unable to load IPX properties from the system.\0|
+Incoming Connections depend on the Routing and Remote Access service which was unable to start. For more information, check the system event log.\0|
+The new user you entered was not added to the local user database because the name or password entered violated a system policy (it was too large, too small, or ill-formed).\0|
+The system is unable to delete the requested user.\0|
+Any users that you delete will be permanently removed from the system even if cancel is pressed. Are you sure you want to permanently remove %s?\0|
+You are about to switch to a system management console. This Incoming Connections property sheet will be closed and any changes you may have made will be committed to the system. Is it ok to continue?\0|
+Your Network Mask value has been changed. A zero bit in a mask can only be followed by other zero bits. For example, a Network Mask value, expressed in decimal dotted notation, of 255.255.0.0, is valid, but 255.0.255.0 is not.\n\0|
+Because this Win 2000 Server belongs to or controls a domain, you must use the Routing and Remote Access system console to configure this machine to receive incoming connections. Cancel changes and switch to this console?\n\0|
+Incoming Connections can not issue the ipx network numbers 00000000 or FFFFFFFF. Please either change the assigned network numbers or use automatic network number assignment.\0|
+Network Connections does not display some specialized options for inbound connections that have been set using the Local User Manager or Remote Access Policy consoles. For complete and correct information on incoming connections, you will need to use these consoles.\0|
+ReactOS must reboot to complete the operation. Is it ok to reboot now?\0|
+You have requested that '%1' be disabled for Incoming Connections. In order to disable this, you must stop the 'Server' service. Once stopped, any shared directories or printers on this computer will no longer be available to any other computer. Do you want to bring up a system console that will allow you to stop the 'Server' service?\r\n\nUnder Computer Management, click System Tools and then click Services. In the right pane, right-click Server and click stop.\0|
+This serial port is not enabled for use in a direct connection to another computer. It will be enabled after you complete this wizard. You can then configure the port speed and other properties by right-clicking the icon for this connection and selecting Properties.\n\0|
+The start address entered for the TCP/IP pool is invalid. It must lie between 1.0.0.0 and 224.0.0.0 and it must not be in the form 127.x.x.x.\0|
+The Routing and Remote Access Service is in the process of stopping. Until it stops, the Incoming Connections option is not available. Please wait a few moments and retry.\0|
+Members of this group can administer domain printers|
+Backup Operators can override security restrictions for the sole purpose of backing up or restoring files|
+Replicator|
+Supports file replication in a domain|
+Members in this group are granted the right to logon remotely|
+Members in this group can have some administrative privileges to manage configuration of networking features|
+Performance Monitor Users|
+Members of this group have remote access to monitor this computer|
+Performance Log Users|
+Members of this group have remote access to schedule logging of performance counters on this computer|
+HTML Help|
+Not enough memory available for this task.\nQuit one or more applications to increase available memory, and then try again.|
