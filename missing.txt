@@ -7014,7 +7014,6 @@ The computer is &docked|
 The computer is &undocked|
 Always &include this profile as an option when ReactOS starts|
 Copy Profile|
-To:|
 Rename Profile|
 User profiles contain desktop settings and other information related to your login. A different profile can be created on each computer you use, or you can select a roaming profile that is the same on every computer you use.|
 Profiles stored on this computer:|
@@ -7110,7 +7109,6 @@ If the pagefile on volume %c: has an initial size of less than %d MB, then the s
 Unable to determine the current paging file size. The value reported as the current paging file size may be incorrect.|
 Configure your telephone dialing rules and modem settings.|
 Automatically adjust clock for &Daylight Saving changes|
-Internet Time|
 Automatically &synchronize with an Internet time server|
 Synchronization can only occur when your computer is connected to the Internet.|
 Changes date, time and time zone information.|

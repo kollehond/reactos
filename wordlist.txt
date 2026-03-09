@@ -24,8 +24,11 @@ Window Text|Venster Teks
 Message Box|Boodskap Boks
 Message Text|Boodskap Teks
 %d%%\0|%d%%\0
+Internet Time|Internet Tyd
 GPRS|GPRS
+To:|Na:
 NETWORK|NETWERK
+Computer Name|Rekenaar Naam
 Classic Theme|Klassieke Tema
 Comet|Komeet
 Disconnect|Diskonnekteer
