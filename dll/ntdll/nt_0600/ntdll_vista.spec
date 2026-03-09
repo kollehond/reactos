@@ -18,3 +18,6 @@
 
 @ stdcall RtlConnectToSm(ptr ptr long ptr) SmConnectToSm
 @ stdcall RtlSendMsgToSm(ptr ptr) SmSendMsgToSm
+@ stdcall RtlLcidToLocaleName(long ptr long long)
+@ stdcall RtlLocaleNameToLcid(wstr ptr long)
+@ stdcall RtlCompareUnicodeStrings(wstr long wstr long long)

@@ -5,34 +5,70 @@
 extern "C" {
 #endif
 
+typedef struct _DHCP_PNP_EVENT
+{
+    DWORD Unknown1;
+    DWORD Unknown2;
+    DWORD Unknown3;
+    DWORD Unknown4;
+    DWORD Unknown5;
+    DWORD Unknown6;
+    DWORD Unknown7;
+    DWORD Unknown8;
+    DWORD Unknown9;
+    DWORD Unknown10;
+    DWORD Unknown11;
+} DHCP_PNP_EVENT, *PDHCP_PNP_EVENT;
+
 DWORD
 APIENTRY
 DhcpAcquireParameters(
-    _In_ PSTR AdapterName);
+    _In_ PWSTR AdapterName);
+
+DWORD
+APIENTRY
+DhcpEnumClasses(
+    _In_ DWORD Unknown1,
+    _In_ PWSTR AdapterName,
+    _In_ DWORD Unknown3,
+    _In_ DWORD Unknown4);
+
+DWORD
+APIENTRY
+DhcpHandlePnPEvent(
+    _In_ DWORD Unknown1,
+    _In_ DWORD Unknown2,
+    _In_ LPWSTR AdapterName,
+    _In_ PDHCP_PNP_EVENT PnpEvent,
+    _In_ DWORD Unknown5);
+
+DWORD
+APIENTRY
+DhcpNotifyConfigChange(
+    _In_ LPWSTR ServerName,
+    _In_ LPWSTR AdapterName,
+    _In_ BOOL NewIpAddress,
+    _In_ DWORD IpIndex,
+    _In_ DWORD IpAddress,
+    _In_ DWORD SubnetMask,
+    _In_ INT DhcpAction);
+
+DWORD
+APIENTRY
+DhcpQueryHWInfo(
+    _In_ DWORD AdapterIndex,
+    _Out_ PDWORD MediaType,
+    _Out_ PDWORD Mtu,
+    _Out_ PDWORD Speed);
 
 DWORD
 APIENTRY
 DhcpReleaseParameters(
-    _In_ PSTR AdapterName);
+    _In_ PWSTR AdapterName);
 
-DWORD APIENTRY DhcpLeaseIpAddress( DWORD AdapterIndex );
-DWORD APIENTRY DhcpQueryHWInfo( DWORD AdapterIndex,
-                                     PDWORD MediaType,
-                                     PDWORD Mtu,
-                                     PDWORD Speed );
-DWORD APIENTRY DhcpReleaseIpAddressLease( DWORD AdapterIndex );
-DWORD APIENTRY DhcpRenewIpAddressLease( DWORD AdapterIndex );
 DWORD APIENTRY DhcpStaticRefreshParams( DWORD AdapterIndex,
                                              DWORD Address,
                                              DWORD Netmask );
-DWORD APIENTRY
-DhcpNotifyConfigChange(LPWSTR ServerName,
-                       LPWSTR AdapterName,
-                       BOOL NewIpAddress,
-                       DWORD IpIndex,
-                       DWORD IpAddress,
-                       DWORD SubnetMask,
-                       int DhcpAction);
 
 #ifdef __cplusplus
 }

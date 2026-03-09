@@ -57,6 +57,7 @@ list(APPEND SOURCE
     folders/CFontsFolder.cpp
     folders/CControlPanelFolder.cpp
     folders/CRecycleBin.cpp
+    folders/CRecycleBinFolderViewCB.cpp
     folders/CRegFolder.cpp
     droptargets/CexeDropHandler.cpp
     droptargets/CFSDropTarget.cpp
@@ -85,7 +86,7 @@ list(APPEND SOURCE
     CFolderItemVerbs.cpp)
 
 list(APPEND PCH_SKIP_SOURCE
-    wine/appbar.c
+    appbar.c
     wine/classes.c
     wine/clipboard.c
     wine/control.c

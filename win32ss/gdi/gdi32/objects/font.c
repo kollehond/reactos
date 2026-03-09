@@ -672,7 +672,7 @@ NewGetCharacterPlacementW(
         nSet = lpResults->nGlyphs;
 
     return NtGdiGetCharacterPlacementW( hdc,
-                                        (LPWSTR)lpString,
+                                        lpString,
                                         nSet,
                                         nMaxExtent,
                                         lpResults,
@@ -699,14 +699,13 @@ GetCharABCWidthsFloatW(HDC hdc,
     return NtGdiGetCharABCWidthsW( hdc,
                                    FirstChar,
                                    (ULONG)(LastChar - FirstChar + 1),
-                                   (PWCHAR) NULL,
+                                   NULL,
                                    0,
-                                   (PVOID)abcF);
+                                   abcF);
 }
 
 /*
  * @implemented
- *
  */
 BOOL
 WINAPI
@@ -716,7 +715,8 @@ GetCharWidthFloatW(HDC hdc,
                    PFLOAT pxBuffer)
 {
     DPRINT("GetCharWidthsFloatW\n");
-    if ((!pxBuffer) || (iFirstChar > iLastChar))
+    if ((!pxBuffer) || (iFirstChar > iLastChar) || HIWORD(iLastChar) ||
+        (GDI_HANDLE_GET_TYPE(hdc) != GDI_OBJECT_TYPE_DC) || !GdiValidateHandle(hdc))
     {
         SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
@@ -724,14 +724,13 @@ GetCharWidthFloatW(HDC hdc,
     return NtGdiGetCharWidthW( hdc,
                                iFirstChar,
                                (ULONG)(iLastChar - iFirstChar + 1),
-                               (PWCHAR) NULL,
+                               NULL,
                                0,
-                               (PVOID) pxBuffer);
+                               pxBuffer);
 }
 
 /*
  * @implemented
- *
  */
 BOOL
 WINAPI
@@ -741,7 +740,8 @@ GetCharWidthW(HDC hdc,
               LPINT lpBuffer)
 {
     DPRINT("GetCharWidthsW\n");
-    if ((!lpBuffer) || (iFirstChar > iLastChar))
+    if ((!lpBuffer) || (iFirstChar > iLastChar) || HIWORD(iLastChar) ||
+        (GDI_HANDLE_GET_TYPE(hdc) != GDI_OBJECT_TYPE_DC) || !GdiValidateHandle(hdc))
     {
         SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
@@ -749,14 +749,13 @@ GetCharWidthW(HDC hdc,
     return NtGdiGetCharWidthW( hdc,
                                iFirstChar,
                                (ULONG)(iLastChar - iFirstChar + 1),
-                               (PWCHAR) NULL,
+                               NULL,
                                GCW_NOFLOAT,
-                               (PVOID) lpBuffer);
+                               lpBuffer);
 }
 
 /*
  * @implemented
- *
  */
 BOOL
 WINAPI
@@ -766,7 +765,8 @@ GetCharWidth32W(HDC hdc,
                 LPINT lpBuffer)
 {
     DPRINT("GetCharWidths32W\n");
-    if ((!lpBuffer) || (iFirstChar > iLastChar))
+    if ((!lpBuffer) || (iFirstChar > iLastChar) || HIWORD(iLastChar) ||
+        (GDI_HANDLE_GET_TYPE(hdc) != GDI_OBJECT_TYPE_DC) || !GdiValidateHandle(hdc))
     {
         SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
@@ -774,15 +774,13 @@ GetCharWidth32W(HDC hdc,
     return NtGdiGetCharWidthW( hdc,
                                iFirstChar,
                                (ULONG)(iLastChar - iFirstChar + 1),
-                               (PWCHAR) NULL,
+                               NULL,
                                GCW_NOFLOAT|GCW_WIN32,
-                               (PVOID) lpBuffer);
+                               lpBuffer);
 }
-
 
 /*
  * @implemented
- *
  */
 BOOL
 WINAPI
@@ -800,9 +798,9 @@ GetCharABCWidthsW(HDC hdc,
     return NtGdiGetCharABCWidthsW( hdc,
                                    FirstChar,
                                    (ULONG)(LastChar - FirstChar + 1),
-                                   (PWCHAR) NULL,
+                                   NULL,
                                    GCABCW_NOFLOAT,
-                                   (PVOID)lpabc);
+                                   lpabc);
 }
 
 /*
@@ -812,10 +810,9 @@ BOOL
 WINAPI
 GetCharWidthA(
     HDC	hdc,
-    UINT	iFirstChar,
-    UINT	iLastChar,
-    LPINT	lpBuffer
-)
+    UINT iFirstChar,
+    UINT iLastChar,
+    LPINT lpBuffer)
 {
     INT wlen, count = 0;
     LPSTR str;
@@ -823,6 +820,12 @@ GetCharWidthA(
     BOOL ret = TRUE;
 
     DPRINT("GetCharWidthsA\n");
+
+    if (!lpBuffer || (GDI_HANDLE_GET_TYPE(hdc) != GDI_OBJECT_TYPE_DC) || !GdiValidateHandle(hdc))
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
 
     str = FONT_GetCharsByRangeA(hdc, iFirstChar, iLastChar, &count);
     if (!str)
@@ -837,10 +840,10 @@ GetCharWidthA(
 
     ret = NtGdiGetCharWidthW( hdc,
                               wstr[0],
-                              (ULONG) count,
-                              (PWCHAR) wstr,
+                              count,
+                              wstr,
                               GCW_NOFLOAT,
-                              (PVOID) lpBuffer);
+                              lpBuffer);
 
     HeapFree(GetProcessHeap(), 0, str);
     HeapFree(GetProcessHeap(), 0, wstr);
@@ -855,10 +858,9 @@ BOOL
 WINAPI
 GetCharWidth32A(
     HDC	hdc,
-    UINT	iFirstChar,
-    UINT	iLastChar,
-    LPINT	lpBuffer
-)
+    UINT iFirstChar,
+    UINT iLastChar,
+    LPINT lpBuffer)
 {
     INT wlen, count = 0;
     LPSTR str;
@@ -866,6 +868,12 @@ GetCharWidth32A(
     BOOL ret = TRUE;
 
     DPRINT("GetCharWidths32A\n");
+
+    if (!lpBuffer || (GDI_HANDLE_GET_TYPE(hdc) != GDI_OBJECT_TYPE_DC) || !GdiValidateHandle(hdc))
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
 
     str = FONT_GetCharsByRangeA(hdc, iFirstChar, iLastChar, &count);
     if (!str)
@@ -880,10 +888,10 @@ GetCharWidth32A(
 
     ret = NtGdiGetCharWidthW( hdc,
                               wstr[0],
-                              (ULONG) count,
-                              (PWCHAR) wstr,
+                              count,
+                              wstr,
                               GCW_NOFLOAT|GCW_WIN32,
-                              (PVOID) lpBuffer);
+                              lpBuffer);
 
     HeapFree(GetProcessHeap(), 0, str);
     HeapFree(GetProcessHeap(), 0, wstr);
@@ -898,10 +906,9 @@ BOOL
 APIENTRY
 GetCharWidthFloatA(
     HDC	hdc,
-    UINT	iFirstChar,
-    UINT	iLastChar,
-    PFLOAT	pxBuffer
-)
+    UINT iFirstChar,
+    UINT iLastChar,
+    PFLOAT pxBuffer)
 {
     INT wlen, count = 0;
     LPSTR str;
@@ -909,6 +916,12 @@ GetCharWidthFloatA(
     BOOL ret = TRUE;
 
     DPRINT("GetCharWidthsFloatA\n");
+
+    if (!pxBuffer || (GDI_HANDLE_GET_TYPE(hdc) != GDI_OBJECT_TYPE_DC) || !GdiValidateHandle(hdc))
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
 
     str = FONT_GetCharsByRangeA(hdc, iFirstChar, iLastChar, &count);
     if (!str)
@@ -920,7 +933,7 @@ GetCharWidthFloatA(
         HeapFree(GetProcessHeap(), 0, str);
         return FALSE;
     }
-    ret = NtGdiGetCharWidthW( hdc, wstr[0], (ULONG) count, (PWCHAR) wstr, 0, (PVOID) pxBuffer);
+    ret = NtGdiGetCharWidthW(hdc, wstr[0], count, wstr, 0, pxBuffer);
 
     HeapFree(GetProcessHeap(), 0, str);
     HeapFree(GetProcessHeap(), 0, wstr);
@@ -1000,7 +1013,7 @@ GetCharABCWidthsFloatA(
         HeapFree( GetProcessHeap(), 0, str );
         return FALSE;
     }
-    ret = NtGdiGetCharABCWidthsW( hdc,wstr[0],(ULONG)count, (PWCHAR)wstr, 0, (PVOID)lpABCF);
+    ret = NtGdiGetCharABCWidthsW(hdc, wstr[0], count, wstr, 0, lpABCF);
 
     HeapFree( GetProcessHeap(), 0, str );
     HeapFree( GetProcessHeap(), 0, wstr );
@@ -1037,16 +1050,19 @@ GetCharWidthI(HDC hdc,
               UINT giFirst,
               UINT cgi,
               LPWORD pgi,
-              LPINT lpBuffer
-             )
+              LPINT lpBuffer)
 {
     DPRINT("GetCharWidthsI\n");
-    if (!lpBuffer || (!pgi && (giFirst == MAXUSHORT))) // Cannot be at max.
+
+    if (!lpBuffer || (!pgi && HIWORD(giFirst)))
     {
         SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
     }
-    if (!cgi) return TRUE;
+
+    if (!cgi)
+        return TRUE;
+
     return NtGdiGetCharWidthW( hdc,
                                giFirst,
                                cgi,
@@ -1666,7 +1682,7 @@ CreateFontIndirectExA(const ENUMLOGFONTEXDVA *elfexd)
                           &Logfont.elfEnumLogfontEx );
 
         RtlCopyMemory( &Logfont.elfDesignVector,
-                       (PVOID) &elfexd->elfDesignVector,
+                       &elfexd->elfDesignVector,
                        sizeof(DESIGNVECTOR));
 
         return NtGdiHfontCreate( &Logfont, 0, 0, 0, NULL);
@@ -1864,7 +1880,7 @@ CreateFontA(
     UNICODE_STRING StringU;
     HFONT ret;
 
-    RtlInitAnsiString(&StringA, (LPSTR)lpszFace);
+    RtlInitAnsiString(&StringA, lpszFace);
     RtlAnsiStringToUnicodeString(&StringU, &StringA, TRUE);
 
     ret = CreateFontW(nHeight,

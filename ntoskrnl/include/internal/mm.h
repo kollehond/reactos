@@ -109,8 +109,6 @@ typedef ULONG_PTR SWAPENTRY;
 #define PAGE_WRITETHROUGH                   (1024)
 #define PAGE_SYSTEM                         (2048)
 
-#define SEC_PHYSICALMEMORY                  (0x80000000)
-
 #define MC_USER                             (0)
 #define MC_SYSTEM                           (1)
 #define MC_MAXIMUM                          (2)
@@ -147,7 +145,8 @@ typedef ULONG_PTR SWAPENTRY;
      PAGE_EXECUTE_READWRITE | \
      PAGE_EXECUTE_WRITECOPY | \
      PAGE_NOACCESS | \
-     PAGE_NOCACHE)
+     PAGE_NOCACHE | \
+     PAGE_WRITECOMBINE)
 
 #define PAGE_IS_READABLE                    \
     (PAGE_READONLY | \
@@ -380,6 +379,12 @@ typedef struct _MMPFNENTRY
     USHORT ParityError:1;
 } MMPFNENTRY;
 
+#ifdef _WIN64
+#define MI_PTE_FRAME_BITS 57
+#else
+#define MI_PTE_FRAME_BITS 25
+#endif
+
 // Mm internal
 typedef struct _MMPFN
 {
@@ -413,6 +418,9 @@ typedef struct _MMPFN
             USHORT ShortFlags;
         } e2;
     } u3;
+#ifdef _WIN64
+    ULONG UsedPageTableEntries;
+#endif
     union
     {
         MMPTE OriginalPte;
@@ -426,7 +434,7 @@ typedef struct _MMPFN
         ULONG_PTR EntireFrame;
         struct
         {
-            ULONG_PTR PteFrame:25;
+            ULONG_PTR PteFrame : MI_PTE_FRAME_BITS;
             ULONG_PTR InPageError:1;
             ULONG_PTR VerifierAllocation:1;
             ULONG_PTR AweAllocation:1;

@@ -39,6 +39,7 @@
 #include <shlguid_undoc.h>
 #include <wine/debug.h>
 #include <wine/unicode.h>
+#include <shellutils.h>
 
 #include "pidl.h"
 #include "shell32_main.h"
@@ -910,11 +911,17 @@ HRESULT WINAPI SHGetRealIDL(LPSHELLFOLDER lpsf, LPCITEMIDLIST pidlSimple, LPITEM
  */
 LPITEMIDLIST WINAPI SHLogILFromFSIL(LPITEMIDLIST pidl)
 {
+#ifdef __REACTOS__
+    LPITEMIDLIST pidlNew = NULL;
+    SHELL32_AliasTranslatePidl(pidl, &pidlNew, ALIAS_ANY);
+    return pidlNew;
+#else
     FIXME("(pidl=%p)\n",pidl);
 
     pdump(pidl);
 
     return 0;
+#endif
 }
 
 /*************************************************************************
@@ -1798,19 +1805,19 @@ LPITEMIDLIST _ILCreateDesktop(void)
 LPITEMIDLIST _ILCreateMyComputer(void)
 {
     TRACE("()\n");
-    return _ILCreateGuid(PT_DESKTOP_REGITEM, &CLSID_MyComputer);
+    return _ILCreateGuid(PT_DESKTOP_REGITEM, &CLSID_MyComputer, REGITEMORDER_MYCOMPUTER);
 }
 
 LPITEMIDLIST _ILCreateMyDocuments(void)
 {
     TRACE("()\n");
-    return _ILCreateGuid(PT_DESKTOP_REGITEM, &CLSID_MyDocuments);
+    return _ILCreateGuid(PT_DESKTOP_REGITEM, &CLSID_MyDocuments, REGITEMORDER_MYDOCS_DEFAULT);
 }
 
 LPITEMIDLIST _ILCreateIExplore(void)
 {
     TRACE("()\n");
-    return _ILCreateGuid(PT_DESKTOP_REGITEM, &CLSID_Internet);
+    return _ILCreateGuid(PT_DESKTOP_REGITEM, &CLSID_Internet, REGITEMORDER_INTERNET);
 }
 
 LPITEMIDLIST _ILCreateControlPanel(void)
@@ -1820,7 +1827,7 @@ LPITEMIDLIST _ILCreateControlPanel(void)
     TRACE("()\n");
     if (parent)
     {
-        LPITEMIDLIST cpl = _ILCreateGuid(PT_COMPUTER_REGITEM, &CLSID_ControlPanel);
+        LPITEMIDLIST cpl = _ILCreateGuid(PT_COMPUTER_REGITEM, &CLSID_ControlPanel, REGITEMORDER_MYCOMPUTER_CONTROLS);
         if (cpl)
         {
             ret = ILCombine(parent, cpl);
@@ -1861,22 +1868,22 @@ LPITEMIDLIST _ILCreatePrinters(void)
 LPITEMIDLIST _ILCreateNetwork(void)
 {
     TRACE("()\n");
-    return _ILCreateGuid(PT_DESKTOP_REGITEM, &CLSID_NetworkPlaces);
+    return _ILCreateGuid(PT_DESKTOP_REGITEM, &CLSID_NetworkPlaces, REGITEMORDER_NETHOOD);
 }
 
 LPITEMIDLIST _ILCreateBitBucket(void)
 {
     TRACE("()\n");
-    return _ILCreateGuid(PT_DESKTOP_REGITEM, &CLSID_RecycleBin);
+    return _ILCreateGuid(PT_DESKTOP_REGITEM, &CLSID_RecycleBin, REGITEMORDER_RECYCLEBIN);
 }
 
 LPITEMIDLIST _ILCreateAdminTools(void)
 {
     TRACE("()\n");
-    return _ILCreateGuid(PT_GUID, &CLSID_AdminFolderShortcut); //FIXME
+    return _ILCreateGuid(PT_GUID, &CLSID_AdminFolderShortcut, REGITEMORDER_DEFAULT); //FIXME
 }
 
-LPITEMIDLIST _ILCreateGuid(PIDLTYPE type, REFIID guid)
+LPITEMIDLIST _ILCreateGuid(PIDLTYPE type, REFIID guid, BYTE SortOrder)
 {
     LPITEMIDLIST pidlOut;
 
@@ -1886,7 +1893,7 @@ LPITEMIDLIST _ILCreateGuid(PIDLTYPE type, REFIID guid)
         if (pidlOut)
         {
             LPPIDLDATA pData = _ILGetDataPointer(pidlOut);
-
+            pData->u.guid.uSortOrder = SortOrder;
             pData->u.guid.guid = *guid;
             TRACE("-- create GUID-pidl %s\n",
                   debugstr_guid(&(pData->u.guid.guid)));
@@ -2606,11 +2613,9 @@ DWORD _ILGetFileAttributes(LPCITEMIDLIST pidl, LPWSTR pOut, UINT uOutSize)
  */
 void _ILFreeaPidl(LPITEMIDLIST * apidl, UINT cidl)
 {
-    UINT   i;
-
     if (apidl)
     {
-        for (i = 0; i < cidl; i++)
+        for (UINT i = 0; i < cidl; i++)
             SHFree(apidl[i]);
         SHFree(apidl);
     }
@@ -2623,17 +2628,21 @@ void _ILFreeaPidl(LPITEMIDLIST * apidl, UINT cidl)
  */
 PITEMID_CHILD* _ILCopyaPidl(PCUITEMID_CHILD_ARRAY apidlsrc, UINT cidl)
 {
-    UINT i;
     PITEMID_CHILD *apidldest;
 
     if (!apidlsrc)
         return NULL;
 
     apidldest = SHAlloc(cidl * sizeof(PITEMID_CHILD));
-
-    for (i = 0; i < cidl; i++)
-        apidldest[i] = ILClone(apidlsrc[i]);
-
+    for (UINT i = 0; i < cidl; i++)
+    {
+        PITEMID_CHILD clone = ILClone(apidlsrc[i]);
+        if ((apidldest[i] = clone) == NULL)
+        {
+            _ILFreeaPidl(apidldest, i);
+            return NULL;
+        }
+    }
     return apidldest;
 }
 
@@ -2645,17 +2654,28 @@ PITEMID_CHILD* _ILCopyaPidl(PCUITEMID_CHILD_ARRAY apidlsrc, UINT cidl)
 LPITEMIDLIST* _ILCopyCidaToaPidl(LPITEMIDLIST* pidl, const CIDA * cida)
 {
     UINT i;
-    LPITEMIDLIST *dst;
-
-    dst = SHAlloc(cida->cidl * sizeof(LPITEMIDLIST));
+    LPITEMIDLIST *dst = SHAlloc(cida->cidl * sizeof(LPITEMIDLIST));
     if (!dst)
         return NULL;
 
-    if (pidl)
-        *pidl = ILClone((LPCITEMIDLIST)(&((const BYTE*)cida)[cida->aoffset[0]]));
-
     for (i = 0; i < cida->cidl; i++)
-        dst[i] = ILClone((LPCITEMIDLIST)(&((const BYTE*)cida)[cida->aoffset[i + 1]]));
+    {
+        PITEMID_CHILD clone = ILClone(HIDA_GetPIDLItem(cida, i));
+        if ((dst[i] = clone) == NULL)
+        {
+            _ILFreeaPidl(dst, i);
+            return NULL;
+        }
+    }
 
+    if (pidl)
+    {
+        *pidl = ILClone(HIDA_GetPIDLFolder(cida));
+        if (!*pidl)
+        {
+            _ILFreeaPidl(dst, cida->cidl);
+            return NULL;
+        }
+    }
     return dst;
 }
