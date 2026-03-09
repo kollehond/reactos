@@ -28,6 +28,7 @@ GPRS|GPRS
 NETWORK|NETWERK
 Classic Theme|Klassieke Tema
 Comet|Komeet
+Disconnect|Diskonnekteer
 Snowman|Sneeuman
 Black Star|Swart Ster
 Spanish peseta|Spaanse peseta
