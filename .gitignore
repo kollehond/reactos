@@ -13,7 +13,10 @@ modules/[Aa][Hh][Kk]_[Tt]ests
 .settings
 .vscode
 sdk/tools/winesync/winesync.cfg
+<<<<<<< HEAD
 .cursor/cache/
 .cursor/logs/
 Translate_notworking.bat
 Translate Working.bat
+=======
+>>>>>>> upstream/master
