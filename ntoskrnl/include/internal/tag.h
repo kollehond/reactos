@@ -89,6 +89,7 @@
 #define TAG_IO_DEVNODE          'donD'
 #define TAG_PNP_NOTIFY          'NPnP'
 #define TAG_PNP_ROOT            'RPnP'
+#define TAG_PNP_GUIDS           'GPnP'
 #define TAG_IO_RESOURCE         'CRSR'
 #define TAG_IO_TIMER            'MTOI'
 #define TAG_VPB                 ' BPV'
@@ -136,6 +137,8 @@
 #define TAG_PS_APC              'pasP' /* Psap - Ps APC */
 #define TAG_SHIM                'MIHS'
 #define TAG_QUOTA_BLOCK         'bQsP'
+#define TAG_THREAD_NAME         'mNhT'
+#define TAG_PS_WOW64            'oWsP'
 
 /* Run-Time Library Tags */
 #define TAG_HDTB    'BTDH'

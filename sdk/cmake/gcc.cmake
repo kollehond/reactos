@@ -52,7 +52,6 @@ add_compile_options(-mlong-double-64)
 add_compile_options("$<$<NOT:$<COMPILE_LANGUAGE:CXX>>:-nostdinc>")
 
 if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-    add_compile_options("-Wno-unknown-pragmas")
     add_compile_options(-fno-aggressive-loop-optimizations)
     if (DBG)
         add_compile_options("$<$<COMPILE_LANGUAGE:C>:-Wold-style-declaration>")
@@ -126,11 +125,12 @@ if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
     if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 13)
         add_compile_options(-fno-builtin-erf)
         add_compile_options(-fno-builtin-erff)
+        add_compile_options(-fno-builtin-execv)
+        add_compile_options(-fno-builtin-execve)
+        add_compile_options(-fno-builtin-execvp)
     endif()
 
 elseif(CMAKE_C_COMPILER_ID STREQUAL "Clang")
-    add_compile_options("$<$<COMPILE_LANGUAGE:C>:-Wno-microsoft>")
-    add_compile_options(-Wno-pragma-pack)
     add_compile_options(-fno-associative-math)
 
     if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 12.0)
@@ -168,7 +168,11 @@ endif()
 add_compile_options(-march=${OARCH} -mtune=${TUNE})
 
 # Warnings, errors
-if((NOT CMAKE_BUILD_TYPE STREQUAL "Release") AND (NOT CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo") AND (NOT CMAKE_C_COMPILER_ID STREQUAL Clang))
+if(NOT CMAKE_C_COMPILER_ID STREQUAL "Clang" AND
+   NOT ARCH STREQUAL "amd64" AND
+   NOT CMAKE_BUILD_TYPE STREQUAL "Release" AND
+   NOT CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" AND
+   NOT CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
     add_compile_options(-Werror)
 endif()
 
@@ -176,7 +180,6 @@ add_compile_options(-Wall -Wpointer-arith)
 
 # Disable some overzealous warnings
 add_compile_options(
-    -Wno-unknown-warning-option
     -Wno-char-subscripts
     -Wno-multichar
     -Wno-unused-value
@@ -186,10 +189,23 @@ add_compile_options(
     -Wno-unused-result # FIXME To be removed when CORE-17637 is resolved
     -Wno-format
     -Wno-maybe-uninitialized
+    -Wno-nonnull-compare
 )
 
 if(ARCH STREQUAL "arm")
     add_compile_options(-Wno-attributes)
+endif()
+
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    add_compile_options(
+        -Wno-unknown-pragmas
+    )
+elseif(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    add_compile_options("$<$<COMPILE_LANGUAGE:C>:-Wno-microsoft>")
+    add_compile_options(
+        -Wno-pragma-pack
+        -Wno-unknown-warning-option
+    )
 endif()
 
 # Optimizations
@@ -237,7 +253,6 @@ elseif(ARCH STREQUAL "amd64")
     if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
         add_compile_options(-mpreferred-stack-boundary=4)
     endif()
-    add_compile_options(-Wno-error)
 endif()
 
 # Other
@@ -642,12 +657,19 @@ set_target_properties(libgcc PROPERTIES IMPORTED_LOCATION ${LIBGCC_LOCATION})
 # libgcc needs kernel32 and winpthread (an appropriate CRT must be linked manually)
 target_link_libraries(libgcc INTERFACE libwinpthread libkernel32)
 
+add_library(libgcc_eh INTERFACE)
+target_link_libraries(libgcc_eh INTERFACE libgcc)
+# only add libgcc_eh.a if it exists (SEH toolchains have it, SJLJ/DWARF do not)
+execute_process(COMMAND ${GXX_EXECUTABLE} -print-file-name=libgcc_eh.a OUTPUT_VARIABLE _LIBGCC_EH_PATH OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(EXISTS "${_LIBGCC_EH_PATH}")
+    target_link_libraries(libgcc_eh INTERFACE "${_LIBGCC_EH_PATH}")
+endif()
+
 add_library(libsupc++ STATIC IMPORTED GLOBAL)
 execute_process(COMMAND ${GXX_EXECUTABLE} -print-file-name=libsupc++.a OUTPUT_VARIABLE LIBSUPCXX_LOCATION)
 string(STRIP ${LIBSUPCXX_LOCATION} LIBSUPCXX_LOCATION)
 set_target_properties(libsupc++ PROPERTIES IMPORTED_LOCATION ${LIBSUPCXX_LOCATION})
-# libsupc++ requires libgcc and stdc++compat
-target_link_libraries(libsupc++ INTERFACE libgcc stdc++compat)
+target_link_libraries(libsupc++ INTERFACE libgcc_eh libgcc stdc++compat)
 
 add_library(libmingwex STATIC IMPORTED)
 execute_process(COMMAND ${GXX_EXECUTABLE} -print-file-name=libmingwex.a OUTPUT_VARIABLE LIBMINGWEX_LOCATION)

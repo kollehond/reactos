@@ -46,11 +46,6 @@ extern POBJECT_TYPE NTSYSAPI PsJobType;
 #endif // !NTOS_MODE_USER
 
 //
-// KUSER_SHARED_DATA location in User Mode
-//
-#define USER_SHARED_DATA                        (0x7FFE0000)
-
-//
 // Global Flags
 //
 #define FLG_STOP_ON_EXCEPTION                   0x00000001
@@ -540,11 +535,10 @@ typedef enum _PSW32THREADCALLOUTTYPE
 } PSW32THREADCALLOUTTYPE;
 
 //
-// Declare empty structure definitions so that they may be referenced by
-// routines before they are defined
+// Declare empty structure definitions so that they may be
+// referenced by routines before they are defined.
 //
-struct _W32THREAD;
-struct _W32PROCESS;
+//struct _EPROCESS;
 //struct _ETHREAD;
 struct _WIN32_POWEREVENT_PARAMETERS;
 struct _WIN32_POWERSTATE_PARAMETERS;
@@ -935,6 +929,18 @@ typedef enum _APPCOMPAT_USERFLAGS_HIGHPART
 #define EXPLICIT_64BIT
 #include "peb_teb.h"
 #undef EXPLICIT_64BIT
+
+//
+// WOW64 Macros
+//
+#if defined(BUILD_WOW64_ENABLED)
+
+#define PS_GET_TEB32_FROM_TEB(Teb) ((PTEB32)(ROUND_TO_PAGES((Teb) + 1)))
+#define PS_GET_PEB32_FROM_PEB(Peb) ((PPEB32)(ROUND_TO_PAGES((Peb) + 1)))
+
+#define IS_WOW64_PROCESS_INITIALIZING(Process) ((Process)->Wow64Process == UlongToPtr(1))
+#endif
+
 #endif
 
 #ifdef NTOS_MODE_USER
@@ -1341,6 +1347,18 @@ typedef struct _ETHREAD
     KSEMAPHORE AlpcWaitSemaphore;
     ULONG CacheManagerCount;
 #endif
+    // TODO: Missing Vista+ members
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS1) || defined(__REACTOS__)
+    PUNICODE_STRING ThreadName;
+    // TODO: Missing Win10+ members
+#endif
+#if defined(__REACTOS__)
+    // Temp HACK until we switch to NTDDI_VISTA, when these move to KTHREAD
+    volatile ULONGLONG CycleTime;
+#ifndef _WIN64
+    volatile ULONG CycleTimeHigh;
+#endif
+#endif
 } ETHREAD;
 
 //
@@ -1541,12 +1559,15 @@ typedef struct _EPROCESS
     UCHAR PriorityClass;
     MM_AVL_TABLE VadRoot;
     ULONG Cookie;
+#if defined(__REACTOS__)
+    // Temp HACK until we switch to NTDDI_VISTA, when this moves to KPROCESS
+    ULONGLONG CycleTime;
+#endif // ]
 } EPROCESS;
 
 //
 // Job Token Filter Data
 //
-#include <pshpack1.h>
 typedef struct _PS_JOB_TOKEN_FILTER
 {
     ULONG CapturedSidCount;
@@ -1617,7 +1638,6 @@ typedef struct _EJOB
     ULONG MemberLevel;
     ULONG JobFlags;
 } EJOB, *PEJOB;
-#include <poppack.h>
 
 //
 // Job Information Structures for NtQueryInformationJobObject

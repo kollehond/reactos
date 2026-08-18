@@ -2618,9 +2618,9 @@ HKEY WINAPI SetupDiCreateDeviceInterfaceRegKeyW(
         HINF InfHandle,
         PCWSTR InfSectionName)
 {
-    HKEY hKey, hDevKey;
-    LPWSTR SymbolicLink;
-    DWORD Length, Index;
+    HKEY hKey, hDevKey, hRefKey, hDevParamKey;
+    LPWSTR SymbolicLink, ReferenceString;
+    DWORD Length, RefLength, Index;
     LONG rc;
     WCHAR bracedGuidString[39];
     struct DeviceInterface *DevItf;
@@ -2681,9 +2681,18 @@ HKEY WINAPI SetupDiCreateDeviceInterfaceRegKeyW(
 
     wcscpy(SymbolicLink, DevItf->SymbolicLink);
 
+    /* Enumerate all characters in symbolic link */
     Index = 0;
-    while(SymbolicLink[Index])
+    while (SymbolicLink[Index])
     {
+        /* Check for a start position of reference string */
+        if (SymbolicLink[Index] == L'}' && SymbolicLink[Index + 1] == L'\\')
+        {
+            /* Found it */
+            SymbolicLink[Index + 1] = L'#';
+            break;
+        }
+        /* Replace all '\' backslashes by '#' pounds in symbolic link */
         if (SymbolicLink[Index] == L'\\')
         {
             SymbolicLink[Index] = L'#';
@@ -2691,35 +2700,72 @@ HKEY WINAPI SetupDiCreateDeviceInterfaceRegKeyW(
         Index++;
     }
 
+    /* Create reference string */
+    RefLength = Length - Index * sizeof(WCHAR);
+    ReferenceString = HeapAlloc(GetProcessHeap(), 0, RefLength);
+    if (!ReferenceString)
+    {
+        HeapFree(GetProcessHeap(), 0, SymbolicLink);
+        SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+        return INVALID_HANDLE_VALUE;
+    }
+
+    wcscpy(ReferenceString, &SymbolicLink[Index + 1]);
+
+    /* Null-terminate symbolic link at the beginning of the reference part,
+     * as we don't need a ref part in key name. */
+    SymbolicLink[Index + 1] = UNICODE_NULL;
+
+    /* Create device instance key */
     rc = RegCreateKeyExW(hKey, SymbolicLink, 0, NULL, 0, samDesired, NULL, &hDevKey, NULL);
-
-    RegCloseKey(hKey);
     HeapFree(GetProcessHeap(), 0, SymbolicLink);
+    RegCloseKey(hKey);
+    if (rc != ERROR_SUCCESS)
+    {
+        HeapFree(GetProcessHeap(), 0, ReferenceString);
+        SetLastError(rc);
+        return INVALID_HANDLE_VALUE;
+    }
 
+    /* Create reference key */
+    rc = RegCreateKeyExW(hDevKey, ReferenceString, 0, NULL, 0, samDesired, NULL, &hRefKey, NULL);
+    HeapFree(GetProcessHeap(), 0, ReferenceString);
+    RegCloseKey(hDevKey);
+    if (rc != ERROR_SUCCESS)
+    {
+        SetLastError(rc);
+        return INVALID_HANDLE_VALUE;
+    }
+
+    /* Create/open "Device Parameters" subkey */
+    rc = RegCreateKeyExW(hRefKey, L"Device Parameters", 0, NULL, 0, samDesired, NULL, &hDevParamKey, NULL);
+    RegCloseKey(hRefKey);
     if (rc == ERROR_SUCCESS)
     {
         if (InfHandle && InfSectionName)
         {
-            if (!SetupInstallFromInfSection(NULL /*FIXME */,
-                                            InfHandle,
-                                            InfSectionName,
-                                            SPINST_INIFILES | SPINST_REGISTRY | SPINST_INI2REG | SPINST_FILES | SPINST_BITREG | SPINST_REGSVR | SPINST_UNREGSVR | SPINST_PROFILEITEMS | SPINST_COPYINF,
-                                            hDevKey,
-                                            NULL,
-                                            0,
-                                            set->SelectedDevice->InstallParams.InstallMsgHandler,
-                                            set->SelectedDevice->InstallParams.InstallMsgHandlerContext,
-                                            INVALID_HANDLE_VALUE,
-                                            NULL))
+            if (!SetupInstallFromInfSectionW(NULL /*FIXME */,
+                                             InfHandle,
+                                             InfSectionName,
+                                             SPINST_INIFILES | SPINST_REGISTRY | SPINST_INI2REG |
+                                                 SPINST_FILES | SPINST_BITREG | SPINST_REGSVR |
+                                                 SPINST_UNREGSVR | SPINST_PROFILEITEMS | SPINST_COPYINF,
+                                             hDevParamKey,
+                                             NULL,
+                                             0,
+                                             set->SelectedDevice->InstallParams.InstallMsgHandler,
+                                             set->SelectedDevice->InstallParams.InstallMsgHandlerContext,
+                                             INVALID_HANDLE_VALUE,
+                                             NULL))
             {
-                RegCloseKey(hDevKey);
+                RegCloseKey(hDevParamKey);
                 return INVALID_HANDLE_VALUE;
             }
         }
     }
 
     SetLastError(rc);
-    return hDevKey;
+    return hDevParamKey;
 }
 
 /***********************************************************************
