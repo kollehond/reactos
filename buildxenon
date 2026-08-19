@@ -1,0 +1,10 @@
+# Export LibXenon path
+export XENONDEV=/usr/local/xenon
+export PATH=$PATH:$XENONDEV/bin:$XENONDEV/usr/bin
+
+# Configure ReactOS for Xenon architecture
+./configure.sh xenon
+
+# Build
+cd output-powerpc
+ninja
