@@ -1,3 +1,11 @@
+/*
+ * PROJECT:     ReactOS Kernel
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
+ * PURPOSE:     Experimental build for Xbox 360 (xenon)
+ * COPYRIGHT:   Copyright 2026 Janno Brits <kolle.hond@gmail.com>
+ *              
+ */
+
 # sdk/cmake/toolchains/xenon.cmake
 
 set(CMAKE_SYSTEM_NAME Windows)

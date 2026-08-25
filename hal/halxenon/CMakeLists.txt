@@ -1,3 +1,10 @@
+/*
+ * PROJECT:     ReactOS Kernel
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
+ * PURPOSE:     Experimental build for Xbox 360 (xenon)
+ * COPYRIGHT:   Copyright 2026 Janno Brits <kolle.hond@gmail.com>
+ *              
+ */
 # hal/halxenon/CMakeLists.txt
 
 list(APPEND SOURCE

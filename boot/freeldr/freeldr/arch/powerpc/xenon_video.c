@@ -1,3 +1,11 @@
+/*
+ * PROJECT:     ReactOS Kernel
+ * LICENSE:     GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later)
+ * PURPOSE:     Experimental build for Xbox 360 (xenon)
+ * COPYRIGHT:   Copyright 2026 Janno Brits <kolle.hond@gmail.com>
+ *              
+ */
+
 #include <freeldr.h>
 #include <xenon_smc/xenon_smc.h>
 #include <xenon_video/video.h>
